@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: rule-engine
+
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/parkview}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASS:postgres}
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  liquibase:
+    change-log: db/changelog/db.changelog-master.yaml
+
+  rabbitmq:
+    host: ${RABBIT_HOST:localhost}
+    port: ${RABBIT_PORT:5672}
+    username: ${RABBIT_USER:guest}
+    password: ${RABBIT_PASS:guest}
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2000
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: ${PORT:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+# Applikationsspecifik konfiguration
+parkview:
+  rule-engine:
+    iou-threshold: 0.85
+    containment-threshold: 0.90
+    default-boundary-grace-minutes: 10
+    default-permit-grace-minutes: 30
