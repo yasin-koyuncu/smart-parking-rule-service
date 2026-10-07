@@ -12,6 +12,8 @@ public class ViolationEvent {
     private UUID   violationId;
     private String plate;
     private String zoneId;
+    private String zoneAddress;
+    private String userId;
     private UUID   spotId;
     private String spotNumber;
     private ViolationType violationType;

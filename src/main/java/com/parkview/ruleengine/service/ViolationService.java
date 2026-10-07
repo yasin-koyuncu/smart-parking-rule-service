@@ -24,6 +24,8 @@ public class ViolationService {
 
     private final ViolationRepository  violationRepository;
     private final RabbitTemplate       rabbitTemplate;
+    private final FineService          fineService;
+    private final ContactLookupService contactLookup;
 
     @Value("${parkview.rule-engine.default-boundary-grace-minutes:10}")
     private int defaultBoundaryGrace;
@@ -63,10 +65,14 @@ public class ViolationService {
         violationRepository.save(violation);
 
         // Publicera event för notifieringstjänst
+        UUID owner = contactLookup.ownerOfPlate(violation.getPlate());
+
         var event = new ViolationEvent();
         event.setViolationId(violation.getId());
         event.setPlate(violation.getPlate());
         event.setZoneId(violation.getZoneId());
+        event.setZoneAddress(contactLookup.zoneAddress(violation.getZoneId()));
+        event.setUserId(owner != null ? owner.toString() : null);
         event.setSpotId(spot.getId());
         event.setSpotNumber(spot.getSpotNumber());
         event.setViolationType(violation.getViolationType());
@@ -109,7 +115,8 @@ public class ViolationService {
     }
 
     /**
-     * Körs varje minut — publicerar expired violations för SessionService att utfärda böter.
+     * Körs varje minut — utfärdar en bot (Fine) för varje violation vars
+     * grace period har löpt ut, och publicerar den till notification-service.
      */
     @Scheduled(fixedDelay = 60_000)
     @Transactional
@@ -117,24 +124,19 @@ public class ViolationService {
         var expired = violationRepository.findExpired(Instant.now());
         if (expired.isEmpty()) return;
 
-        log.info("Bearbetar {} utgångna violations", expired.size());
+        log.info("Bearbetar {} utgångna violations — utfärdar böter", expired.size());
         for (var v : expired) {
+            var fineEvent = fineService.issueFine(v);
+
+            v.setFineIssuedAt(Instant.now());
+            v.setFineId(fineEvent.getFineId());
+            violationRepository.save(v);
+
             rabbitTemplate.convertAndSend(
                     RabbitMQConfig.VIOLATION_EXCHANGE,
                     "violation.expired",
-                    buildExpiredEvent(v)
+                    fineEvent
             );
         }
-    }
-
-    private ViolationEvent buildExpiredEvent(Violation v) {
-        var event = new ViolationEvent();
-        event.setViolationId(v.getId());
-        event.setPlate(v.getPlate());
-        event.setZoneId(v.getZoneId());
-        event.setSpotId(v.getSpotId());
-        event.setViolationType(v.getViolationType());
-        event.setTimestamp(Instant.now().toEpochMilli());
-        return event;
     }
 }

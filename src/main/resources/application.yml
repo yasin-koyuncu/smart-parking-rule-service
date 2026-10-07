@@ -54,3 +54,7 @@ parkview:
     containment-threshold: 0.90
     default-boundary-grace-minutes: 10
     default-permit-grace-minutes: 30
+    fine-amount-no-parking-sek: 900
+    fine-amount-overstay-sek: 450
+    fine-amount-wrong-permit-sek: 700
+    fine-amount-boundary-exceeded-sek: 900
