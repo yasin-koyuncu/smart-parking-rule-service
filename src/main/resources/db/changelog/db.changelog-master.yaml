@@ -1,5 +1,11 @@
-  databaseChangeLog:
-    - include:
-        file: db/changelog/001-create-spot-violations.sql
-    - include:
-        file: db/changelog/002-fix-violation-type-case.sql
+databaseChangeLog:
+  - include:
+      file: db/changelog/001-create-spot-violations.sql
+  - include:
+      file: db/changelog/002-fix-violation-type-case.sql
+  - include:
+      file: db/changelog/003-reconcile-supabase-fines.sql
+  - include:
+      file: db/changelog/004-violation-lifecycle.sql
+  - include:
+      file: db/changelog/005-plate-permits.sql
