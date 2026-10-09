@@ -1,0 +1,7 @@
+# Local development conveniences: run with SPRING_PROFILES_ACTIVE=local
+spring:
+  datasource:
+    password: postgres
+parkview:
+  security:
+    internal-api-key: local-internal-key

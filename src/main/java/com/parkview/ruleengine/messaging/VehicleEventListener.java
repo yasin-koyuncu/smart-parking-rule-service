@@ -1,55 +1,26 @@
 package com.parkview.ruleengine.messaging;
 
-import com.parkview.ruleengine.config.RabbitMQConfig;
-import com.parkview.ruleengine.model.VehicleDetectedEvent;
-import com.parkview.ruleengine.service.BoundaryService;
-import com.parkview.ruleengine.service.ViolationService;
-import com.parkview.ruleengine.service.SpotCacheService;
+import com.parkview.ruleengine.config.RabbitConfig;
+import com.parkview.ruleengine.dto.event.VehicleDetectedEvent;
+import com.parkview.ruleengine.service.DetectionService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 /**
- * Lyssnar på VehicleDetected-events från edge-enheter via RabbitMQ.
- * Kör boundary-check och skapar violations vid behov.
+ * Consumes {@code vehicle.detected}. Invalid payloads are rejected to the dead-letter queue; other
+ * failures propagate so the listener retries before dead-lettering.
  */
-@Slf4j
 @Component
 @RequiredArgsConstructor
 public class VehicleEventListener {
 
-    private final BoundaryService  boundaryService;
-    private final ViolationService violationService;
-    private final SpotCacheService spotCacheService;
+    private final DetectionService detectionService;
 
-    @RabbitListener(queues = RabbitMQConfig.VEHICLE_DETECTED_QUEUE)
-    public void onVehicleDetected(VehicleDetectedEvent event) {
-        log.debug("VehicleDetected: {} i zon {}", event.getPlate(), event.getZoneId());
-
-        if (event.getVehiclePolygon() == null || event.getVehiclePolygon().isEmpty()) {
-            log.warn("Tomt fordonpolygon i event — ignorerar");
-            return;
-        }
-
-        // Hämta alla spots för zonen (cachat)
-        var spots = spotCacheService.getSpotsForZone(event.getZoneId());
-        if (spots.isEmpty()) {
-            log.debug("Inga sparade spots för zon {} — hoppar över boundary-check", event.getZoneId());
-            return;
-        }
-
-        // Kör boundary-check mot alla spots
-        for (var spot : spots) {
-            var result = boundaryService.check(
-                    event.getVehiclePolygon(),
-                    spot,
-                    event.getPlate()
-            );
-
-            if (result.getViolation() != null) {
-                violationService.createIfNew(result, spot);
-            }
-        }
+    @RabbitListener(queues = RabbitConfig.VEHICLE_DETECTED_QUEUE)
+    public void onVehicleDetected(@Payload @Valid VehicleDetectedEvent event) {
+        detectionService.process(event);
     }
 }

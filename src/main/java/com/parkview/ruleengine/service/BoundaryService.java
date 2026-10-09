@@ -1,171 +1,84 @@
 package com.parkview.ruleengine.service;
 
-import com.parkview.ruleengine.model.BoundaryCheckResult;
-import com.parkview.ruleengine.model.ParkingSpotDto;
-import com.parkview.ruleengine.model.ViolationType;
+import com.parkview.ruleengine.config.RuleEngineProperties;
+import com.parkview.ruleengine.domain.BoundaryCheckResult;
+import com.parkview.ruleengine.domain.ParkingSpot;
+import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.geometry.BoundingBox;
+import com.parkview.ruleengine.geometry.Polygon;
+import com.parkview.ruleengine.geometry.PolygonGeometry;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * Boundary-check med Sutherland-Hodgman polygon clipping.
- * Beräknar IoU (Intersection over Union) och containment
- * utan externa geometribibliotek.
+ * Decision layer of the rule engine. Geometry lives in {@link PolygonGeometry}; this class decides
+ * which spot a vehicle occupies and which rule, if any, it breaks there.
+ *
+ * <ol>
+ *   <li>Spot selection: bounding-box pre-filter, then the spot with the largest overlap. The vehicle
+ *       counts as parked in it only if at least {@code min-overlap} of the vehicle lies inside.</li>
+ *   <li>Rules, first match wins: {@code no_parking} spot gives NO_PARKING; a {@code permit} spot gives
+ *       WRONG_PERMIT when the plate is known and holds no valid permit of the required type
+ *       (an unknown plate cannot be judged); otherwise BOUNDARY_EXCEEDED when the vehicle is not
+ *       inside the lines (IoU below {@code iou-threshold} and containment below
+ *       {@code containment-threshold}).</li>
+ * </ol>
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class BoundaryService {
 
-    @Value("${parkview.rule-engine.iou-threshold:0.85}")
-    private double iouThreshold;
-
-    @Value("${parkview.rule-engine.containment-threshold:0.90}")
-    private double containmentThreshold;
+    private final RuleEngineProperties properties;
+    private final PermitService permitService;
 
     /**
-     * Kontrollerar om ett fordon är korrekt placerat i en parkeringsspot.
+     * @param plate normalised plate, null when unknown
+     * @return the check for the occupied spot, empty when the vehicle is not parked in any of the spots
      */
-    public BoundaryCheckResult check(
-            List<List<Double>> vehiclePolygon,
-            ParkingSpotDto spot,
-            String plate
-    ) {
-        var result = new BoundaryCheckResult();
-        result.setSpotId(spot.getId().toString());
-        result.setZoneId(spot.getZoneId());
-        result.setPlate(plate);
-
-        try {
-            double intersection = polygonIntersectionArea(vehiclePolygon, spot.getPolygon());
-            double carArea      = polygonArea(vehiclePolygon);
-            double spotArea     = polygonArea(spot.getPolygon());
-            double union        = carArea + spotArea - intersection;
-
-            double iou         = union > 0 ? intersection / union : 0.0;
-            double containment = carArea > 0 ? intersection / carArea : 0.0;
-
-            result.setIou(round(iou));
-            result.setContainment(round(containment));
-
-            boolean occupied = iou >= iouThreshold || containment >= containmentThreshold;
-            result.setValid(occupied);
-
-            if (occupied) {
-                ViolationType violation = evaluateViolation(iou, containment, spot, plate);
-                result.setViolation(violation);
-            }
-
-        } catch (Exception e) {
-            log.warn("Boundary-check misslyckades för spot {}: {}", spot.getId(), e.getMessage());
-            result.setValid(false);
+    public Optional<BoundaryCheckResult> check(Polygon vehicle, List<ParkingSpot> spots, String plate, Instant at) {
+        double vehicleArea = PolygonGeometry.area(vehicle);
+        if (vehicleArea <= 0) {
+            return Optional.empty();
         }
+        BoundingBox vehicleBox = PolygonGeometry.boundingBox(vehicle);
 
-        return result;
+        return spots.stream()
+                .filter(spot -> PolygonGeometry.boundingBox(spot.polygon()).overlaps(vehicleBox))
+                .map(spot -> new Overlap(spot, PolygonGeometry.intersectionArea(vehicle, spot.polygon())))
+                .filter(o -> o.area() > 0)
+                .max(Comparator.comparingDouble(Overlap::area).thenComparing(o -> o.spot().id()))
+                .filter(o -> o.area() / vehicleArea >= properties.minOverlap())
+                .map(o -> evaluate(vehicle, o.spot(), plate, at));
     }
 
-    // ── Affärslogik för violations ─────────────────────────────────────────────
+    private BoundaryCheckResult evaluate(Polygon vehicle, ParkingSpot spot, String plate, Instant at) {
+        double iou = PolygonGeometry.iou(vehicle, spot.polygon());
+        double containment = PolygonGeometry.containment(vehicle, spot.polygon());
+        boolean insideLines = iou >= properties.iouThreshold() || containment >= properties.containmentThreshold();
+        return new BoundaryCheckResult(spot, iou, containment, violationFor(spot, plate, insideLines, at));
+    }
 
-    private ViolationType evaluateViolation(
-            double iou, double containment,
-            ParkingSpotDto spot, String plate
-    ) {
-        // Gränsöverskridning: bilen sticker ut ur rutan
-        if (iou < iouThreshold && containment >= containmentThreshold) {
-            return ViolationType.BOUNDARY_EXCEEDED;
-        }
-        // Tillståndszone utan rätt tillstånd
-        if ("permit".equals(spot.getType()) && spot.getPermitType() != null) {
-            return ViolationType.WRONG_PERMIT;
-        }
-        // Parkeringsförbud
-        if ("no_parking".equals(spot.getType())) {
+    private ViolationType violationFor(ParkingSpot spot, String plate, boolean insideLines, Instant at) {
+        if (spot.isNoParking()) {
             return ViolationType.NO_PARKING;
         }
-        return null;
-    }
-
-    // ── Geometri: Sutherland-Hodgman + Shoelace ────────────────────────────────
-
-    /**
-     * Beräknar area av en polygon med Shoelace-formeln.
-     */
-    public double polygonArea(List<List<Double>> polygon) {
-        if (polygon == null || polygon.size() < 3) return 0.0;
-        int n = polygon.size();
-        double area = 0.0;
-        for (int i = 0; i < n; i++) {
-            int j = (i + 1) % n;
-            area += polygon.get(i).get(0) * polygon.get(j).get(1);
-            area -= polygon.get(j).get(0) * polygon.get(i).get(1);
-        }
-        return Math.abs(area) / 2.0;
-    }
-
-    /**
-     * Beräknar intersection-area med Sutherland-Hodgman clipping.
-     */
-    public double polygonIntersectionArea(
-            List<List<Double>> poly1,
-            List<List<Double>> poly2
-    ) {
-        List<List<Double>> clipped = sutherlandHodgman(poly1, poly2);
-        return polygonArea(clipped);
-    }
-
-    private List<List<Double>> sutherlandHodgman(
-            List<List<Double>> subject,
-            List<List<Double>> clip
-    ) {
-        List<List<Double>> output = new java.util.ArrayList<>(subject);
-        if (output.isEmpty()) return output;
-
-        int n = clip.size();
-        for (int i = 0; i < n; i++) {
-            if (output.isEmpty()) break;
-            List<List<Double>> input = new java.util.ArrayList<>(output);
-            output.clear();
-
-            List<Double> edgeStart = clip.get(i);
-            List<Double> edgeEnd   = clip.get((i + 1) % n);
-
-            for (int j = 0; j < input.size(); j++) {
-                List<Double> current  = input.get(j);
-                List<Double> previous = input.get((j + input.size() - 1) % input.size());
-
-                if (isInside(current, edgeStart, edgeEnd)) {
-                    if (!isInside(previous, edgeStart, edgeEnd)) {
-                        output.add(intersection(previous, current, edgeStart, edgeEnd));
-                    }
-                    output.add(current);
-                } else if (isInside(previous, edgeStart, edgeEnd)) {
-                    output.add(intersection(previous, current, edgeStart, edgeEnd));
-                }
+        if (spot.requiresPermit()) {
+            if (plate == null) {
+                log.debug("Spot {} requires permit '{}' but the plate is unknown: cannot decide", spot.id(), spot.permitType());
+            } else if (!permitService.hasValidPermit(plate, spot.zoneId(), spot.permitType(), at)) {
+                return ViolationType.WRONG_PERMIT;
             }
         }
-        return output;
+        return insideLines ? null : ViolationType.BOUNDARY_EXCEEDED;
     }
 
-    private boolean isInside(List<Double> p, List<Double> a, List<Double> b) {
-        return (b.get(0) - a.get(0)) * (p.get(1) - a.get(1))
-                - (b.get(1) - a.get(1)) * (p.get(0) - a.get(0)) >= 0;
-    }
-
-    private List<Double> intersection(
-            List<Double> a, List<Double> b,
-            List<Double> c, List<Double> d
-    ) {
-        double a1 = b.get(1) - a.get(1), b1 = a.get(0) - b.get(0);
-        double c1 = a1 * a.get(0) + b1 * a.get(1);
-        double a2 = d.get(1) - c.get(1), b2 = c.get(0) - d.get(0);
-        double c2 = a2 * c.get(0) + b2 * c.get(1);
-        double det = a1 * b2 - a2 * b1;
-        if (Math.abs(det) < 1e-10) return a;
-        return List.of((b2 * c1 - b1 * c2) / det, (a1 * c2 - a2 * c1) / det);
-    }
-
-    private double round(double v) {
-        return Math.round(v * 1000.0) / 1000.0;
+    private record Overlap(ParkingSpot spot, double area) {
     }
 }

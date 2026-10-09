@@ -1,60 +1,112 @@
 spring:
   application:
-    name: rule-engine
-
+    name: rule-service
+  threads:
+    virtual:
+      enabled: true
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/parkview}
     username: ${DB_USER:postgres}
-    password: ${DB_PASS:postgres}
+    password: ${DB_PASS}
     hikari:
-      maximum-pool-size: 10
-      connection-timeout: 30000
-
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      minimum-idle: 2
+      connection-timeout: 5000
+      max-lifetime: 1500000
   jpa:
+    open-in-view: false
+    show-sql: false
     hibernate:
       ddl-auto: validate
-    show-sql: false
     properties:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-
+        jdbc:
+          batch_size: 50
+          time_zone: UTC
+        order_inserts: true
+        order_updates: true
   liquibase:
-    change-log: db/changelog/db.changelog-master.yaml
-
+    change-log: classpath:db/changelog/db.changelog-master.yaml
   rabbitmq:
     host: ${RABBIT_HOST:localhost}
     port: ${RABBIT_PORT:5672}
     username: ${RABBIT_USER:guest}
     password: ${RABBIT_PASS:guest}
+    publisher-confirm-type: correlated
+    publisher-returns: true
     listener:
       simple:
+        prefetch: 20
+        default-requeue-rejected: false
         retry:
           enabled: true
-          max-attempts: 3
-          initial-interval: 2000
-
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+          initial-interval: 1s
+          multiplier: 2.0
+          max-interval: 10s
+          max-attempts: 4
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
 
 server:
   port: ${PORT:8081}
+  shutdown: graceful
+  error:
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+  compression:
+    enabled: true
+    min-response-size: 2KB
+  forward-headers-strategy: framework
+  tomcat:
+    max-http-form-post-size: 64KB
+    max-swallow-size: 64KB
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
-# Applikationsspecifik konfiguration
+springdoc:
+  api-docs:
+    enabled: ${DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${DOCS_ENABLED:false}
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{requestId:-}]"
+
 parkview:
+  docs:
+    description: Parking violations, permits and fines
+  security:
+    issuer: ${SUPABASE_URL}/auth/v1
+    audience: ${SUPABASE_AUDIENCE:authenticated}
+    internal-api-key: ${INTERNAL_API_KEY:}
+    public-paths: []
   rule-engine:
     iou-threshold: 0.85
     containment-threshold: 0.90
+    min-overlap: 0.5
     default-boundary-grace-minutes: 10
     default-permit-grace-minutes: 30
     fine-amount-no-parking-sek: 900
     fine-amount-overstay-sek: 450
     fine-amount-wrong-permit-sek: 700
     fine-amount-boundary-exceeded-sek: 900
+    expire-sweep-ms: 60000
+    expire-batch-size: 20
+    stale-minutes: 15
+    stale-sweep-ms: 60000
+    touch-interval-seconds: 30
+    spot-cache-ttl-minutes: 5

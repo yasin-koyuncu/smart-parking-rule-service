@@ -1,85 +1,72 @@
 package com.parkview.ruleengine.service;
 
-import com.parkview.ruleengine.model.FineIssuedEvent;
-import com.parkview.ruleengine.model.ViolationType;
-import com.parkview.ruleengine.model.entity.Fine;
-import com.parkview.ruleengine.model.entity.Violation;
+import com.parkview.ruleengine.client.PlateOwnerLookup;
+import com.parkview.ruleengine.client.ZoneDirectory;
+import com.parkview.ruleengine.config.RabbitConfig;
+import com.parkview.ruleengine.config.RuleEngineProperties;
+import com.parkview.ruleengine.domain.Fine;
+import com.parkview.ruleengine.domain.Violation;
+import com.parkview.ruleengine.dto.event.FineIssuedEvent;
+import com.parkview.ruleengine.messaging.EventPublisher;
 import com.parkview.ruleengine.repository.FineRepository;
+import com.parkview.ruleengine.web.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
-/**
- * Skapar den faktiska Fine-raden när en violations grace period löper ut.
- * Utan detta publicerar ViolationService bara ett "violation.expired"-event
- * som notification-service tolkar som "bot utfärdad" — men det fanns
- * ingen bot att ta betalt för (payment-service har inget att slå upp).
- */
+/** Issues fines for expired violations and records their payment. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FineService {
 
-    private final FineRepository       fineRepository;
-    private final ContactLookupService contactLookup;
+    private final FineRepository fines;
+    private final PlateOwnerLookup plateOwners;
+    private final ZoneDirectory zones;
+    private final EventPublisher events;
+    private final RuleEngineProperties properties;
+    private final Clock clock;
 
-    @Value("${parkview.rule-engine.fine-amount-no-parking-sek:900}")
-    private int fineNoParking;
+    /**
+     * Creates the fine for a violation that the caller has locked, links it and publishes
+     * {@code fine.issued} after the surrounding transaction commits.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Fine issueFine(Violation violation) {
+        Instant now = clock.instant();
+        UUID owner = violation.getUserId() != null
+                ? violation.getUserId()
+                : plateOwners.ownerOf(violation.getPlate()).orElse(null);
 
-    @Value("${parkview.rule-engine.fine-amount-overstay-sek:450}")
-    private int fineOverstay;
+        Fine fine = fines.save(Fine.issue(violation, properties.fineAmountFor(violation.getViolationType()), owner, now));
+        violation.markFined(fine.getId(), now);
 
-    @Value("${parkview.rule-engine.fine-amount-wrong-permit-sek:700}")
-    private int fineWrongPermit;
-
-    @Value("${parkview.rule-engine.fine-amount-boundary-exceeded-sek:900}")
-    private int fineBoundaryExceeded;
-
-    @Transactional
-    public FineIssuedEvent issueFine(Violation violation) {
-        int amount = amountFor(violation.getViolationType());
-        UUID owner = contactLookup.ownerOfPlate(violation.getPlate());
-
-        Fine fine = Fine.builder()
-                .plate(violation.getPlate())
-                .zoneId(violation.getZoneId())
-                .reason(violation.getViolationType().name().toLowerCase())
-                .amountSek(BigDecimal.valueOf(amount))
-                .issuedAt(Instant.now())
-                .paid(false)
-                .userId(owner)
-                .imagePath(violation.getImagePath())
-                .build();
-
-        fine = fineRepository.save(fine);
-
-        var event = new FineIssuedEvent();
-        event.setFineId(fine.getId());
-        event.setViolationId(violation.getId());
-        event.setPlate(violation.getPlate());
-        event.setUserId(owner != null ? owner.toString() : null);
-        event.setZoneId(violation.getZoneId());
-        event.setZoneAddress(contactLookup.zoneAddress(violation.getZoneId()));
-        event.setAmountSek(amount);
-        event.setTimestamp(Instant.now().toEpochMilli());
-
-        log.info("Bot utfärdad: {} — {} — {} kr ({})",
-                fine.getId(), violation.getPlate(), amount, fine.getReason());
-        return event;
+        events.publish(RabbitConfig.VIOLATION_EXCHANGE, RabbitConfig.FINE_ISSUED_KEY,
+                new FineIssuedEvent(fine.getId(), violation.getId(), fine.getPlate(), owner, fine.getZoneId(),
+                        zones.addressOf(fine.getZoneId()).orElse(null), fine.getAmountSek(), now.toEpochMilli()));
+        log.info("Fine {} issued: {} SEK ({}) for plate {} in zone {}", fine.getId(), fine.getAmountSek(),
+                fine.getReason(), Plates.mask(fine.getPlate()), fine.getZoneId());
+        return fine;
     }
 
-    private int amountFor(ViolationType type) {
-        return switch (type) {
-            case NO_PARKING        -> fineNoParking;
-            case OVERSTAY          -> fineOverstay;
-            case WRONG_PERMIT      -> fineWrongPermit;
-            case BOUNDARY_EXCEEDED -> fineBoundaryExceeded;
-        };
+    /** Idempotent: a redelivered payment event is a no-op. An unknown fine id is logged, not retried. */
+    @Transactional
+    public void markPaid(UUID fineId) {
+        fines.findById(fineId).ifPresentOrElse(fine -> {
+            if (fine.markPaid()) {
+                log.info("Fine {} marked as paid", fineId);
+            }
+        }, () -> log.warn("payment.completed.fine for unknown fine {}", fineId));
+    }
+
+    @Transactional(readOnly = true)
+    public Fine get(UUID fineId) {
+        return fines.findById(fineId).orElseThrow(() -> new ResourceNotFoundException("Fine", fineId));
     }
 }
