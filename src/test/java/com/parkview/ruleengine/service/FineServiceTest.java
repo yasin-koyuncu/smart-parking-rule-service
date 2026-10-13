@@ -15,12 +15,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -133,5 +138,29 @@ class FineServiceTest {
         when(fines.findById(id)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.get(id)).isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void byPlateDelegatesToTheRepositoryWithTheGivenPage() {
+        Pageable page = PageRequest.of(1, 50);
+        Page<Fine> result = new PageImpl<>(List.of());
+        when(fines.findByPlate("ABC123", page)).thenReturn(result);
+
+        assertThat(service.byPlate("ABC123", page)).isSameAs(result);
+    }
+
+    @Test
+    void byZoneFiltersOnPaidOnlyWhenAskedTo() {
+        Pageable page = PageRequest.of(0, 100);
+        Page<Fine> all = new PageImpl<>(List.of());
+        Page<Fine> paid = new PageImpl<>(List.of());
+        Page<Fine> unpaid = new PageImpl<>(List.of());
+        when(fines.findByZoneId("z1", page)).thenReturn(all);
+        when(fines.findByZoneIdAndPaid("z1", true, page)).thenReturn(paid);
+        when(fines.findByZoneIdAndPaid("z1", false, page)).thenReturn(unpaid);
+
+        assertThat(service.byZone("z1", null, page)).isSameAs(all);
+        assertThat(service.byZone("z1", true, page)).isSameAs(paid);
+        assertThat(service.byZone("z1", false, page)).isSameAs(unpaid);
     }
 }
