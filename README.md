@@ -78,12 +78,27 @@ Payloads are validated; invalid ones go to `parkview.dlq` without retry, transie
 ## Data
 
 Owned: `spot_violations`, `fines`, `plate_permits` (Liquibase `db/changelog`, idempotent and reconciling because the
-Supabase migrations created older shapes of the first two). Read only: `parking_spots`, `zones`, `user_plates`.
+Supabase migrations created older shapes of the first two). Read only: `parking_spots`, `zones`, `user_plates`
+(see "Data read from other services").
 
 * `spot_violations.violation_type` is upper-case; `fines.reason` is lower-case (JPA converter).
 * One open violation per plate, spot and type: partial unique index `spot_violations_open_uq`.
 * `plate_permits(plate, permit_type, zone_id null = all zones, valid_from, valid_to null = open ended, created_by)`.
   Permit types are compared case-insensitively against `parking_spots.permit_type`.
+
+## Data read from other services
+
+Tables owned by other services are read through small read-only JPA read models owned by this service
+(package `com.parkview.ruleengine.readmodel`): `@Entity @Immutable` classes that map only the columns used, with
+getters only, and Spring Data repositories that extend `Repository` (no save or delete API). The ports in `client/`
+are implemented on top of them. Extra columns in the owner's table do not matter; `ddl-auto: validate` only checks
+the mapped ones. Liquibase never creates or alters these tables and this service never writes to them.
+
+| Table | Owner | Columns used | Read model class |
+|---|---|---|---|
+| `zones` | Supabase schema / parking-mapping-service | `id`, `address` | `ZoneView` |
+| `user_plates` | Supabase schema (driver plates) | `id`, `user_id`, `plate` | `PlateOwnerView` |
+| `parking_spots` | parking-mapping-service | `id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read), `permit_type`, `coordinates` (jsonb), `boundary_grace_min`, `permit_grace_min` | `ParkingSpotView` |
 
 ## Configuration
 
