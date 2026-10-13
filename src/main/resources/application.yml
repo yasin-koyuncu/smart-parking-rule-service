@@ -100,13 +100,26 @@ parkview:
     min-overlap: 0.5
     default-boundary-grace-minutes: 10
     default-permit-grace-minutes: 30
+    no-parking-grace-minutes: 5
+    overstay-grace-minutes: 5
+    wrong-vehicle-type-grace-minutes: 10
     fine-amount-no-parking-sek: 900
     fine-amount-overstay-sek: 450
     fine-amount-wrong-permit-sek: 700
     fine-amount-boundary-exceeded-sek: 900
+    fine-amount-wrong-vehicle-type-sek: 700
     expire-sweep-ms: 60000
     expire-batch-size: 20
     stale-minutes: 15
     stale-sweep-ms: 60000
-    touch-interval-seconds: 30
+    touch-interval-seconds: 10
     spot-cache-ttl-minutes: 5
+    rule-cache-ttl-seconds: 60
+    vehicle-lookup-enabled: true
+  lookup:
+    base-url: ${LOOKUP_SERVICE_URL:http://localhost:8089}
+    connect-timeout-ms: 500
+    read-timeout-ms: 1500
+    cache-ttl-minutes: 60
+    negative-cache-ttl-seconds: 60
+    cache-max-size: 10000

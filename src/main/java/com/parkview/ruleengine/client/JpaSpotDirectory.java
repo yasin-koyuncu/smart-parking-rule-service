@@ -44,10 +44,10 @@ class JpaSpotDirectory implements SpotDirectory {
         }
         return new ParkingSpot(view.getId(), view.getZoneId(), view.getSpotNumber(),
                 view.getType(), view.getPermitType(), polygon,
-                orZero(view.getBoundaryGraceMin()), orZero(view.getPermitGraceMin()));
+                orZero(view.getBoundaryGraceMin()), orZero(view.getPermitGraceMin()), orZero(view.getMaxMinutes()));
     }
 
-    /** A missing grace reads as zero, which the rules treat as "use the default". */
+    /** A missing grace or limit reads as zero, which the rules treat as "use the default" / "none". */
     private static int orZero(Integer minutes) {
         return minutes == null ? 0 : minutes;
     }

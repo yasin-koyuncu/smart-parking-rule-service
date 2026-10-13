@@ -55,6 +55,9 @@ public class ParkingSpotView {
     @Column(name = "permit_grace_min")
     private Integer permitGraceMin;
 
+    @Column(name = "max_minutes")
+    private Integer maxMinutes;
+
     @Override
     public boolean equals(Object o) {
         return this == o || (o instanceof ParkingSpotView other && id != null && id.equals(other.id));

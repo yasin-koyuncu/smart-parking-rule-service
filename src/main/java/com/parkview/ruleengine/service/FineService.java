@@ -49,7 +49,8 @@ public class FineService {
 
         events.publish(RabbitConfig.VIOLATION_EXCHANGE, RabbitConfig.FINE_ISSUED_KEY,
                 new FineIssuedEvent(fine.getId(), violation.getId(), fine.getPlate(), owner, fine.getZoneId(),
-                        zones.addressOf(fine.getZoneId()).orElse(null), fine.getAmountSek(), now.toEpochMilli()));
+                        zones.addressOf(fine.getZoneId()).orElse(null), fine.getAmountSek(), now.toEpochMilli(),
+                        violation.getViolationType()));
         log.info("Fine {} issued: {} SEK ({}) for plate {} in zone {}", fine.getId(), fine.getAmountSek(),
                 fine.getReason(), Plates.mask(fine.getPlate()), fine.getZoneId());
         return fine;

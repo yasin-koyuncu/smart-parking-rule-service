@@ -19,9 +19,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
-/** Permit data: the question the boundary check asks ("may this plate park here?") and operator CRUD. */
+/** Permit data: the question the rule engine asks ("may this plate park here?") and operator CRUD. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -30,10 +33,14 @@ public class PermitService {
     private final PlatePermitRepository repository;
     private final Clock clock;
 
-    /** True when the plate holds a permit of the type that covers the zone (or all zones) at {@code at}. */
+    /**
+     * True when the plate holds a valid permit of every given type (case-insensitive) that covers the zone
+     * (or all zones) at {@code at}. One query however many types are required.
+     */
     @Transactional(readOnly = true)
-    public boolean hasValidPermit(String normalizedPlate, String zoneId, String permitType, Instant at) {
-        return repository.existsValid(normalizedPlate, permitType, zoneId, at);
+    public boolean holdsAll(String normalizedPlate, String zoneId, Collection<String> permitTypes, Instant at) {
+        Set<String> required = permitTypes.stream().map(t -> t.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
+        return required.isEmpty() || repository.countHeldTypes(normalizedPlate, required, zoneId, at) == required.size();
     }
 
     @Transactional

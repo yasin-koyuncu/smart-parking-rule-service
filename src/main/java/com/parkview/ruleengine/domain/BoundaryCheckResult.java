@@ -1,16 +1,12 @@
 package com.parkview.ruleengine.domain;
 
 /**
- * Outcome of checking a vehicle against the spot it is parked in.
+ * Where a vehicle is parked: the spot it occupies and how well it sits inside the lines.
  *
  * @param spot        the spot the vehicle occupies (best overlap)
  * @param iou         intersection over union of vehicle and spot
  * @param containment share of the vehicle that lies inside the spot
- * @param violation   the violation that applies, or null when the parking is valid
+ * @param insideLines true when the vehicle counts as parked inside the lines (IoU or containment threshold reached)
  */
-public record BoundaryCheckResult(ParkingSpot spot, double iou, double containment, ViolationType violation) {
-
-    public boolean isViolation() {
-        return violation != null;
-    }
+public record BoundaryCheckResult(ParkingSpot spot, double iou, double containment, boolean insideLines) {
 }

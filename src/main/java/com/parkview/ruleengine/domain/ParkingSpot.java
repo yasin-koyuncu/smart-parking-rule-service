@@ -11,6 +11,7 @@ import java.util.UUID;
  * @param permitType       permit required in a {@code permit} spot, otherwise null
  * @param boundaryGraceMin grace before a boundary fine; zero or less means "use the default"
  * @param permitGraceMin   grace before a wrong-permit fine; zero or less means "use the default"
+ * @param maxMinutes       maximum stay in a {@code timed} or {@code loading} spot; zero or less means none
  */
 public record ParkingSpot(
         UUID id,
@@ -20,17 +21,38 @@ public record ParkingSpot(
         String permitType,
         Polygon polygon,
         int boundaryGraceMin,
-        int permitGraceMin
+        int permitGraceMin,
+        int maxMinutes
 ) {
 
     public static final String TYPE_PERMIT = "permit";
     public static final String TYPE_NO_PARKING = "no_parking";
-
-    public boolean requiresPermit() {
-        return TYPE_PERMIT.equals(type) && permitType != null && !permitType.isBlank();
-    }
+    public static final String TYPE_EV = "ev";
+    public static final String TYPE_DISABLED = "disabled";
+    public static final String TYPE_TIMED = "timed";
+    public static final String TYPE_LOADING = "loading";
 
     public boolean isNoParking() {
         return TYPE_NO_PARKING.equals(type);
+    }
+
+    public boolean isEv() {
+        return TYPE_EV.equals(type);
+    }
+
+    /** The permit type the spot itself demands, or null: {@code disabled} spots need a disabled permit, {@code permit} spots their {@code permit_type}. */
+    public String requiredPermitType() {
+        if (TYPE_DISABLED.equals(type)) {
+            return TYPE_DISABLED;
+        }
+        if (TYPE_PERMIT.equals(type) && permitType != null && !permitType.isBlank()) {
+            return permitType;
+        }
+        return null;
+    }
+
+    /** The spot's own stay limit in minutes (only {@code timed} and {@code loading} spots have one), or zero. */
+    public int ownMaxMinutes() {
+        return (TYPE_TIMED.equals(type) || TYPE_LOADING.equals(type)) && maxMinutes > 0 ? maxMinutes : 0;
     }
 }

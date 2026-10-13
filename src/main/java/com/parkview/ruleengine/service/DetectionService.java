@@ -3,7 +3,11 @@ package com.parkview.ruleengine.service;
 import com.parkview.ruleengine.domain.BoundaryCheckResult;
 import com.parkview.ruleengine.domain.ParkingSpot;
 import com.parkview.ruleengine.domain.ResolutionReason;
+import com.parkview.ruleengine.domain.VehicleClass;
+import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.dto.event.VehicleDetectedEvent;
+import com.parkview.ruleengine.engine.Observation;
+import com.parkview.ruleengine.engine.ViolationEvaluator;
 import com.parkview.ruleengine.geometry.Polygon;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,11 +18,11 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Turns one {@code vehicle.detected} observation into violation state: the vehicle is matched to
- * the single spot it occupies, that spot is evaluated, and the open violations of the plate are
- * confirmed, opened or resolved accordingly.
+ * Turns one {@code vehicle.detected} observation into violation state: the vehicle is matched to the single
+ * spot it occupies, the rule engine decides what (if anything) it breaks there, and the open violations of the
+ * plate are confirmed, opened or resolved accordingly.
  *
- * <p>A detection without a plate cannot be attributed to anyone and is ignored.
+ * <p>An observation without a plate cannot be attributed to anyone and is ignored.
  */
 @Slf4j
 @Service
@@ -26,14 +30,16 @@ import java.util.Optional;
 public class DetectionService {
 
     private final SpotCacheService spotCache;
+    private final RuleCacheService ruleCache;
     private final BoundaryService boundaryService;
+    private final ViolationEvaluator evaluator;
     private final ViolationService violationService;
     private final Clock clock;
 
     public void process(VehicleDetectedEvent event) {
         String plate = Plates.normalize(event.plate());
         if (plate == null) {
-            log.debug("Detection in zone {} without a plate: ignored", event.zoneId());
+            log.debug("Observation in zone {} without a plate: ignored", event.zoneId());
             return;
         }
         List<ParkingSpot> spots = spotCache.spotsOf(event.zoneId());
@@ -45,20 +51,25 @@ public class DetectionService {
         try {
             vehicle = Polygon.of(event.vehiclePolygon());
         } catch (IllegalArgumentException e) {
-            log.warn("Detection from camera {} has an unusable vehicle polygon: {}", event.cameraId(), e.getMessage());
+            log.warn("Observation from camera {} has an unusable vehicle polygon: {}", event.cameraId(), e.getMessage());
             return;
         }
 
-        Optional<BoundaryCheckResult> result = boundaryService.check(vehicle, spots, plate, clock.instant());
-        if (result.isEmpty()) {
+        Optional<BoundaryCheckResult> fit = boundaryService.check(vehicle, spots);
+        if (fit.isEmpty()) {
             violationService.resolveOthers(plate, event.zoneId(), null, null, ResolutionReason.LEFT);
-        } else if (!result.get().isViolation()) {
+            return;
+        }
+        ParkingSpot spot = fit.get().spot();
+        Observation observation = new Observation(ruleCache.zoneOf(event.zoneId()), spot, fit.get().insideLines(), plate,
+                VehicleClass.fromDetector(event.vehicleClass()).orElse(null), clock.instant());
+
+        Optional<ViolationType> violation = evaluator.evaluate(observation);
+        if (violation.isEmpty()) {
             violationService.resolveOthers(plate, event.zoneId(), null, null, ResolutionReason.CORRECTED);
         } else {
-            BoundaryCheckResult check = result.get();
-            violationService.confirm(check.spot(), check.violation(), plate, event.cameraId());
-            violationService.resolveOthers(plate, event.zoneId(), check.spot().id(), check.violation(),
-                    ResolutionReason.CORRECTED);
+            violationService.confirm(spot, violation.get(), plate, event.cameraId());
+            violationService.resolveOthers(plate, event.zoneId(), spot.id(), violation.get(), ResolutionReason.CORRECTED);
         }
     }
 }

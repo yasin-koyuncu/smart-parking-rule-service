@@ -11,7 +11,9 @@ import org.hibernate.annotations.Immutable;
 
 /**
  * Read-only view of {@code zones}, which is owned by the Supabase schema / parking-mapping-service.
- * rule-service only needs the street address to enrich {@code violation.created} and {@code fine.issued} events.
+ * rule-service needs the street address to enrich {@code violation.created} and {@code fine.issued} events, and
+ * the stay limit, country and timezone to evaluate rules. {@code country} and {@code timezone} may be null
+ * (the engine then assumes {@code SE} and {@code Europe/Stockholm}).
  * Maps just the columns used; never written by this service and never created by its Liquibase changelog.
  */
 @Entity
@@ -26,6 +28,15 @@ public class ZoneView {
 
     @Column(name = "address")
     private String address;
+
+    @Column(name = "max_minutes")
+    private Integer maxMinutes;
+
+    @Column(name = "country")
+    private String country;
+
+    @Column(name = "timezone")
+    private String timezone;
 
     @Override
     public boolean equals(Object o) {

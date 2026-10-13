@@ -8,12 +8,14 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Consumed: {@code vehicle.detected} on exchange {@code parkview.vehicle}, published by ingestion.
+ * Consumed: {@code vehicle.detected} on exchange {@code parkview.vehicle}, published by ingestion for every
+ * occupied spot (an observation, throttled per spot and plate), not only for spots the detector flagged.
  *
  * @param plate          recognised plate, null when the camera could not read it
  * @param vehiclePolygon vehicle outline as {@code [[x, y], ...]} in the same coordinate space as the spot polygons
  * @param spotId         spot the camera associated the vehicle with (a hint, the rule service picks the best spot itself)
- * @param timestamp      detection time, epoch milliseconds
+ * @param timestamp      observation time, epoch milliseconds
+ * @param vehicleClass   body type seen by the detector ({@code car|motorcycle|bus|truck}), null when unknown; other values count as unknown
  */
 public record VehicleDetectedEvent(
         @NotBlank @Size(max = 64) String cameraId,
@@ -24,6 +26,7 @@ public record VehicleDetectedEvent(
         String spotNumber,
         double iou,
         double confidence,
-        long timestamp
+        long timestamp,
+        @Size(max = 32) String vehicleClass
 ) {
 }

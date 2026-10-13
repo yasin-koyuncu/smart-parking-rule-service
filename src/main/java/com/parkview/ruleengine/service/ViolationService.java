@@ -10,6 +10,7 @@ import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.dto.event.ViolationCreatedEvent;
 import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
+import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.messaging.EventPublisher;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.web.ConflictException;
@@ -49,6 +50,7 @@ public class ViolationService {
     private final ZoneDirectory zones;
     private final EventPublisher events;
     private final RuleEngineProperties properties;
+    private final EngineMetrics metrics;
     private final Clock clock;
     private final TransactionTemplate tx;
 
@@ -101,6 +103,7 @@ public class ViolationService {
                 new ViolationCreatedEvent(violation.getId(), plate, spot.zoneId(),
                         zones.addressOf(spot.zoneId()).orElse(null), cameraId, owner, spot.id(),
                         spot.spotNumber(), type, graceMinutes, now.toEpochMilli()));
+        metrics.violationCreated(type);
         log.info("Violation {} opened: {} for plate {} in zone {}, grace {} min",
                 violation.getId(), type, Plates.mask(plate), spot.zoneId(), graceMinutes);
     }
@@ -109,7 +112,9 @@ public class ViolationService {
         return switch (type) {
             case WRONG_PERMIT -> spot.permitGraceMin() > 0 ? spot.permitGraceMin() : properties.defaultPermitGraceMinutes();
             case BOUNDARY_EXCEEDED -> spot.boundaryGraceMin() > 0 ? spot.boundaryGraceMin() : properties.defaultBoundaryGraceMinutes();
-            default -> properties.defaultBoundaryGraceMinutes();
+            case NO_PARKING -> properties.noParkingGraceMinutes();
+            case OVERSTAY -> properties.overstayGraceMinutes();
+            case WRONG_VEHICLE_TYPE -> properties.wrongVehicleTypeGraceMinutes();
         };
     }
 

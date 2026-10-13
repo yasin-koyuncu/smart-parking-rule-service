@@ -9,5 +9,6 @@ public enum ViolationType {
     BOUNDARY_EXCEEDED,
     WRONG_PERMIT,
     OVERSTAY,
-    NO_PARKING
+    NO_PARKING,
+    WRONG_VEHICLE_TYPE
 }
