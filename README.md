@@ -20,7 +20,7 @@ Part of the Park & View platform (engineering contract: `smart-parking-e2e/docs/
 ingestion --vehicle.detected--> [ rule-service ] --violation.created / violation.resolved / fine.issued--> notification, event-streaming
 payment-service --payment.completed.fine--> [ rule-service ]
 payment-service --GET /internal/v1/fines/{id}--> [ rule-service ]
-frontend --JWT via api-gateway--> [ rule-service ]  (violations, permits)
+frontend --JWT via api-gateway--> [ rule-service ]  (violations, fines, permits)
 rule-service reads parking_spots, zones, zone_rules, sessions, user_plates (owned by other services, behind the ports in client/)
 rule-service --GET /internal/v1/vehicles/{plate}?country=--> lookup-service   (only when a decision needs vehicle data)
 ```
@@ -145,7 +145,16 @@ a present claim, even an empty list, is never overridden. By default an operator
 | `GET /api/v1/permits?plate=&zoneId=` | `permit:manage` | operators see their zones and global permits |
 | `GET /api/v1/permits/{id}` | `permit:manage` + zone of the permit | |
 | `DELETE /api/v1/permits/{id}` | `permit:manage` + zone of the permit (global: admin) | 204 |
+| `GET /api/v1/fines/plate/{plate}` | driver (own plate in `plates` claim), or `violation:read` (any plate) | fines of the plate, newest first; another driver's plate is 403 |
+| `GET /api/v1/fines/zone/{zoneId}?paid=` | `violation:read` + zone in `zones` claim (admin: any zone) | fines of the zone, newest first; optional `paid=true\|false` filter |
+| `GET /api/v1/fines/{id}` | driver (plate of the fine in `plates` claim), or `violation:read` + zone of the fine (admin: any zone) | 404 unknown, 403 for someone else's fine |
 | `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid}` |
+
+Fine JSON (read API, read only; paying goes through payment-service): `id, plate, zoneId, cameraId, reason, reasonCode, reasonText, amountSek,
+issuedAt, paid, imagePath`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
+`amountSek` a number, `issuedAt` an ISO-8601 instant; `cameraId`, `reasonCode`, `reasonText` and `imagePath` may be null. The owner's `userId` is never
+returned. The lists are served from the indexes `fines_plate_issued_idx` and `fines_zone_issued_idx` (changeset 007). These endpoints replace the
+frontend's direct read of the `fines` table, so the row level security policy that lets every signed-in user read all fines can be dropped.
 
 Violation JSON: `id, spotId, zoneId, plate, userId, violationType, detectedAt, graceUntil, lastSeenAt, resolvedAt,
 resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `violationType` is `BOUNDARY_EXCEEDED | WRONG_PERMIT | OVERSTAY | NO_PARKING | WRONG_VEHICLE_TYPE`.
