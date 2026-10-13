@@ -12,6 +12,8 @@ import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,5 +71,16 @@ public class FineService {
     @Transactional(readOnly = true)
     public Fine get(UUID fineId) {
         return fines.findById(fineId).orElseThrow(() -> new ResourceNotFoundException("Fine", fineId));
+    }
+
+    @Transactional(readOnly = true)
+    public Page<Fine> byPlate(String plate, Pageable pageable) {
+        return fines.findByPlate(plate, pageable);
+    }
+
+    /** @param paid {@code null} for all fines of the zone, otherwise only the paid or only the unpaid ones */
+    @Transactional(readOnly = true)
+    public Page<Fine> byZone(String zoneId, Boolean paid, Pageable pageable) {
+        return paid == null ? fines.findByZoneId(zoneId, pageable) : fines.findByZoneIdAndPaid(zoneId, paid, pageable);
     }
 }

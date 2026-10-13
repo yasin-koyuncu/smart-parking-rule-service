@@ -38,9 +38,20 @@ public class Fine {
     @Column(name = "zone_id", nullable = false)
     private String zoneId;
 
+    /** Read only: the sweep does not know the camera; rows created elsewhere (older shapes of the table) may carry one. */
+    @Column(name = "camera_id", insertable = false, updatable = false)
+    private String cameraId;
+
     @Convert(converter = LowercaseViolationTypeConverter.class)
     @Column(nullable = false)
     private ViolationType reason;
+
+    /** Read only, same reason as {@code cameraId}: optional display data written by other producers of the table. */
+    @Column(name = "reason_code", insertable = false, updatable = false)
+    private String reasonCode;
+
+    @Column(name = "reason_text", insertable = false, updatable = false)
+    private String reasonText;
 
     @Column(name = "amount_sek", nullable = false, precision = 10, scale = 2)
     private BigDecimal amountSek;
