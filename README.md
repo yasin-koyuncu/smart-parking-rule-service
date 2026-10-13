@@ -12,12 +12,14 @@ Part of the Park & View platform (engineering contract: `smart-parking-e2e/docs/
 * Opens a violation with a grace period, keeps it alive while observations re-confirm it, resolves it when the
   vehicle corrects its situation or leaves, and issues a fine when the grace period expires.
 * Owns the permit register (`plate_permits`) with an operator API.
-* Marks fines as paid when `payment.completed.fine` arrives and tells payment-service what a fine costs.
+* Marks fines as paid when `payment.completed.fine` arrives and tells payment-service what a fine costs (and whether it was voided).
+* Lets operators with `fine:manage` void an unpaid fine or mark it as paid by hand (cash, transfer, other); every such command and
+  every online payment is kept in an audit trail (`fine_actions`) and announced with `fine.voided` / `fine.paid`.
 
 ## Architecture position
 
 ```
-ingestion --vehicle.detected--> [ rule-service ] --violation.created / violation.resolved / fine.issued--> notification, event-streaming
+ingestion --vehicle.detected--> [ rule-service ] --violation.created / violation.resolved / fine.issued / fine.paid / fine.voided--> notification, event-streaming
 payment-service --payment.completed.fine--> [ rule-service ]
 payment-service --GET /internal/v1/fines/{id}--> [ rule-service ]
 frontend --JWT via api-gateway--> [ rule-service ]  (violations, fines, permits)
@@ -134,7 +136,7 @@ Authorization uses the permissions in `app_metadata.permissions` (string[], one 
 ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the zone scope in `app_metadata.zones` (`AccessPolicy`, unchanged).
 A token WITHOUT the claim gets the default permissions of its role while `parkview.security.legacy-role-fallback` is true (default);
 a present claim, even an empty list, is never overridden. By default an operator holds `violation:read`, `violation:resolve` and
-`permit:manage`, an admin everything.
+`permit:manage`, an admin everything (`fine:manage` is an admin default only; an operator needs it granted).
 
 | Endpoint | Access | Notes |
 |---|---|---|
@@ -145,16 +147,35 @@ a present claim, even an empty list, is never overridden. By default an operator
 | `GET /api/v1/permits?plate=&zoneId=` | `permit:manage` | operators see their zones and global permits |
 | `GET /api/v1/permits/{id}` | `permit:manage` + zone of the permit | |
 | `DELETE /api/v1/permits/{id}` | `permit:manage` + zone of the permit (global: admin) | 204 |
-| `GET /api/v1/fines/plate/{plate}` | driver (own plate in `plates` claim), or `violation:read` (any plate) | fines of the plate, newest first; another driver's plate is 403 |
-| `GET /api/v1/fines/zone/{zoneId}?paid=` | `violation:read` + zone in `zones` claim (admin: any zone) | fines of the zone, newest first; optional `paid=true\|false` filter |
-| `GET /api/v1/fines/{id}` | driver (plate of the fine in `plates` claim), or `violation:read` + zone of the fine (admin: any zone) | 404 unknown, 403 for someone else's fine |
-| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid}` |
+| `GET /api/v1/fines/plate/{plate}?includeVoided=` | driver (own plate in `plates` claim), or `violation:read` (any plate) | fines of the plate, newest first; another driver's plate is 403; voided fines only for staff with `includeVoided=true` (drivers never see them) |
+| `GET /api/v1/fines/zone/{zoneId}?paid=&includeVoided=` | `violation:read` + zone in `zones` claim (admin: any zone) | fines of the zone, newest first; optional `paid=true\|false` filter; voided fines left out unless `includeVoided=true` |
+| `GET /api/v1/fines/{id}` | driver (plate of the fine in `plates` claim), or `violation:read` + zone of the fine (admin: any zone) | 404 unknown, 403 for someone else's fine; a driver gets 404 for a voided fine |
+| `GET /api/v1/fines/{id}/history` | `violation:read` + zone of the fine (admin: any zone) | audit trail, newest first, paged; 404 unknown |
+| `POST /api/v1/fines/{id}/void` | `fine:manage` + zone of the fine (admin: any zone) | body `{reason}`; 200 + the fine; 409 when the fine is paid; idempotent (already voided: 200, same body, nothing new); publishes `fine.voided` |
+| `POST /api/v1/fines/{id}/mark-paid` | `fine:manage` + zone of the fine (admin: any zone) | body `{reason, method}`; 200 + the fine; 409 when the fine is voided; idempotent (already paid: 200, nothing new); publishes `fine.paid` |
+| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid, voided}`; payment-service must not charge a voided fine |
 
-Fine JSON (read API, read only; paying goes through payment-service): `id, plate, zoneId, cameraId, reason, reasonCode, reasonText, amountSek,
-issuedAt, paid, imagePath`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
-`amountSek` a number, `issuedAt` an ISO-8601 instant; `cameraId`, `reasonCode`, `reasonText` and `imagePath` may be null. The owner's `userId` is never
-returned. The lists are served from the indexes `fines_plate_issued_idx` and `fines_zone_issued_idx` (changeset 007). These endpoints replace the
-frontend's direct read of the `fines` table, so the row level security policy that lets every signed-in user read all fines can be dropped.
+Fine JSON (read API and the response of the two commands; online payment goes through payment-service): `id, plate, zoneId, cameraId, reason, reasonCode, reasonText, amountSek,
+issuedAt, paid, imagePath, paidAt, voided, voidedAt`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
+`amountSek` a number, `issuedAt`, `paidAt` and `voidedAt` ISO-8601 instants; `cameraId`, `reasonCode`, `reasonText`, `imagePath`, `paidAt` and `voidedAt` may be null
+(`paidAt` is also null for fines paid before it was recorded). The owner's `userId`, the void reason and the actors are never returned here. The lists are served from
+the indexes `fines_plate_issued_idx` and `fines_zone_issued_idx` (changeset 007). These endpoints replace the frontend's direct read of the `fines` table, so the row level
+security policy that lets every signed-in user read all fines can be dropped.
+
+Void and mark-paid (permission `fine:manage`, an admin default; an operator needs it granted):
+
+* Bodies: `{"reason": "3..300 characters"}` for void, `{"reason": "3..300 characters", "method": "cash|transfer|other"}` for mark-paid. Surrounding spaces are removed
+  before the length check; a missing or blank field is 400 (problem+json with `errors[]`).
+* State rules: a fine is either paid or voided, never both (also enforced by the check constraint `fines_not_paid_and_voided_check`). A paid fine cannot be voided (409,
+  a refund is a separate flow); a voided fine cannot be marked as paid (409) and a later `payment.completed.fine` for it is logged for a refund and ignored (the fine
+  stays voided, nothing is published). Repeating a command that already holds is 200 with the same body and changes, writes and publishes nothing.
+* Void sets `voided_at`, `void_reason`, `voided_by` (the token subject, which must be a user id); mark-paid sets `paid`, `paid_at`, `paid_method`, `paid_by`. The online payment
+  sets `paid`, `paid_at`, `paid_method = online` and no `paid_by`. All three decide under a row lock (`select ... for update`), so concurrent commands cannot interleave.
+* The `reason` is operator free text: it is stored and shown to staff, never logged and never part of an event.
+
+Audit trail `GET /api/v1/fines/{id}/history`: `[{id, at, actorId, action, reason, details}]`, newest first (`?page=0&size=100`, total in `X-Total-Count`).
+`action` is `void | mark_paid | paid_online`; `actorId` is the operator (null for `paid_online`); `reason` is null for `paid_online`; `details` is `{}` for void,
+`{"method": "cash"}` for mark-paid and `{"method": "online", "paymentId": "..."}` for the online payment. Each command writes its row in the same transaction as the change.
 
 Violation JSON: `id, spotId, zoneId, plate, userId, violationType, detectedAt, graceUntil, lastSeenAt, resolvedAt,
 resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `violationType` is `BOUNDARY_EXCEEDED | WRONG_PERMIT | OVERSTAY | NO_PARKING | WRONG_VEHICLE_TYPE`.
@@ -168,6 +189,8 @@ resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `viol
 | published | `parkview.violation` / `violation.created` | | `violationId, plate, zoneId, zoneAddress?, cameraId?, userId?, spotId, spotNumber?, violationType, graceMinutes, timestamp(ms)` |
 | published | `parkview.violation` / `violation.resolved` | | `violationId, plate, zoneId, reason (CORRECTED\|LEFT\|MANUAL), occurredAt` |
 | published | `parkview.violation` / `fine.issued` | | `fineId, violationId, plate, userId?, zoneId, zoneAddress?, amountSek, timestamp(ms), violationType` |
+| published | `parkview.violation` / `fine.paid` | | `fineId, plate, zoneId, amountSek, method (online\|cash\|transfer\|other), occurredAt` |
+| published | `parkview.violation` / `fine.voided` | | `fineId, plate, zoneId, occurredAt` |
 
 `vehicle.detected` is an **observation** published by ingestion for every occupied spot (throttled to about one per
 spot and plate every 30 s), not only for spots the detector flagged; the plate may be null (such observations are
@@ -180,14 +203,22 @@ Payloads are validated; invalid ones go to `parkview.dlq` without retry, transie
 (exponential) before dead-lettering. Handlers are idempotent. Events are published after the database commit.
 `fine.issued` replaces the former key `violation.expired` (same payload).
 
+`fine.paid` is published once, on the actual transition from unpaid to paid: by the first `payment.completed.fine` of a fine (`method` `online`) or by an operator's
+mark-paid (`cash | transfer | other`). A repeated payment event, a repeated command or a payment of a fine that is already paid publishes nothing. `fine.voided` is published
+once when an operator voids a fine. Neither carries free text or the actor (that is in the audit trail); `amountSek` is the fine's amount, not the amount of the payment.
+
 ## Data
 
-Owned: `spot_violations`, `fines`, `plate_permits` (Liquibase `db/changelog`, idempotent and reconciling because the
+Owned: `spot_violations`, `fines`, `plate_permits`, `fine_actions` (Liquibase `db/changelog`, idempotent and reconciling because the
 Supabase migrations created older shapes of the first two). Read only: `parking_spots`, `zones`, `zone_rules`, `sessions`, `user_plates`
 (see "Data read from other services").
 
 * `spot_violations.violation_type` is upper-case; `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`).
   Changeset 006 widens `spot_violations_violation_type_check` and `fines_reason_check` idempotently.
+* `fines` also carries `paid_at`, `paid_method` (`online | cash | transfer | other`), `paid_by`, `voided_at`, `void_reason`, `voided_by` (changeset 008, add-if-missing;
+  constraints `fines_paid_method_check` and `fines_not_paid_and_voided_check`). Fines paid before 008 have `paid_at` / `paid_method` null.
+* `fine_actions(id, fine_id -> fines on delete cascade, at, actor_id null, action void|mark_paid|paid_online, reason null, details jsonb)` with the index
+  `fine_actions_fine_at_idx (fine_id, at desc)`; row level security is on without policies (as for `plate_permits`): not reachable through PostgREST.
 * One open violation per plate, spot and type: partial unique index `spot_violations_open_uq`.
 * `plate_permits(plate, permit_type, zone_id null = all zones, valid_from, valid_to null = open ended, created_by)`.
   Permit types are compared case-insensitively against `parking_spots.permit_type`.
@@ -270,7 +301,9 @@ fail-open case; vehicle-code mapping; grace values; overstay with a fixed clock)
 2026 holidays, the lookup client (MockRestServiceServer), violation lifecycle (type change, grace per type), fine issuing,
 MockMvc security tests (401/403/404/409/400, problem+json), listener payloads, Testcontainers tests (unique index,
 `SKIP LOCKED` claim, permit queries, read models against Supabase-style tables with extra columns, `time`/array columns,
-Liquibase 006) and a full flow test against real Postgres and RabbitMQ.
+Liquibase 006 and 008 on the legacy `fines` shape) and a full flow test against real Postgres and RabbitMQ (incl. void, manual and online payment events, and a void racing a payment).
+The `fine:manage` / `violation:read` / zone matrices (admin, operator with and without the permission, other zone, driver, anonymous), body validation, the 409 cases,
+idempotency, voided fines hidden from lists and drivers, audit rows and event payloads are covered in `FineControllerTest`, `FineManagementControllerTest` and `FineServiceTest`.
 
 ## Operations
 
