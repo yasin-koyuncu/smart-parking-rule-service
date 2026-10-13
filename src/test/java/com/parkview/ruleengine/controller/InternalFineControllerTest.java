@@ -66,7 +66,24 @@ class InternalFineControllerTest {
                 .andExpect(jsonPath("$.zoneId").value("z1"))
                 .andExpect(jsonPath("$.amountSek").value(700.0))
                 .andExpect(jsonPath("$.currency").value("SEK"))
-                .andExpect(jsonPath("$.paid").value(false));
+                .andExpect(jsonPath("$.paid").value(false))
+                .andExpect(jsonPath("$.voided").value(false))
+                .andExpect(jsonPath("$.length()").value(8));
+    }
+
+    @Test
+    void aVoidedFineIsFlaggedSoThatPaymentServiceRefusesToChargeIt() throws Exception {
+        Fine fine = fine();
+        fine.voidFine(Instant.parse("2026-10-09T11:00:00Z"), "misread plate", UUID.randomUUID());
+        when(fineService.get(fine.getId())).thenReturn(fine);
+
+        mvc.perform(get("/internal/v1/fines/{id}", fine.getId()).header(InternalApiKeyFilter.HEADER, INTERNAL_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.voided").value(true))
+                .andExpect(jsonPath("$.paid").value(false))
+                // the amount rule stays: always the stored amount
+                .andExpect(jsonPath("$.amountSek").value(700.0))
+                .andExpect(jsonPath("$.voidReason").doesNotExist());
     }
 
     @Test

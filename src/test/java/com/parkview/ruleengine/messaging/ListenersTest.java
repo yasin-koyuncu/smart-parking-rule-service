@@ -3,6 +3,8 @@ package com.parkview.ruleengine.messaging;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkview.ruleengine.dto.event.FineIssuedEvent;
+import com.parkview.ruleengine.dto.event.FinePaidEvent;
+import com.parkview.ruleengine.dto.event.FineVoidedEvent;
 import com.parkview.ruleengine.dto.event.PaymentCompletedEvent;
 import com.parkview.ruleengine.dto.event.VehicleDetectedEvent;
 import com.parkview.ruleengine.dto.event.ViolationCreatedEvent;
@@ -43,14 +45,14 @@ class ListenersTest {
     }
 
     @Test
-    void paymentListenerMarksTheReferencedFineAsPaid() {
+    void paymentListenerMarksTheReferencedFineAsPaidOnline() {
         FineService fines = mock(FineService.class);
         UUID fineId = UUID.randomUUID();
 
         new PaymentEventListener(fines).onPaymentCompleted(
                 new PaymentCompletedEvent("p-1", fineId, "FINE", null, BigDecimal.TEN, 1L));
 
-        verify(fines).markPaid(fineId);
+        verify(fines).markPaidOnline(fineId, "p-1");
     }
 
     @Test
@@ -130,5 +132,22 @@ class ListenersTest {
                 "fineId", "violationId", "plate", "userId", "zoneId", "zoneAddress", "amountSek", "timestamp", "violationType");
         assertThat(fine.get("violationType").asText()).isEqualTo("WRONG_VEHICLE_TYPE");
         assertThat(fine.get("amountSek").decimalValue()).isEqualByComparingTo("700");
+    }
+
+    @Test
+    void fineLifecycleEventsHaveExactlyTheAgreedFieldsAndNoFreeTextOrActor() throws Exception {
+        UUID id = UUID.randomUUID();
+        Instant at = Instant.parse("2026-10-09T10:00:00Z");
+        var paid = mapper.readTree(mapper.writeValueAsString(new FinePaidEvent(id, "ABC123", "z1", new BigDecimal("700.00"), "cash", at)));
+        var voided = mapper.readTree(mapper.writeValueAsString(new FineVoidedEvent(id, "ABC123", "z1", at)));
+
+        assertThat(paid.fieldNames()).toIterable().containsExactlyInAnyOrder(
+                "fineId", "plate", "zoneId", "amountSek", "method", "occurredAt");
+        assertThat(paid.get("fineId").asText()).isEqualTo(id.toString());
+        assertThat(paid.get("amountSek").decimalValue()).isEqualByComparingTo("700");
+        assertThat(paid.get("method").asText()).isEqualTo("cash");
+        assertThat(paid.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
+        assertThat(voided.fieldNames()).toIterable().containsExactlyInAnyOrder("fineId", "plate", "zoneId", "occurredAt");
+        assertThat(voided.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
     }
 }

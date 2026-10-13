@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.persistence;
 
 import com.parkview.ruleengine.domain.Fine;
+import com.parkview.ruleengine.domain.PaidMethod;
 import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.repository.FineRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,8 +14,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -44,6 +47,8 @@ class FineRepositoryTest {
     FineRepository fines;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     @BeforeEach
     void clean() {
@@ -99,5 +104,69 @@ class FineRepositoryTest {
         assertThat(fine.getReason()).isEqualTo(ViolationType.WRONG_VEHICLE_TYPE);
         assertThat(fine.getReasonCode()).isEqualTo("WVT");
         assertThat(fine.getReasonText()).isEqualTo("Not electric");
+    }
+
+    // ---- voided fines ----
+
+    private void markVoided(UUID id) {
+        jdbc.update("update fines set voided_at = ?, void_reason = 'misread plate', voided_by = ? where id = ?",
+                Timestamp.from(NOW), UUID.randomUUID(), id);
+    }
+
+    @Test
+    void voidedFinesAreLeftOutOfTheListsUnlessAskedFor() {
+        UUID visible = insert("ABC123", "z1", NOW, false);
+        UUID voided = insert("ABC123", "z1", NOW.minusSeconds(10), false);
+        UUID paid = insert("ABC123", "z1", NOW.minusSeconds(20), true);
+        markVoided(voided);
+        PageRequest page = PageRequest.of(0, 10, NEWEST_FIRST);
+
+        assertThat(fines.findByPlate("ABC123", page).getContent()).extracting(Fine::getId).containsExactly(visible, voided, paid);
+        assertThat(fines.findByPlateAndVoidedAtIsNull("ABC123", page).getContent()).extracting(Fine::getId).containsExactly(visible, paid);
+        assertThat(fines.findByZoneId("z1", page).getContent()).extracting(Fine::getId).containsExactly(visible, voided, paid);
+        assertThat(fines.findByZoneIdAndVoidedAtIsNull("z1", page).getContent()).extracting(Fine::getId).containsExactly(visible, paid);
+        assertThat(fines.findByZoneIdAndPaid("z1", false, page).getContent()).extracting(Fine::getId).containsExactly(visible, voided);
+        assertThat(fines.findByZoneIdAndPaidAndVoidedAtIsNull("z1", false, page).getContent()).extracting(Fine::getId).containsExactly(visible);
+        assertThat(fines.findByZoneIdAndPaidAndVoidedAtIsNull("z1", true, page).getContent()).extracting(Fine::getId).containsExactly(paid);
+        assertThat(fines.findByPlateAndVoidedAtIsNull("ABC123", page).getTotalElements()).isEqualTo(2);
+    }
+
+    @Test
+    void voidingAndMarkingAsPaidArePersistedWithTheirDetail() {
+        UUID voidedId = insert("ABC123", "z1", NOW, false);
+        UUID paidId = insert("DEF456", "z1", NOW, false);
+        UUID operator = UUID.randomUUID();
+
+        Fine toVoid = fines.findById(voidedId).orElseThrow();
+        toVoid.voidFine(NOW.plusSeconds(5), "misread plate", operator);
+        fines.save(toVoid);
+        Fine toPay = fines.findById(paidId).orElseThrow();
+        toPay.markPaid(NOW.plusSeconds(7), PaidMethod.TRANSFER, operator);
+        fines.save(toPay);
+
+        Fine voided = fines.findById(voidedId).orElseThrow();
+        assertThat(voided.isVoided()).isTrue();
+        assertThat(voided.getVoidedAt()).isEqualTo(NOW.plusSeconds(5));
+        assertThat(voided.getVoidReason()).isEqualTo("misread plate");
+        assertThat(voided.getVoidedBy()).isEqualTo(operator);
+        assertThat(voided.isPaid()).isFalse();
+        Fine paid = fines.findById(paidId).orElseThrow();
+        assertThat(paid.isPaid()).isTrue();
+        assertThat(paid.getPaidAt()).isEqualTo(NOW.plusSeconds(7));
+        assertThat(paid.getPaidMethod()).isEqualTo("transfer");
+        assertThat(paid.getPaidBy()).isEqualTo(operator);
+        assertThat(paid.isVoided()).isFalse();
+    }
+
+    @Test
+    void theRowLockQueryFindsTheFineInsideATransactionAndNothingForAnUnknownId() {
+        UUID id = insert("ABC123", "z1", NOW, false);
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+        Fine locked = tx.execute(status -> fines.findByIdForUpdate(id).orElseThrow());
+        boolean unknownFound = Boolean.TRUE.equals(tx.execute(status -> fines.findByIdForUpdate(UUID.randomUUID()).isPresent()));
+
+        assertThat(locked.getId()).isEqualTo(id);
+        assertThat(unknownFound).isFalse();
     }
 }
