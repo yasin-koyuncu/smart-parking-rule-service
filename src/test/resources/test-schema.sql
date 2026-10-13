@@ -7,6 +7,9 @@ create table if not exists zones (
   price_per_hour integer not null default 0,
   max_minutes    integer not null default 0,
   allows_parking boolean not null default true,
+  country        text not null default 'SE',
+  currency       text not null default 'SEK',
+  timezone       text not null default 'Europe/Stockholm',
   created_at     timestamptz not null default now()
 );
 create table if not exists user_plates (
@@ -33,4 +36,38 @@ create table if not exists parking_spots (
   ai_confidence      numeric(4,3),
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
+);
+-- zone_rules as created by the Supabase migration: time / text[] / int[] columns plus columns rule-service does not map.
+create table if not exists zone_rules (
+  id               uuid primary key default gen_random_uuid(),
+  zone_id          text not null,
+  label            text not null,
+  priority         int not null default 100,
+  enabled          boolean not null default true,
+  vehicle_types    text[] not null default '{}'::text[],
+  permit_required  text,
+  weekdays         int[] not null default '{1,2,3,4,5,6,7}'::int[],
+  start_time       time not null default '00:00',
+  end_time         time not null default '23:59',
+  applies_holidays boolean not null default true,
+  max_minutes      int,
+  price_per_hour   int,
+  no_parking       boolean not null default false,
+  note             text,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+-- sessions as owned by session-service (the Supabase base table has no spot_id; session-service adds it).
+create table if not exists sessions (
+  id             uuid primary key default gen_random_uuid(),
+  plate          text not null,
+  zone_id        text not null,
+  camera_id      text,
+  spot_id        uuid,
+  started_at     timestamptz not null default now(),
+  ended_at       timestamptz,
+  cost_sek       numeric(10,2),
+  user_id        uuid,
+  payment_status text not null default 'UNPAID',
+  created_at     timestamptz not null default now()
 );

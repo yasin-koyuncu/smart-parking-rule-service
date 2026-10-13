@@ -20,6 +20,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
@@ -40,9 +41,10 @@ class ReadModelsTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
             .withInitScript("test-schema.sql");
 
-    private static final List<Class<?>> VIEWS = List.of(ZoneView.class, PlateOwnerView.class, ParkingSpotView.class);
+    private static final List<Class<?>> VIEWS = List.of(ZoneView.class, PlateOwnerView.class, ParkingSpotView.class, ZoneRuleView.class, SessionView.class);
     private static final List<Class<?>> REPOSITORIES =
-            List.of(ZoneViewRepository.class, PlateOwnerViewRepository.class, ParkingSpotViewRepository.class);
+            List.of(ZoneViewRepository.class, PlateOwnerViewRepository.class, ParkingSpotViewRepository.class,
+                    ZoneRuleViewRepository.class, SessionViewRepository.class);
 
     @Autowired
     JdbcTemplate jdbc;
@@ -56,9 +58,15 @@ class ReadModelsTest {
     PlateOwnerViewRepository plates;
     @Autowired
     ParkingSpotViewRepository spots;
+    @Autowired
+    ZoneRuleViewRepository zoneRules;
+    @Autowired
+    SessionViewRepository sessions;
 
     @BeforeEach
     void clean() {
+        jdbc.update("delete from sessions");
+        jdbc.update("delete from zone_rules");
         jdbc.update("delete from parking_spots");
         jdbc.update("delete from user_plates");
         jdbc.update("delete from zones");
@@ -66,8 +74,8 @@ class ReadModelsTest {
 
     private UUID insertSpot(String zone, String shape, String coordinates) {
         return jdbc.queryForObject("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type, boundary_grace_min, permit_grace_min, label, price_per_hour)
-                values (?, 'permit', ?, ?::jsonb, 'A1', 'resident', 12, 34, 'extra', 9.5) returning id""",
+                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type, boundary_grace_min, permit_grace_min, label, price_per_hour, max_minutes)
+                values (?, 'permit', ?, ?::jsonb, 'A1', 'resident', 12, 34, 'extra', 9.5, 45) returning id""",
                 UUID.class, zone, shape, coordinates);
     }
 
@@ -77,6 +85,8 @@ class ReadModelsTest {
         assertThat(columnCount("zones")).isGreaterThan(2);
         assertThat(columnCount("user_plates")).isGreaterThan(3);
         assertThat(columnCount("parking_spots")).isGreaterThan(9);
+        assertThat(columnCount("zone_rules")).isGreaterThan(14);
+        assertThat(columnCount("sessions")).isGreaterThan(6);
     }
 
     private int columnCount(String table) {
@@ -93,6 +103,77 @@ class ReadModelsTest {
         assertThat(zones.findById("missing")).isEmpty();
         assertThat(plates.findFirstByPlate("ABC123")).get().extracting(PlateOwnerView::getUserId).isEqualTo(user);
         assertThat(plates.findFirstByPlate("NOPE11")).isEmpty();
+    }
+
+    @Test
+    void zoneViewCarriesStayLimitCountryAndTimezone() {
+        jdbc.update("insert into zones (id, address, max_minutes, country, timezone) values ('z1', 'Storgatan 1', 120, 'NO', 'Europe/Oslo')");
+        jdbc.update("insert into zones (id) values ('z2')");
+
+        ZoneView oslo = zones.findById("z1").orElseThrow();
+        assertThat(oslo.getMaxMinutes()).isEqualTo(120);
+        assertThat(oslo.getCountry()).isEqualTo("NO");
+        assertThat(oslo.getTimezone()).isEqualTo("Europe/Oslo");
+        ZoneView defaults = zones.findById("z2").orElseThrow();
+        assertThat(defaults.getMaxMinutes()).isZero();
+        assertThat(defaults.getCountry()).isEqualTo("SE");
+        assertThat(defaults.getTimezone()).isEqualTo("Europe/Stockholm");
+    }
+
+    @Test
+    void zoneRuleViewLoadsTimeColumnsAndArraysOfEnabledRulesOnly() {
+        jdbc.update("""
+                insert into zone_rules (zone_id, label, priority, enabled, vehicle_types, permit_required, weekdays,
+                                        start_time, end_time, applies_holidays, max_minutes, price_per_hour, no_parking, note)
+                values ('z1', 'Night', 5, true, '{truck,bus}', 'resident', '{1,2,3,4,5}', '22:00', '06:30:15', false, 90, 20, true, 'extra')""");
+        jdbc.update("insert into zone_rules (zone_id, label, enabled) values ('z1', 'Disabled', false)");
+        jdbc.update("insert into zone_rules (zone_id, label) values ('z2', 'Other zone')");
+        jdbc.update("insert into zone_rules (zone_id, label) values ('z1', 'Defaults')");
+
+        List<ZoneRuleView> found = zoneRules.findByZoneIdAndEnabledTrue("z1");
+
+        assertThat(found).extracting(ZoneRuleView::getLabel).containsExactlyInAnyOrder("Night", "Defaults");
+        ZoneRuleView night = found.stream().filter(r -> r.getLabel().equals("Night")).findFirst().orElseThrow();
+        assertThat(night.getZoneId()).isEqualTo("z1");
+        assertThat(night.getPriority()).isEqualTo(5);
+        assertThat(night.isEnabled()).isTrue();
+        assertThat(night.getVehicleTypes()).containsExactly("truck", "bus");
+        assertThat(night.getPermitRequired()).isEqualTo("resident");
+        assertThat(night.getWeekdays()).containsExactly(1, 2, 3, 4, 5);
+        assertThat(night.getStartTime()).isEqualTo("22:00:00");
+        assertThat(night.getEndTime()).isEqualTo("06:30:15");
+        assertThat(night.isAppliesHolidays()).isFalse();
+        assertThat(night.getMaxMinutes()).isEqualTo(90);
+        assertThat(night.isNoParking()).isTrue();
+
+        ZoneRuleView defaults = found.stream().filter(r -> r.getLabel().equals("Defaults")).findFirst().orElseThrow();
+        assertThat(defaults.getPriority()).isEqualTo(100);
+        assertThat(defaults.getVehicleTypes()).isEmpty();
+        assertThat(defaults.getPermitRequired()).isNull();
+        assertThat(defaults.getWeekdays()).containsExactly(1, 2, 3, 4, 5, 6, 7);
+        assertThat(defaults.getStartTime()).isEqualTo("00:00:00");
+        assertThat(defaults.getEndTime()).isEqualTo("23:59:00");
+        assertThat(defaults.isAppliesHolidays()).isTrue();
+        assertThat(defaults.getMaxMinutes()).isNull();
+        assertThat(defaults.isNoParking()).isFalse();
+        assertThat(zoneRules.findByZoneIdAndEnabledTrue("unknown")).isEmpty();
+    }
+
+    @Test
+    void sessionViewFindsTheNewestActiveSessionOfAPlateInAZone() {
+        jdbc.update("insert into sessions (plate, zone_id, started_at, ended_at) values ('ABC123', 'z1', '2026-10-12T06:00:00Z', '2026-10-12T07:00:00Z')");
+        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T08:00:00Z')");
+        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T09:00:00Z')");
+        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z2', '2026-10-12T09:30:00Z')");
+        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('XYZ789', 'z1', '2026-10-12T09:45:00Z')");
+
+        SessionView active = sessions.findFirstByPlateAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z1").orElseThrow();
+
+        assertThat(active.getPlate()).isEqualTo("ABC123");
+        assertThat(active.getZoneId()).isEqualTo("z1");
+        assertThat(active.getStartedAt()).isEqualTo(Instant.parse("2026-10-12T09:00:00Z"));
+        assertThat(active.getEndedAt()).isNull();
+        assertThat(sessions.findFirstByPlateAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z3")).isEmpty();
     }
 
     @Test
@@ -113,6 +194,7 @@ class ReadModelsTest {
         assertThat(view.getSpotNumber()).isEqualTo("A1");
         assertThat(view.getBoundaryGraceMin()).isEqualTo(12);
         assertThat(view.getPermitGraceMin()).isEqualTo(34);
+        assertThat(view.getMaxMinutes()).isEqualTo(45);
         assertThat(view.getCoordinates()).isEqualTo("[[0, 0], [0, 10], [10, 10], [10, 0]]");
     }
 

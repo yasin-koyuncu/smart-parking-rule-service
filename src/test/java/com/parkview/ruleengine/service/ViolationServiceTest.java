@@ -9,10 +9,12 @@ import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.dto.event.ViolationCreatedEvent;
 import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
+import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.messaging.EventPublisher;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.web.ConflictException;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -31,6 +33,7 @@ import java.util.UUID;
 import static com.parkview.ruleengine.service.TestFixtures.PLATE;
 import static com.parkview.ruleengine.service.TestFixtures.ZONE;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.groups.Tuple.tuple;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -49,12 +52,13 @@ class ViolationServiceTest {
     private final PlateOwnerLookup owners = mock(PlateOwnerLookup.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
     private final EventPublisher events = mock(EventPublisher.class);
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private ViolationService service;
 
     @BeforeEach
     void setUp() {
         service = new ViolationService(violations, owners, zones, events, TestFixtures.properties(),
-                Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
+                new EngineMetrics(registry), Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
         when(owners.ownerOf(anyString())).thenReturn(Optional.empty());
         when(zones.addressOf(anyString())).thenReturn(Optional.empty());
         when(violations.saveAndFlush(any(Violation.class))).thenAnswer(inv -> {
@@ -101,14 +105,58 @@ class ViolationServiceTest {
         ParkingSpot spot = TestFixtures.spot("paid", null, 0, 0);
         when(violations.findActive(anyString(), any(), any())).thenReturn(Optional.empty());
 
-        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1");
+        for (ViolationType type : ViolationType.values()) {
+            service.confirm(spot, type, PLATE, "cam-1");
+        }
+
+        ArgumentCaptor<Violation> saved = ArgumentCaptor.forClass(Violation.class);
+        verify(violations, org.mockito.Mockito.times(ViolationType.values().length)).saveAndFlush(saved.capture());
+        assertThat(saved.getAllValues())
+                .extracting(Violation::getViolationType, v -> Duration.between(NOW, v.getGraceUntil()).toMinutes())
+                .containsExactlyInAnyOrder(
+                        tuple(ViolationType.BOUNDARY_EXCEEDED, 10L),
+                        tuple(ViolationType.WRONG_PERMIT, 30L),
+                        tuple(ViolationType.OVERSTAY, 5L),
+                        tuple(ViolationType.NO_PARKING, 5L),
+                        tuple(ViolationType.WRONG_VEHICLE_TYPE, 10L));
+    }
+
+    @Test
+    void theSpotsOwnGraceOnlyOverridesPermitAndBoundaryViolations() {
+        ParkingSpot spot = TestFixtures.spot("paid", null, 7, 45);
+        when(violations.findActive(anyString(), any(), any())).thenReturn(Optional.empty());
+
         service.confirm(spot, ViolationType.BOUNDARY_EXCEEDED, PLATE, "cam-1");
+        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1");
         service.confirm(spot, ViolationType.NO_PARKING, PLATE, "cam-1");
 
         ArgumentCaptor<Violation> saved = ArgumentCaptor.forClass(Violation.class);
         verify(violations, org.mockito.Mockito.times(3)).saveAndFlush(saved.capture());
         assertThat(saved.getAllValues()).extracting(v -> Duration.between(NOW, v.getGraceUntil()).toMinutes())
-                .containsExactly(30L, 10L, 10L);
+                .containsExactly(7L, 45L, 5L);
+    }
+
+    @Test
+    void everyNewViolationIsCountedByType() {
+        ParkingSpot spot = TestFixtures.spot("ev", null, 0, 0);
+        when(violations.findActive(anyString(), any(), any())).thenReturn(Optional.empty());
+
+        service.confirm(spot, ViolationType.WRONG_VEHICLE_TYPE, PLATE, "cam-1");
+
+        assertThat(registry.counter("ruleengine.violations.created", "type", "WRONG_VEHICLE_TYPE").count()).isEqualTo(1.0);
+        assertThat(registry.counter("ruleengine.violations.created", "type", "OVERSTAY").count()).isZero();
+    }
+
+    @Test
+    void aReConfirmedViolationIsNotCountedAgain() {
+        ParkingSpot spot = TestFixtures.spot("paid", null, 0, 0);
+        Violation old = TestFixtures.violation(ViolationType.OVERSTAY, NOW.minusSeconds(120), NOW.plusSeconds(600));
+        when(violations.findActive(PLATE, spot.id(), ViolationType.OVERSTAY)).thenReturn(Optional.of(old));
+
+        service.confirm(spot, ViolationType.OVERSTAY, PLATE, "cam-1");
+
+        assertThat(registry.counter("ruleengine.violations.created", "type", "OVERSTAY").count()).isZero();
+        verify(violations).touch(old.getId(), NOW);
     }
 
     @Test
@@ -192,6 +240,20 @@ class ViolationServiceTest {
         assertThat(event.reason()).isEqualTo(ResolutionReason.CORRECTED);
         assertThat(event.plate()).isEqualTo(PLATE);
         assertThat(event.occurredAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void aTypeChangeOnTheSameSpotResolvesTheOldViolationAsCorrected() {
+        UUID spotId = UUID.randomUUID();
+        Violation boundary = violationAt(spotId, ViolationType.BOUNDARY_EXCEEDED);
+        Violation overstay = violationAt(spotId, ViolationType.OVERSTAY);
+        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(boundary, overstay));
+        when(violations.resolveIfActive(any(), any(), any())).thenReturn(1);
+
+        service.resolveOthers(PLATE, ZONE, spotId, ViolationType.OVERSTAY, ResolutionReason.CORRECTED);
+
+        verify(violations).resolveIfActive(boundary.getId(), ResolutionReason.CORRECTED, NOW);
+        verify(violations, never()).resolveIfActive(eq(overstay.getId()), any(), any());
     }
 
     @Test

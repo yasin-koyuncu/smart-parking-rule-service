@@ -93,6 +93,19 @@ class RuleServiceFlowTest {
                 "iou", 1.0, "confidence", 0.9, "timestamp", System.currentTimeMillis()));
     }
 
+    private void detect(String zone, String plate, String vehicleClass) {
+        rabbit.convertAndSend("parkview.vehicle", "vehicle.detected", Map.of(
+                "cameraId", "cam-1", "zoneId", zone, "plate", plate, "vehiclePolygon", VEHICLE_IN_SPOT,
+                "iou", 1.0, "confidence", 0.9, "timestamp", System.currentTimeMillis(), "vehicleClass", vehicleClass));
+    }
+
+    /** Waits until a violation was created for a marker plate: everything sent before it has been processed. */
+    private void awaitProcessed() {
+        String marker = newPlate();
+        detect(newZone("no_parking", null), marker, VEHICLE_IN_SPOT);
+        awaitEvent("violation.created", marker);
+    }
+
     private Map<String, Object> violationRow(String plate) {
         return jdbc.queryForMap("select * from spot_violations where plate = ?", plate);
     }
@@ -230,6 +243,73 @@ class RuleServiceFlowTest {
 
         assertThat(awaitEvent("violation.resolved", plate).get("reason").asText()).isEqualTo("LEFT");
         assertThat(jdbc.queryForObject("select count(*) from fines where plate = ?", Integer.class, plate)).isZero();
+    }
+
+    @Test
+    void aZoneRuleForTrucksOnlyHitsTrucksAndUsesTheDetectorClass() {
+        String zone = newZone("paid", null);
+        jdbc.update("""
+                insert into zone_rules (zone_id, label, priority, vehicle_types, no_parking)
+                values (?, 'No trucks', 10, '{truck}', true)""", zone);
+        String car = newPlate();
+        String truck = newPlate();
+
+        detect(zone, car, "car");
+        detect(zone, truck, "truck");
+
+        JsonNode created = awaitEvent("violation.created", truck);
+        assertThat(created.get("violationType").asText()).isEqualTo("NO_PARKING");
+        assertThat(created.get("graceMinutes").asInt()).isEqualTo(5);
+        assertThat(jdbc.queryForObject("select count(*) from spot_violations where plate = ?", Integer.class, car)).isZero();
+    }
+
+    @Test
+    void aStayLongerThanTheZoneLimitBecomesAnOverstayAndALaterTypeChangeResolvesIt() {
+        String zone = newZone("paid", null);
+        jdbc.update("update zones set max_minutes = 60 where id = ?", zone);
+        String plate = newPlate();
+        jdbc.update("insert into sessions (plate, zone_id, started_at) values (?, ?, now() - interval '90 minutes')", plate, zone);
+
+        detect(zone, plate, VEHICLE_IN_SPOT);
+
+        JsonNode created = awaitEvent("violation.created", plate);
+        assertThat(created.get("violationType").asText()).isEqualTo("OVERSTAY");
+        assertThat(created.get("graceMinutes").asInt()).isEqualTo(5);
+        assertThat(violationRow(plate).get("violation_type")).isEqualTo("OVERSTAY");
+
+        jdbc.update("update sessions set ended_at = now() where plate = ?", plate);
+        detect(zone, plate, VEHICLE_IN_SPOT);
+
+        assertThat(awaitEvent("violation.resolved", plate).get("reason").asText()).isEqualTo("CORRECTED");
+    }
+
+    @Test
+    void anEvSpotCannotBeJudgedWhenTheRegistryIsUnreachable() {
+        String zone = newZone("ev", null);
+        String plate = newPlate();
+
+        detect(zone, plate, VEHICLE_IN_SPOT);
+        awaitProcessed();
+
+        assertThat(jdbc.queryForObject("select count(*) from spot_violations where plate = ?", Integer.class, plate)).isZero();
+    }
+
+    @Test
+    void theFineEventCarriesTheViolationTypeAndAWrongVehicleTypeFineIsAccepted() {
+        String zone = newZone("no_parking", null);
+        String plate = newPlate();
+
+        detect(zone, plate, VEHICLE_IN_SPOT);
+        awaitEvent("violation.created", plate);
+        jdbc.update("update spot_violations set grace_until = now() - interval '1 minute' where plate = ?", plate);
+
+        JsonNode fine = awaitEvent("fine.issued", plate);
+
+        assertThat(fine.get("violationType").asText()).isEqualTo("NO_PARKING");
+        jdbc.update("insert into fines (plate, zone_id, reason, amount_sek) values (?, ?, 'wrong_vehicle_type', 700)", plate, zone);
+        jdbc.update("""
+                insert into spot_violations (spot_id, zone_id, plate, violation_type, grace_until)
+                values (gen_random_uuid(), ?, ?, 'WRONG_VEHICLE_TYPE', now())""", zone, plate);
     }
 
     @Test

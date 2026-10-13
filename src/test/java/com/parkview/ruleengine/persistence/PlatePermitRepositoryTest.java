@@ -22,6 +22,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Locale;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -63,35 +64,39 @@ class PlatePermitRepositoryTest {
         return repository.saveAndFlush(PlatePermit.grant(plate, type, zone, from, to, "operator-1"));
     }
 
+    private boolean holds(String plate, String type, String zone, Instant at) {
+        return repository.countHeldTypes(plate, List.of(type.toLowerCase(Locale.ROOT)), zone, at) == 1;
+    }
+
     @Test
     void zoneSpecificPermitCoversOnlyItsZone() {
         grant("ABC123", "resident", "z1", NOW.minusSeconds(60), null);
 
-        assertThat(repository.existsValid("ABC123", "resident", "z1", NOW)).isTrue();
-        assertThat(repository.existsValid("ABC123", "resident", "z2", NOW)).isFalse();
+        assertThat(holds("ABC123", "resident", "z1", NOW)).isTrue();
+        assertThat(holds("ABC123", "resident", "z2", NOW)).isFalse();
     }
 
     @Test
     void globalPermitCoversEveryZone() {
         grant("ABC123", "resident", null, NOW.minusSeconds(60), null);
 
-        assertThat(repository.existsValid("ABC123", "resident", "z1", NOW)).isTrue();
-        assertThat(repository.existsValid("ABC123", "resident", "anywhere", NOW)).isTrue();
+        assertThat(holds("ABC123", "resident", "z1", NOW)).isTrue();
+        assertThat(holds("ABC123", "resident", "anywhere", NOW)).isTrue();
     }
 
     @Test
     void permitTypeMatchesCaseInsensitivelyAndMustBeTheRequiredOne() {
         grant("ABC123", "Resident", "z1", NOW.minusSeconds(60), null);
 
-        assertThat(repository.existsValid("ABC123", "RESIDENT", "z1", NOW)).isTrue();
-        assertThat(repository.existsValid("ABC123", "visitor", "z1", NOW)).isFalse();
+        assertThat(holds("ABC123", "RESIDENT", "z1", NOW)).isTrue();
+        assertThat(holds("ABC123", "visitor", "z1", NOW)).isFalse();
     }
 
     @Test
     void otherPlatesDoNotMatch() {
         grant("ABC123", "resident", "z1", NOW.minusSeconds(60), null);
 
-        assertThat(repository.existsValid("XYZ789", "resident", "z1", NOW)).isFalse();
+        assertThat(holds("XYZ789", "resident", "z1", NOW)).isFalse();
     }
 
     @Test
@@ -101,11 +106,11 @@ class PlatePermitRepositoryTest {
         grant("END111", "resident", "z1", NOW.minusSeconds(3600), NOW);
         grant("OK1111", "resident", "z1", NOW.minusSeconds(3600), NOW.plusSeconds(1));
 
-        assertThat(repository.existsValid("FUT111", "resident", "z1", NOW)).isFalse();
-        assertThat(repository.existsValid("EXP111", "resident", "z1", NOW)).isFalse();
-        assertThat(repository.existsValid("END111", "resident", "z1", NOW)).isFalse();
-        assertThat(repository.existsValid("OK1111", "resident", "z1", NOW)).isTrue();
-        assertThat(repository.existsValid("FUT111", "resident", "z1", NOW.plusSeconds(60))).isTrue();
+        assertThat(holds("FUT111", "resident", "z1", NOW)).isFalse();
+        assertThat(holds("EXP111", "resident", "z1", NOW)).isFalse();
+        assertThat(holds("END111", "resident", "z1", NOW)).isFalse();
+        assertThat(holds("OK1111", "resident", "z1", NOW)).isTrue();
+        assertThat(holds("FUT111", "resident", "z1", NOW.plusSeconds(60))).isTrue();
     }
 
     @Test
@@ -137,7 +142,20 @@ class PlatePermitRepositoryTest {
     void permitServiceDecidesAtTheGivenInstant() {
         service.grant(new CreatePermitRequest("ABC123", "resident", "z1", NOW.plusSeconds(3600), null), "op");
 
-        assertThat(service.hasValidPermit("ABC123", "z1", "resident", NOW)).isFalse();
-        assertThat(service.hasValidPermit("ABC123", "z1", "resident", NOW.plusSeconds(3600))).isTrue();
+        assertThat(service.holdsAll("ABC123", "z1", List.of("resident"), NOW)).isFalse();
+        assertThat(service.holdsAll("ABC123", "z1", List.of("resident"), NOW.plusSeconds(3600))).isTrue();
+    }
+
+    @Test
+    void severalRequiredTypesAreCheckedInOneQueryAndAllMustBeHeld() {
+        grant("ABC123", "Resident", "z1", NOW.minusSeconds(60), null);
+        grant("ABC123", "resident", null, NOW.minusSeconds(60), null);
+        grant("ABC123", "disabled", "z2", NOW.minusSeconds(60), null);
+
+        assertThat(repository.countHeldTypes("ABC123", List.of("resident", "disabled"), "z1", NOW)).isEqualTo(1);
+        assertThat(repository.countHeldTypes("ABC123", List.of("resident", "disabled"), "z2", NOW)).isEqualTo(2);
+        assertThat(service.holdsAll("ABC123", "z1", List.of("Resident", "disabled"), NOW)).isFalse();
+        assertThat(service.holdsAll("ABC123", "z2", List.of("Resident", "DISABLED"), NOW)).isTrue();
+        assertThat(service.holdsAll("ABC123", "z2", List.of("resident", "RESIDENT"), NOW)).isTrue();
     }
 }

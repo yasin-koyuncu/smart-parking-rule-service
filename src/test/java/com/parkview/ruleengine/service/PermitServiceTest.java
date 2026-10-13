@@ -11,7 +11,9 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class PermitServiceTest {
@@ -87,10 +90,17 @@ class PermitServiceTest {
     }
 
     @Test
-    void hasValidPermitDelegatesToTheRepository() {
-        when(repository.existsValid("ABC123", "resident", "zone-1", NOW)).thenReturn(true);
+    void holdsAllDelegatesToTheRepositoryWithLowerCaseDistinctTypes() {
+        when(repository.countHeldTypes("ABC123", Set.of("resident", "loading"), "zone-1", NOW)).thenReturn(2L);
+        when(repository.countHeldTypes("ABC123", Set.of("resident", "loading"), "zone-2", NOW)).thenReturn(1L);
 
-        assertThat(service.hasValidPermit("ABC123", "zone-1", "resident", NOW)).isTrue();
-        assertThat(service.hasValidPermit("ABC123", "zone-2", "resident", NOW)).isFalse();
+        assertThat(service.holdsAll("ABC123", "zone-1", List.of("Resident", "LOADING", "resident"), NOW)).isTrue();
+        assertThat(service.holdsAll("ABC123", "zone-2", List.of("Resident", "LOADING", "resident"), NOW)).isFalse();
+    }
+
+    @Test
+    void holdsAllOfNothingIsTrueWithoutAQuery() {
+        assertThat(service.holdsAll("ABC123", "zone-1", List.of(), NOW)).isTrue();
+        verifyNoInteractions(repository);
     }
 }

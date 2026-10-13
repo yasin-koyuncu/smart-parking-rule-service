@@ -22,9 +22,9 @@ final class TestFixtures {
     }
 
     static RuleEngineProperties properties() {
-        return new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30,
+        return new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30, 5, 5, 10,
                 BigDecimal.valueOf(900), BigDecimal.valueOf(450), BigDecimal.valueOf(700), BigDecimal.valueOf(900),
-                60000, 20, 15, 60000, 30, 5);
+                BigDecimal.valueOf(700), 60000, 20, 15, 60000, 30, 5, 60, true);
     }
 
     static Polygon rect(double x0, double y0, double x1, double y1) {
@@ -32,7 +32,7 @@ final class TestFixtures {
     }
 
     static ParkingSpot spot(String type, String permitType, int boundaryGrace, int permitGrace) {
-        return new ParkingSpot(UUID.randomUUID(), ZONE, "A1", type, permitType, rect(0, 0, 10, 10), boundaryGrace, permitGrace);
+        return new ParkingSpot(UUID.randomUUID(), ZONE, "A1", type, permitType, rect(0, 0, 10, 10), boundaryGrace, permitGrace, 0);
     }
 
     static Violation violation(ViolationType type, Instant detectedAt, Instant graceUntil) {

@@ -35,7 +35,7 @@ class ListenersTest {
     void vehicleListenerDelegatesToTheDetectionService() {
         DetectionService detection = mock(DetectionService.class);
         VehicleDetectedEvent event = new VehicleDetectedEvent("cam", "zone", "ABC123",
-                List.of(List.of(0.0, 0.0), List.of(1.0, 0.0), List.of(1.0, 1.0)), null, null, 1.0, 0.9, 1L);
+                List.of(List.of(0.0, 0.0), List.of(1.0, 0.0), List.of(1.0, 1.0)), null, null, 1.0, 0.9, 1L, "car");
 
         new VehicleEventListener(detection).onVehicleDetected(event);
 
@@ -64,8 +64,21 @@ class ListenersTest {
         VehicleDetectedEvent event = mapper.readValue(json, VehicleDetectedEvent.class);
 
         assertThat(event.plate()).isNull();
+        assertThat(event.vehicleClass()).isNull();
         assertThat(event.vehiclePolygon()).hasSize(4);
         assertThat(validator.validate(event)).isEmpty();
+    }
+
+    @Test
+    void vehicleClassIsReadAndUnknownValuesAreTolerated() throws Exception {
+        String template = "{\"cameraId\":\"c\",\"zoneId\":\"z\",\"plate\":\"ABC123\",\"vehiclePolygon\":[[0,0],[0,1],[1,1]],\"vehicleClass\":\"%s\"}";
+
+        VehicleDetectedEvent truck = mapper.readValue(template.formatted("truck"), VehicleDetectedEvent.class);
+        VehicleDetectedEvent unheardOf = mapper.readValue(template.formatted("hovercraft"), VehicleDetectedEvent.class);
+
+        assertThat(truck.vehicleClass()).isEqualTo("truck");
+        assertThat(validator.validate(truck)).isEmpty();
+        assertThat(validator.validate(unheardOf)).isEmpty();
     }
 
     @Test
@@ -104,7 +117,7 @@ class ListenersTest {
         var resolved = mapper.readTree(mapper.writeValueAsString(new ViolationResolvedEvent(
                 id, "ABC123", "z1", ResolutionReason.CORRECTED, Instant.parse("2026-10-09T10:00:00Z"))));
         var fine = mapper.readTree(mapper.writeValueAsString(new FineIssuedEvent(
-                id, id, "ABC123", null, "z1", null, new BigDecimal("700.00"), 1L)));
+                id, id, "ABC123", null, "z1", null, new BigDecimal("700.00"), 1L, ViolationType.WRONG_VEHICLE_TYPE)));
 
         assertThat(created.fieldNames()).toIterable().containsExactlyInAnyOrder("violationId", "plate", "zoneId",
                 "zoneAddress", "cameraId", "userId", "spotId", "spotNumber", "violationType", "graceMinutes", "timestamp");
@@ -114,7 +127,8 @@ class ListenersTest {
         assertThat(resolved.get("reason").asText()).isEqualTo("CORRECTED");
         assertThat(resolved.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
         assertThat(fine.fieldNames()).toIterable().containsExactlyInAnyOrder(
-                "fineId", "violationId", "plate", "userId", "zoneId", "zoneAddress", "amountSek", "timestamp");
+                "fineId", "violationId", "plate", "userId", "zoneId", "zoneAddress", "amountSek", "timestamp", "violationType");
+        assertThat(fine.get("violationType").asText()).isEqualTo("WRONG_VEHICLE_TYPE");
         assertThat(fine.get("amountSek").decimalValue()).isEqualByComparingTo("700");
     }
 }

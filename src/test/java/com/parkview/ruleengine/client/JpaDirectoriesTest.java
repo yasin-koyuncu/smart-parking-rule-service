@@ -3,8 +3,12 @@ package com.parkview.ruleengine.client;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkview.ruleengine.domain.ParkingSpot;
 import com.parkview.ruleengine.geometry.PolygonGeometry;
+import com.parkview.ruleengine.domain.ZoneInfo;
+import com.parkview.ruleengine.domain.ZoneRule;
 import com.parkview.ruleengine.readmodel.ParkingSpotViewRepository;
 import com.parkview.ruleengine.readmodel.PlateOwnerViewRepository;
+import com.parkview.ruleengine.readmodel.SessionViewRepository;
+import com.parkview.ruleengine.readmodel.ZoneRuleViewRepository;
 import com.parkview.ruleengine.readmodel.ZoneViewRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +21,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,19 +49,29 @@ class JpaDirectoriesTest {
     PlateOwnerViewRepository plateViews;
     @Autowired
     ZoneViewRepository zoneViews;
+    @Autowired
+    ZoneRuleViewRepository ruleViews;
+    @Autowired
+    SessionViewRepository sessionViews;
 
     private JpaSpotDirectory spots;
     private JpaPlateOwnerLookup owners;
     private JpaZoneDirectory zones;
+    private JpaZoneRuleDirectory rules;
+    private JpaActiveSessionDirectory sessions;
 
     @BeforeEach
     void adapters() {
+        jdbc.update("delete from sessions");
+        jdbc.update("delete from zone_rules");
         jdbc.update("delete from parking_spots");
         jdbc.update("delete from user_plates");
         jdbc.update("delete from zones");
         spots = new JpaSpotDirectory(spotViews, new ObjectMapper());
         owners = new JpaPlateOwnerLookup(plateViews);
         zones = new JpaZoneDirectory(zoneViews);
+        rules = new JpaZoneRuleDirectory(ruleViews);
+        sessions = new JpaActiveSessionDirectory(sessionViews);
     }
 
     private void insertSpot(String zone, String shape, String type, String permit, String coordinates, Integer boundary, Integer permitGrace) {
@@ -75,6 +93,7 @@ class JpaDirectoriesTest {
         assertThat(permit.permitType()).isEqualTo("resident");
         assertThat(permit.boundaryGraceMin()).isEqualTo(10);
         assertThat(permit.permitGraceMin()).isEqualTo(30);
+        assertThat(permit.maxMinutes()).isZero();
         assertThat(permit.spotNumber()).isEqualTo("A1");
         assertThat(PolygonGeometry.signedArea(permit.polygon())).isNegative();
         ParkingSpot paid = found.stream().filter(s -> "paid".equals(s.type())).findFirst().orElseThrow();
@@ -115,5 +134,51 @@ class JpaDirectoriesTest {
         assertThat(zones.addressOf("z2")).isEmpty();
         assertThat(zones.addressOf("z3")).isEmpty();
         assertThat(zones.addressOf("z9")).isEmpty();
+    }
+
+    @Test
+    void zoneInfoAppliesDefaultsForNullColumns() {
+        jdbc.update("insert into zones (id, address, max_minutes, country, timezone) values ('z1', 'Storgatan 1', 90, 'NO', 'Europe/Oslo')");
+        jdbc.update("insert into zones (id) values ('z2')");
+
+        assertThat(zones.infoOf("z1")).contains(new ZoneInfo("Storgatan 1", 90, "NO", ZoneId.of("Europe/Oslo")));
+        assertThat(zones.infoOf("z2")).contains(ZoneInfo.unknown());
+        assertThat(zones.infoOf("z9")).isEmpty();
+    }
+
+    @Test
+    void zoneRulesAreMappedToTheDomainRule() {
+        jdbc.update("""
+                insert into zone_rules (zone_id, label, priority, vehicle_types, permit_required, weekdays, start_time, end_time,
+                                        applies_holidays, max_minutes, no_parking)
+                values ('z1', 'Night', 5, '{Truck, BUS}', 'resident', '{6,7}', '22:00', '06:00', false, 90, true)""");
+        jdbc.update("insert into zone_rules (zone_id, label, enabled) values ('z1', 'Off', false)");
+
+        List<ZoneRule> found = rules.enabledRulesOf("z1");
+
+        assertThat(found).hasSize(1);
+        ZoneRule rule = found.get(0);
+        assertThat(rule.zoneId()).isEqualTo("z1");
+        assertThat(rule.priority()).isEqualTo(5);
+        assertThat(rule.vehicleTypes()).containsExactly("truck", "bus");
+        assertThat(rule.permitRequired()).isEqualTo("resident");
+        assertThat(rule.weekdays()).isEqualTo(Set.of(6, 7));
+        assertThat(rule.start()).isEqualTo(LocalTime.of(22, 0));
+        assertThat(rule.end()).isEqualTo(LocalTime.of(6, 0));
+        assertThat(rule.appliesHolidays()).isFalse();
+        assertThat(rule.maxMinutes()).isEqualTo(90);
+        assertThat(rule.noParking()).isTrue();
+        assertThat(rules.enabledRulesOf("nope")).isEmpty();
+    }
+
+    @Test
+    void theStartOfTheActiveSessionIsReadPerPlateAndZone() {
+        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T09:00:00Z')");
+        jdbc.update("insert into sessions (plate, zone_id, started_at, ended_at) values ('DEF456', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T10:00:00Z')");
+
+        assertThat(sessions.startOfActiveSession("ABC123", "z1")).contains(Instant.parse("2026-10-12T09:00:00Z"));
+        assertThat(sessions.startOfActiveSession("ABC123", "z2")).isEmpty();
+        assertThat(sessions.startOfActiveSession("DEF456", "z1")).isEmpty();
+        assertThat(sessions.startOfActiveSession("NOPE11", "z1")).isEmpty();
     }
 }

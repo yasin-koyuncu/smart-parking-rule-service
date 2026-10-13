@@ -94,6 +94,7 @@ class FineServiceTest {
         assertThat(event.zoneAddress()).isEqualTo("Storgatan 1");
         assertThat(event.amountSek()).isEqualByComparingTo(BigDecimal.valueOf(700));
         assertThat(event.timestamp()).isEqualTo(NOW.toEpochMilli());
+        assertThat(event.violationType()).isEqualTo(ViolationType.WRONG_PERMIT);
     }
 
     @Test
