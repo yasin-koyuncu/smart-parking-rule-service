@@ -34,7 +34,8 @@ class PlatePermitRepositoryTest {
 
     @Container
     @ServiceConnection
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
+            .withInitScript("test-schema.sql");
 
     private static final Instant NOW = Instant.parse("2026-10-09T10:00:00Z");
 
