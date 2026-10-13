@@ -9,3 +9,5 @@ databaseChangeLog:
       file: db/changelog/004-violation-lifecycle.sql
   - include:
       file: db/changelog/005-plate-permits.sql
+  - include:
+      file: db/changelog/006-wrong-vehicle-type.sql
