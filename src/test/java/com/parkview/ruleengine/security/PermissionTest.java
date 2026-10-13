@@ -48,8 +48,8 @@ class PermissionTest {
     @Test
     void absentClaimFallsBackToTheRoleDefaultsOnlyWhileTheFallbackIsOn() {
         assertThat(authorities(true, claims("operator", null))).contains("ROLE_OPERATOR", "spot:write", "violation:resolve")
-                .doesNotContain("zone:write", "access:manage");
-        assertThat(authorities(true, claims("admin", null))).contains("ROLE_ADMIN", "zone:write", "access:manage");
+                .doesNotContain("zone:write", "access:manage", "session:correct", "fine:manage");
+        assertThat(authorities(true, claims("admin", null))).contains("ROLE_ADMIN", "zone:write", "access:manage", "session:correct", "fine:manage");
         assertThat(authorities(true, claims("driver", null))).containsExactly("ROLE_DRIVER");
         assertThat(authorities(false, claims("operator", null))).containsExactly("ROLE_OPERATOR");
         assertThat(authorities(false, claims("admin", null))).containsExactly("ROLE_ADMIN");

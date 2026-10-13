@@ -23,7 +23,7 @@ public final class Permission {
             "mapping:view", "spot:write", "session:read", "session:manage", "violation:read", "violation:resolve",
             "permit:manage", "lookup:vehicle", "file:upload", "file:view", "stream:operator", "camera:admin", "ai:use");
 
-    private static final Set<String> ADMIN_DEFAULTS = union(OPERATOR_DEFAULTS, Set.of("zone:write", "access:read", "access:manage"));
+    private static final Set<String> ADMIN_DEFAULTS = union(OPERATOR_DEFAULTS, Set.of("zone:write", "session:correct", "fine:manage", "access:read", "access:manage"));
 
     private static final Map<Role, Set<String>> DEFAULTS_BY_ROLE = Map.of(
             Role.ADMIN, ADMIN_DEFAULTS,
