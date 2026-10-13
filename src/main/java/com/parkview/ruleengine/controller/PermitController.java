@@ -35,8 +35,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/permits")
 @RequiredArgsConstructor
-@PreAuthorize("hasRole('OPERATOR')")
-@Tag(name = "Permits", description = "Permits that allow a plate to park in permit spots")
+@PreAuthorize("hasAuthority('permit:manage')")
+@Tag(name = "Permits", description = "Permits that allow a plate to park in permit spots. Permission permit:manage.")
 public class PermitController {
 
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id"));

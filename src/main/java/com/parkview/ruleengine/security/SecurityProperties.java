@@ -16,6 +16,8 @@ import java.util.List;
  * @param internalApiKey shared secret for service-to-service calls to {@code /internal/**};
  *                       blank means the internal API is disabled (denyAll)
  * @param publicPaths    Ant patterns that need no authentication (health is always public)
+ * @param legacyRoleFallback when true (default), a token WITHOUT the {@code app_metadata.permissions} claim gets the
+ *                       default permissions of its role; a present claim (even empty) is never overridden
  */
 @Validated
 @ConfigurationProperties("parkview.security")
@@ -24,7 +26,8 @@ public record SecurityProperties(
         String jwksUri,
         @DefaultValue("authenticated") String audience,
         String internalApiKey,
-        @DefaultValue List<String> publicPaths
+        @DefaultValue List<String> publicPaths,
+        @DefaultValue("true") boolean legacyRoleFallback
 ) {
 
     public String resolvedJwksUri() {

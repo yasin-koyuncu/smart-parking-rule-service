@@ -94,6 +94,7 @@ parkview:
     audience: ${SUPABASE_AUDIENCE:authenticated}
     internal-api-key: ${INTERNAL_API_KEY:}
     public-paths: []
+    legacy-role-fallback: ${LEGACY_ROLE_FALLBACK:true}
   rule-engine:
     iou-threshold: 0.85
     containment-threshold: 0.90

@@ -39,9 +39,9 @@ public class ViolationController {
     private final AccessPolicy accessPolicy;
 
     @GetMapping("/zone/{zoneId}")
-    @PreAuthorize("hasRole('OPERATOR')")
+    @PreAuthorize("hasAuthority('violation:read')")
     @Operation(summary = "Active violations of a zone",
-            description = "Violations that are neither resolved nor fined, newest first. Operators need the zone in their zones claim.")
+            description = "Violations that are neither resolved nor fined, newest first. Needs permission violation:read and, for operators, the zone in their zones claim.")
     @ApiResponse(responseCode = "200", description = "A page of violations; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "Not an operator of this zone")
     public ResponseEntity<List<ViolationResponse>> getByZone(
@@ -55,9 +55,10 @@ public class ViolationController {
     }
 
     @GetMapping("/plate/{plate}")
-    @PreAuthorize("hasAnyRole('DRIVER', 'OPERATOR')")
+    @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read')")
     @Operation(summary = "All violations of a plate",
-            description = "Newest first. Drivers may only query plates in their plates claim; operators and administrators any plate.")
+            description = "Newest first. Drivers may only query plates in their plates claim; operators and administrators holding "
+                    + "violation:read any plate.")
     @ApiResponse(responseCode = "200", description = "A page of violations; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "A driver asked for a plate that is not theirs")
     public ResponseEntity<List<ViolationResponse>> getByPlate(
@@ -73,7 +74,7 @@ public class ViolationController {
     }
 
     @PatchMapping("/{id}/resolve")
-    @PreAuthorize("hasRole('OPERATOR')")
+    @PreAuthorize("hasAuthority('violation:resolve')")
     @Operation(summary = "Resolve a violation manually",
             description = "Idempotent for an already resolved violation. Publishes violation.resolved with reason MANUAL.")
     @ApiResponse(responseCode = "204", description = "Resolved")

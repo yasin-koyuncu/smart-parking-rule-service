@@ -89,7 +89,7 @@ public class JwtSecurityConfig {
                         .authenticationEntryPoint(ProblemJsonErrorHandlers.authenticationEntryPoint(objectMapper))
                         .accessDeniedHandler(ProblemJsonErrorHandlers.accessDeniedHandler(objectMapper)))
                 .oauth2ResourceServer(o -> o
-                        .jwt(j -> j.jwtAuthenticationConverter(new ParkviewJwtAuthenticationConverter()))
+                        .jwt(j -> j.jwtAuthenticationConverter(new ParkviewJwtAuthenticationConverter(props.legacyRoleFallback())))
                         .authenticationEntryPoint(ProblemJsonErrorHandlers.authenticationEntryPoint(objectMapper))
                         .accessDeniedHandler(ProblemJsonErrorHandlers.accessDeniedHandler(objectMapper)));
 
