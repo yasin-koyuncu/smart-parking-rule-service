@@ -130,15 +130,21 @@ Explicit connect/read timeouts, no retries. `parkview.rule-engine.vehicle-lookup
 Interactive docs: `/swagger-ui.html` and `/v3/api-docs` when `DOCS_ENABLED=true`. Errors are RFC 7807
 `application/problem+json`. Lists are plain JSON arrays, bounded by `?page=0&size=100` (max 500), total in `X-Total-Count`.
 
-| Endpoint | Role | Notes |
+Authorization uses the permissions in `app_metadata.permissions` (string[], one authority per permission, named exactly like it;
+ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the zone scope in `app_metadata.zones` (`AccessPolicy`, unchanged).
+A token WITHOUT the claim gets the default permissions of its role while `parkview.security.legacy-role-fallback` is true (default);
+a present claim, even an empty list, is never overridden. By default an operator holds `violation:read`, `violation:resolve` and
+`permit:manage`, an admin everything.
+
+| Endpoint | Access | Notes |
 |---|---|---|
-| `GET /api/v1/violations/zone/{zoneId}` | operator (zone in `zones` claim), admin | active (not resolved, not fined) violations, newest first |
-| `GET /api/v1/violations/plate/{plate}` | driver (own plate), operator, admin | all violations of the plate, newest first |
-| `PATCH /api/v1/violations/{id}/resolve` | operator (zone of the violation), admin | 204; 404 unknown; 409 when already fined; publishes `violation.resolved` (`MANUAL`) |
-| `POST /api/v1/permits` | operator (zone), admin | 201 + `Location`; a permit without `zoneId` is valid everywhere and needs an admin |
-| `GET /api/v1/permits?plate=&zoneId=` | operator, admin | operators see their zones and global permits |
-| `GET /api/v1/permits/{id}` | operator, admin | |
-| `DELETE /api/v1/permits/{id}` | operator (zone), admin | 204 |
+| `GET /api/v1/violations/zone/{zoneId}` | `violation:read` + zone in `zones` claim (admin: any zone) | active (not resolved, not fined) violations, newest first |
+| `GET /api/v1/violations/plate/{plate}` | driver (own plate), or `violation:read` (any plate) | all violations of the plate, newest first |
+| `PATCH /api/v1/violations/{id}/resolve` | `violation:resolve` + zone of the violation (admin: any zone) | 204; 404 unknown; 409 when already fined; publishes `violation.resolved` (`MANUAL`) |
+| `POST /api/v1/permits` | `permit:manage` + zone (global permit: admin) | 201 + `Location`; a permit without `zoneId` is valid everywhere and needs an admin |
+| `GET /api/v1/permits?plate=&zoneId=` | `permit:manage` | operators see their zones and global permits |
+| `GET /api/v1/permits/{id}` | `permit:manage` + zone of the permit | |
+| `DELETE /api/v1/permits/{id}` | `permit:manage` + zone of the permit (global: admin) | 204 |
 | `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid}` |
 
 Violation JSON: `id, spotId, zoneId, plate, userId, violationType, detectedAt, graceUntil, lastSeenAt, resolvedAt,
@@ -206,6 +212,7 @@ the mapped ones. Liquibase never creates or alters these tables and this service
 | `RABBIT_USER` / `RABBIT_PASS` | `guest` / `guest` | no | broker credentials (set real ones outside local use) |
 | `SUPABASE_URL` | none | yes | JWT issuer is `${SUPABASE_URL}/auth/v1`, keys from its `.well-known/jwks.json` |
 | `SUPABASE_AUDIENCE` | `authenticated` | no | required `aud` claim |
+| `LEGACY_ROLE_FALLBACK` | `true` | no | `parkview.security.legacy-role-fallback`: tokens without `app_metadata.permissions` get their role's default permissions; set `false` once every token carries the claim |
 | `INTERNAL_API_KEY` | empty | no | secret for `/internal/**` and non-health actuator endpoints; empty disables them. Also sent as `X-Internal-Api-Key` to lookup-service |
 | `LOOKUP_SERVICE_URL` | `http://localhost:8089` | no | lookup-service base URL for vehicle registry data |
 | `DOCS_ENABLED` | `false` | no | Swagger UI and OpenAPI spec |
