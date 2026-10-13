@@ -29,6 +29,8 @@ public class RabbitConfig {
     public static final String VIOLATION_CREATED_KEY = "violation.created";
     public static final String VIOLATION_RESOLVED_KEY = "violation.resolved";
     public static final String FINE_ISSUED_KEY = "fine.issued";
+    public static final String FINE_PAID_KEY = "fine.paid";
+    public static final String FINE_VOIDED_KEY = "fine.voided";
 
     @Bean
     TopicExchange vehicleExchange() {

@@ -18,6 +18,9 @@ public record FineResponse(
         @Schema(description = "Amount to pay, SEK") BigDecimal amountSek,
         Instant issuedAt,
         boolean paid,
-        String imagePath
+        String imagePath,
+        @Schema(description = "When it was paid; null while unpaid and for fines paid before this was recorded") Instant paidAt,
+        @Schema(description = "True when an operator voided the fine; a voided fine cannot be paid") boolean voided,
+        @Schema(description = "When the fine was voided; null when it is not voided") Instant voidedAt
 ) {
 }

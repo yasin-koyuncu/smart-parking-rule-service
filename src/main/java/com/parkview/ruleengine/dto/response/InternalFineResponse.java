@@ -13,6 +13,7 @@ public record InternalFineResponse(
         String zoneId,
         @Schema(description = "Amount to pay, SEK") BigDecimal amountSek,
         @Schema(example = "SEK") String currency,
-        boolean paid
+        boolean paid,
+        @Schema(description = "True when an operator voided the fine; payment-service must not charge it") boolean voided
 ) {
 }

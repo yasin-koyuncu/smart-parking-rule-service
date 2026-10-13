@@ -11,7 +11,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Consumes {@code payment.completed.fine} from payment-service and marks the fine as paid. The
- * queue is bound to the fine-specific routing key, so session payments never arrive here.
+ * queue is bound to the fine-specific routing key, so session payments never arrive here. The first payment
+ * also publishes {@code fine.paid}; repeats change nothing.
  */
 @Component
 @RequiredArgsConstructor
@@ -21,6 +22,6 @@ public class PaymentEventListener {
 
     @RabbitListener(queues = RabbitConfig.PAYMENT_COMPLETED_QUEUE)
     public void onPaymentCompleted(@Payload @Valid PaymentCompletedEvent event) {
-        fineService.markPaid(event.referenceId());
+        fineService.markPaidOnline(event.referenceId(), event.paymentId());
     }
 }
