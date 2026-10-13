@@ -13,3 +13,5 @@ databaseChangeLog:
       file: db/changelog/006-wrong-vehicle-type.sql
   - include:
       file: db/changelog/007-fines-read-indexes.sql
+  - include:
+      file: db/changelog/008-fine-void-and-manual-payment.sql
