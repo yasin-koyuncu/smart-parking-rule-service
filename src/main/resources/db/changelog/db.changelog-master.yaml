@@ -11,3 +11,5 @@ databaseChangeLog:
       file: db/changelog/005-plate-permits.sql
   - include:
       file: db/changelog/006-wrong-vehicle-type.sql
+  - include:
+      file: db/changelog/007-fines-read-indexes.sql
