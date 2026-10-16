@@ -53,7 +53,7 @@ public class PermitService {
         if (request.validTo() != null && !request.validTo().isAfter(validFrom)) {
             throw new BusinessRuleException("validTo must be after validFrom");
         }
-        String zoneId = request.zoneId() == null || request.zoneId().isBlank() ? null : request.zoneId().trim();
+        String zoneId = ZoneIds.normalize(request.zoneId());
         PlatePermit permit = repository.save(PlatePermit.grant(
                 plate, request.permitType(), zoneId, validFrom, request.validTo(), createdBy));
         log.info("Permit {} granted ({} for plate {}, zone {})", permit.getId(), permit.getPermitType(),

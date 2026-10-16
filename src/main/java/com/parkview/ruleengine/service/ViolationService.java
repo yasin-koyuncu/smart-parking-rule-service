@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.service;
 
-import com.parkview.ruleengine.client.PlateOwnerLookup;
+import com.parkview.ruleengine.client.PlateOwnerDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.config.RuleEngineProperties;
@@ -33,7 +33,7 @@ import java.util.UUID;
 
 /**
  * Lifecycle of violations: open, keep alive while the vehicle is re-confirmed, resolve. Fining is in
- * {@link FineService} and the scheduled jobs in {@link ViolationJobs}.
+ * {@link FineIssuingService} and the scheduled jobs in {@link ViolationJobs}.
  *
  * <p>Every state change runs in its own short transaction (a failing row never blocks the others)
  * and its event is published after that transaction commits.
@@ -46,7 +46,7 @@ public class ViolationService {
     private static final int STALE_BATCH = 200;
 
     private final ViolationRepository violations;
-    private final PlateOwnerLookup plateOwners;
+    private final PlateOwnerDirectory plateOwners;
     private final ZoneDirectory zones;
     private final EventPublisher events;
     private final RuleEngineProperties properties;
@@ -95,7 +95,7 @@ public class ViolationService {
 
     private void open(ParkingSpot spot, ViolationType type, String plate, String cameraId, Instant now) {
         UUID owner = plateOwners.ownerOf(plate).orElse(null);
-        int graceMinutes = graceMinutes(spot, type);
+        int graceMinutes = properties.graceMinutesFor(spot, type);
         Violation violation = violations.saveAndFlush(Violation.open(
                 spot.id(), spot.zoneId(), plate, owner, type, now, now.plus(Duration.ofMinutes(graceMinutes))));
 
@@ -106,16 +106,6 @@ public class ViolationService {
         metrics.violationCreated(type);
         log.info("Violation {} opened: {} for plate {} in zone {}, grace {} min",
                 violation.getId(), type, Plates.mask(plate), spot.zoneId(), graceMinutes);
-    }
-
-    private int graceMinutes(ParkingSpot spot, ViolationType type) {
-        return switch (type) {
-            case WRONG_PERMIT -> spot.permitGraceMin() > 0 ? spot.permitGraceMin() : properties.defaultPermitGraceMinutes();
-            case BOUNDARY_EXCEEDED -> spot.boundaryGraceMin() > 0 ? spot.boundaryGraceMin() : properties.defaultBoundaryGraceMinutes();
-            case NO_PARKING -> properties.noParkingGraceMinutes();
-            case OVERSTAY -> properties.overstayGraceMinutes();
-            case WRONG_VEHICLE_TYPE -> properties.wrongVehicleTypeGraceMinutes();
-        };
     }
 
     /**

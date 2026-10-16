@@ -2,7 +2,7 @@ package com.parkview.ruleengine.controller.internal;
 
 import com.parkview.ruleengine.dto.response.InternalFineResponse;
 import com.parkview.ruleengine.mapper.FineMapper;
-import com.parkview.ruleengine.service.FineService;
+import com.parkview.ruleengine.service.FineQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,7 +21,7 @@ import java.util.UUID;
 @Tag(name = "Internal", description = "Service-to-service endpoints (X-Internal-Api-Key)")
 public class InternalFineController {
 
-    private final FineService fineService;
+    private final FineQueryService fines;
 
     @GetMapping("/{id}")
     @Operation(summary = "Fine details for payment-service",
@@ -30,6 +30,6 @@ public class InternalFineController {
     @ApiResponse(responseCode = "401", description = "Missing or wrong internal API key")
     @ApiResponse(responseCode = "404", description = "Unknown fine")
     public InternalFineResponse get(@PathVariable UUID id) {
-        return FineMapper.toInternalResponse(fineService.get(id));
+        return FineMapper.toInternalResponse(fines.get(id));
     }
 }

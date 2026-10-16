@@ -10,7 +10,7 @@ import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
-class JpaPlateOwnerLookup implements PlateOwnerLookup {
+class JpaPlateOwnerDirectory implements PlateOwnerDirectory {
 
     private final PlateOwnerViewRepository plates;
 

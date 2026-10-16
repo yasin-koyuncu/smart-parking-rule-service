@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.config;
 
+import com.parkview.ruleengine.domain.ParkingSpot;
 import com.parkview.ruleengine.domain.ViolationType;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -69,6 +70,17 @@ public record RuleEngineProperties(
             case WRONG_PERMIT -> fineAmountWrongPermitSek;
             case BOUNDARY_EXCEEDED -> fineAmountBoundaryExceededSek;
             case WRONG_VEHICLE_TYPE -> fineAmountWrongVehicleTypeSek;
+        };
+    }
+
+    /** Grace before the fine: the spot's own value where it defines one (boundary, permit), otherwise the configured default. */
+    public int graceMinutesFor(ParkingSpot spot, ViolationType type) {
+        return switch (type) {
+            case WRONG_PERMIT -> spot.permitGraceMin() > 0 ? spot.permitGraceMin() : defaultPermitGraceMinutes;
+            case BOUNDARY_EXCEEDED -> spot.boundaryGraceMin() > 0 ? spot.boundaryGraceMin() : defaultBoundaryGraceMinutes;
+            case NO_PARKING -> noParkingGraceMinutes;
+            case OVERSTAY -> overstayGraceMinutes;
+            case WRONG_VEHICLE_TYPE -> wrongVehicleTypeGraceMinutes;
         };
     }
 

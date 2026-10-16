@@ -8,6 +8,7 @@ import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.AuthenticatedUser;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.service.PermitService;
+import com.parkview.ruleengine.service.ZoneIds;
 import com.parkview.ruleengine.web.PagedResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -54,7 +55,7 @@ public class PermitController {
     @ApiResponse(responseCode = "422", description = "validTo is not after validFrom")
     public ResponseEntity<PermitResponse> create(@Valid @RequestBody CreatePermitRequest request) {
         AuthenticatedUser user = currentUser.require();
-        accessPolicy.requireZone(user, blankToNull(request.zoneId()));
+        accessPolicy.requireZone(user, ZoneIds.normalize(request.zoneId()));
         PlatePermit permit = permitService.grant(request, user.userId());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").build(permit.getId());
         return ResponseEntity.created(location).body(PermitMapper.toResponse(permit));
@@ -70,7 +71,7 @@ public class PermitController {
             @Parameter(description = "Zero-based page") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size, at most 500") @RequestParam(defaultValue = "100") int size) {
         AuthenticatedUser user = currentUser.require();
-        String zone = blankToNull(zoneId);
+        String zone = ZoneIds.normalize(zoneId);
         if (zone != null) {
             accessPolicy.requireZone(user, zone);
         }
@@ -102,9 +103,5 @@ public class PermitController {
         accessPolicy.requireZone(currentUser.require(), permitService.get(id).getZoneId());
         permitService.revoke(id);
         return ResponseEntity.noContent().build();
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
     }
 }

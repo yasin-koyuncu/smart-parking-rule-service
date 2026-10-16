@@ -2,7 +2,7 @@ package com.parkview.ruleengine.messaging;
 
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.dto.event.PaymentCompletedEvent;
-import com.parkview.ruleengine.service.FineService;
+import com.parkview.ruleengine.service.FineSettlementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -18,10 +18,10 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PaymentEventListener {
 
-    private final FineService fineService;
+    private final FineSettlementService fineSettlement;
 
     @RabbitListener(queues = RabbitConfig.PAYMENT_COMPLETED_QUEUE)
     public void onPaymentCompleted(@Payload @Valid PaymentCompletedEvent event) {
-        fineService.markPaidOnline(event.referenceId(), event.paymentId());
+        fineSettlement.markPaidOnline(event.referenceId(), event.paymentId());
     }
 }

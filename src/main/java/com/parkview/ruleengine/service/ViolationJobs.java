@@ -32,7 +32,7 @@ public class ViolationJobs {
 
     private final ViolationRepository violations;
     private final ViolationService violationService;
-    private final FineService fineService;
+    private final FineIssuingService fineIssuing;
     private final RuleEngineProperties properties;
     private final Clock clock;
     private final TransactionTemplate tx;
@@ -78,7 +78,7 @@ public class ViolationJobs {
     private boolean fineOne(UUID id, Instant now, Instant seenSince) {
         return violations.claimDue(id, now, seenSince)
                 .map(violation -> {
-                    fineService.issueFine(violation);
+                    fineIssuing.issueFine(violation);
                     return true;
                 })
                 .orElse(false);
