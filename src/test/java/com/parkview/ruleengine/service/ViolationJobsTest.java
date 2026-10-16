@@ -32,7 +32,7 @@ class ViolationJobsTest {
 
     private final ViolationRepository violations = mock(ViolationRepository.class);
     private final ViolationService violationService = mock(ViolationService.class);
-    private final FineService fineService = mock(FineService.class);
+    private final FineIssuingService fineService = mock(FineIssuingService.class);
     private ViolationJobs jobs;
 
     @BeforeEach

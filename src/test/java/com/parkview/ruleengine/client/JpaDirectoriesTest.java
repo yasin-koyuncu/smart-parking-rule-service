@@ -55,7 +55,7 @@ class JpaDirectoriesTest {
     SessionViewRepository sessionViews;
 
     private JpaSpotDirectory spots;
-    private JpaPlateOwnerLookup owners;
+    private JpaPlateOwnerDirectory owners;
     private JpaZoneDirectory zones;
     private JpaZoneRuleDirectory rules;
     private JpaActiveSessionDirectory sessions;
@@ -68,7 +68,7 @@ class JpaDirectoriesTest {
         jdbc.update("delete from user_plates");
         jdbc.update("delete from zones");
         spots = new JpaSpotDirectory(spotViews, new ObjectMapper());
-        owners = new JpaPlateOwnerLookup(plateViews);
+        owners = new JpaPlateOwnerDirectory(plateViews);
         zones = new JpaZoneDirectory(zoneViews);
         rules = new JpaZoneRuleDirectory(ruleViews);
         sessions = new JpaActiveSessionDirectory(sessionViews);

@@ -9,7 +9,8 @@ import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
-import com.parkview.ruleengine.service.FineService;
+import com.parkview.ruleengine.service.FineManagementService;
+import com.parkview.ruleengine.service.FineQueryService;
 import com.parkview.ruleengine.web.ConflictException;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,7 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Void, mark-paid and the audit trail: permission fine:manage / violation:read, zone scope, validation, conflicts. */
-@WebMvcTest(FineController.class)
+@WebMvcTest({FineController.class, FineManagementController.class})
 @Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class})
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
@@ -72,7 +73,10 @@ class FineManagementControllerTest {
     MockMvc mvc;
 
     @MockitoBean
-    FineService fineService;
+    FineQueryService fineQuery;
+
+    @MockitoBean
+    FineManagementService fineManagement;
 
     private Fine fine;
 
@@ -81,12 +85,12 @@ class FineManagementControllerTest {
         Violation violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
         fine = Fine.issue(violation, new BigDecimal("700"), OWNER, T);
         ReflectionTestUtils.setField(fine, "id", FINE_ID);
-        when(fineService.get(FINE_ID)).thenReturn(fine);
-        when(fineService.voidFine(eq(FINE_ID), anyString(), any())).thenAnswer(inv -> {
+        when(fineQuery.get(FINE_ID)).thenReturn(fine);
+        when(fineManagement.voidFine(eq(FINE_ID), anyString(), any())).thenAnswer(inv -> {
             fine.voidFine(T.plusSeconds(60), inv.getArgument(1), inv.getArgument(2));
             return fine;
         });
-        when(fineService.markPaidManually(eq(FINE_ID), anyString(), any(), any())).thenAnswer(inv -> {
+        when(fineManagement.markPaidManually(eq(FINE_ID), anyString(), any(), any())).thenAnswer(inv -> {
             fine.markPaid(T.plusSeconds(60), inv.getArgument(2), inv.getArgument(3));
             return fine;
         });
@@ -130,8 +134,8 @@ class FineManagementControllerTest {
         mvc.perform(get("/api/v1/fines/{id}/history", FINE_ID))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
-        verify(fineService, never()).voidFine(any(), any(), any());
-        verify(fineService, never()).markPaidManually(any(), any(), any(), any());
+        verify(fineManagement, never()).voidFine(any(), any(), any());
+        verify(fineManagement, never()).markPaidManually(any(), any(), any(), any());
     }
 
     @Test
@@ -147,7 +151,7 @@ class FineManagementControllerTest {
                     .andExpect(status().isForbidden())
                     .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
         }
-        verify(fineService, org.mockito.Mockito.times(allowedToManage().size())).voidFine(eq(FINE_ID), anyString(), any());
+        verify(fineManagement, org.mockito.Mockito.times(allowedToManage().size())).voidFine(eq(FINE_ID), anyString(), any());
     }
 
     @Test
@@ -163,7 +167,7 @@ class FineManagementControllerTest {
                     .andExpect(status().isForbidden())
                     .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
         }
-        verify(fineService, org.mockito.Mockito.times(allowedToManage().size()))
+        verify(fineManagement, org.mockito.Mockito.times(allowedToManage().size()))
                 .markPaidManually(eq(FINE_ID), anyString(), any(), any());
     }
 
@@ -181,7 +185,7 @@ class FineManagementControllerTest {
         mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(user("admin", List.of(), List.of()))
                         .contentType(MediaType.APPLICATION_JSON).content(VOID_BODY))
                 .andExpect(status().isForbidden());
-        verify(fineService, never()).voidFine(any(), any(), any());
+        verify(fineManagement, never()).voidFine(any(), any(), any());
     }
 
     // ---- the commands ----
@@ -199,7 +203,7 @@ class FineManagementControllerTest {
                 .andExpect(jsonPath("$.voidReason").doesNotExist())
                 .andExpect(jsonPath("$.length()").value(14));
 
-        verify(fineService).voidFine(FINE_ID, "Plate misread", ACTOR);
+        verify(fineManagement).voidFine(FINE_ID, "Plate misread", ACTOR);
     }
 
     @Test
@@ -212,7 +216,7 @@ class FineManagementControllerTest {
                 .andExpect(jsonPath("$.voided").value(false))
                 .andExpect(jsonPath("$.length()").value(14));
 
-        verify(fineService).markPaidManually(FINE_ID, "Bank transfer", PaidMethod.TRANSFER, ACTOR);
+        verify(fineManagement).markPaidManually(FINE_ID, "Bank transfer", PaidMethod.TRANSFER, ACTOR);
     }
 
     @Test
@@ -223,15 +227,15 @@ class FineManagementControllerTest {
                             .content("{\"reason\":\"Paid by hand\",\"method\":\"" + method + "\"}"))
                     .andExpect(status().isOk());
         }
-        verify(fineService).markPaidManually(FINE_ID, "Paid by hand", PaidMethod.CASH, ACTOR);
-        verify(fineService).markPaidManually(FINE_ID, "Paid by hand", PaidMethod.TRANSFER, ACTOR);
-        verify(fineService).markPaidManually(FINE_ID, "Paid by hand", PaidMethod.OTHER, ACTOR);
+        verify(fineManagement).markPaidManually(FINE_ID, "Paid by hand", PaidMethod.CASH, ACTOR);
+        verify(fineManagement).markPaidManually(FINE_ID, "Paid by hand", PaidMethod.TRANSFER, ACTOR);
+        verify(fineManagement).markPaidManually(FINE_ID, "Paid by hand", PaidMethod.OTHER, ACTOR);
     }
 
     @Test
     void unknownFineIsNotFoundForBothCommandsAndTheHistory() throws Exception {
         UUID id = UUID.randomUUID();
-        when(fineService.get(id)).thenThrow(new ResourceNotFoundException("Fine", id));
+        when(fineQuery.get(id)).thenThrow(new ResourceNotFoundException("Fine", id));
         var admin = actor("admin", null, List.of());
 
         mvc.perform(post("/api/v1/fines/{id}/void", id).with(admin).contentType(MediaType.APPLICATION_JSON).content(VOID_BODY))
@@ -246,8 +250,8 @@ class FineManagementControllerTest {
 
     @Test
     void conflictsFromTheServiceAreProblemJson409() throws Exception {
-        when(fineService.voidFine(eq(FINE_ID), anyString(), any())).thenThrow(new ConflictException("A paid fine cannot be voided"));
-        when(fineService.markPaidManually(eq(FINE_ID), anyString(), any(), any()))
+        when(fineManagement.voidFine(eq(FINE_ID), anyString(), any())).thenThrow(new ConflictException("A paid fine cannot be voided"));
+        when(fineManagement.markPaidManually(eq(FINE_ID), anyString(), any(), any()))
                 .thenThrow(new ConflictException("A voided fine cannot be marked as paid"));
         var admin = actor("admin", null, List.of());
 
@@ -275,7 +279,7 @@ class FineManagementControllerTest {
         mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(admin).contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
-        verify(fineService, never()).voidFine(any(), any(), any());
+        verify(fineManagement, never()).voidFine(any(), any(), any());
     }
 
     @Test
@@ -303,14 +307,14 @@ class FineManagementControllerTest {
                     .andExpect(content().contentTypeCompatibleWith("application/problem+json"))
                     .andExpect(jsonPath("$.errors").isNotEmpty());
         }
-        verify(fineService, never()).markPaidManually(any(), any(), any(), any());
+        verify(fineManagement, never()).markPaidManually(any(), any(), any(), any());
     }
 
     // ---- GET /{id}/history ----
 
     @Test
     void historyNeedsViolationReadAndTheZoneOfTheFine() throws Exception {
-        when(fineService.history(eq(FINE_ID), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 100), 0));
+        when(fineQuery.history(eq(FINE_ID), any())).thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 100), 0));
 
         for (var allowed : List.of(user("operator", List.of(), List.of("z1")), user("admin", List.of(), List.of()),
                 userWith("operator", List.of("violation:read"), List.of(), List.of("z1")),
@@ -337,7 +341,7 @@ class FineManagementControllerTest {
         FineAction online = FineAction.of(FINE_ID, T, null, FineActionType.PAID_ONLINE, null,
                 Map.of("method", "online", "paymentId", "p-1"));
         ReflectionTestUtils.setField(voidEntry, "id", entryId);
-        when(fineService.history(eq(FINE_ID), any())).thenReturn(new PageImpl<>(List.of(voidEntry, online), PageRequest.of(0, 100), 2));
+        when(fineQuery.history(eq(FINE_ID), any())).thenReturn(new PageImpl<>(List.of(voidEntry, online), PageRequest.of(0, 100), 2));
 
         mvc.perform(get("/api/v1/fines/{id}/history?page=-1&size=99999", FINE_ID).with(user("operator", List.of(), List.of("z1"))))
                 .andExpect(status().isOk())
@@ -354,7 +358,7 @@ class FineManagementControllerTest {
                 .andExpect(jsonPath("$[1].reason").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$[1].details.paymentId").value("p-1"));
 
-        verify(fineService).history(eq(FINE_ID), argThat((Pageable p) -> p.getPageSize() == 500 && p.getPageNumber() == 0
+        verify(fineQuery).history(eq(FINE_ID), argThat((Pageable p) -> p.getPageSize() == 500 && p.getPageNumber() == 0
                 && p.getSort().getOrderFor("at").isDescending()));
     }
 }

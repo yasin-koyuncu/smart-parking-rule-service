@@ -12,7 +12,7 @@ import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.domain.ResolutionReason;
 import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.service.DetectionService;
-import com.parkview.ruleengine.service.FineService;
+import com.parkview.ruleengine.service.FineSettlementService;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
@@ -46,7 +46,7 @@ class ListenersTest {
 
     @Test
     void paymentListenerMarksTheReferencedFineAsPaidOnline() {
-        FineService fines = mock(FineService.class);
+        FineSettlementService fines = mock(FineSettlementService.class);
         UUID fineId = UUID.randomUUID();
 
         new PaymentEventListener(fines).onPaymentCompleted(

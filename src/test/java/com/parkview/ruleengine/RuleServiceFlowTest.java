@@ -3,7 +3,7 @@ package com.parkview.ruleengine;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkview.ruleengine.domain.PaidMethod;
-import com.parkview.ruleengine.service.FineService;
+import com.parkview.ruleengine.service.FineManagementService;
 import com.parkview.ruleengine.web.ConflictException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,7 +75,7 @@ class RuleServiceFlowTest {
     @Autowired
     ObjectMapper mapper;
     @Autowired
-    FineService fineService;
+    FineManagementService fineService;
 
     /** Every probe message that {@link #awaitEvent} has read ("routing key body"), so tests can also assert what was NOT repeated. */
     private final List<String> consumed = new ArrayList<>();

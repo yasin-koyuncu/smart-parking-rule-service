@@ -7,7 +7,7 @@ import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
-import com.parkview.ruleengine.service.FineService;
+import com.parkview.ruleengine.service.FineQueryService;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,7 +61,7 @@ class FineControllerTest {
     MockMvc mvc;
 
     @MockitoBean
-    FineService fineService;
+    FineQueryService fineService;
 
     private Fine fine;
 

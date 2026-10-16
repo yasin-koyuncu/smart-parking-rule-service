@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.service;
 
-import com.parkview.ruleengine.client.PlateOwnerLookup;
+import com.parkview.ruleengine.client.PlateOwnerDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.domain.ParkingSpot;
@@ -49,7 +49,7 @@ class ViolationServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-09T10:00:00Z");
 
     private final ViolationRepository violations = mock(ViolationRepository.class);
-    private final PlateOwnerLookup owners = mock(PlateOwnerLookup.class);
+    private final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
     private final EventPublisher events = mock(EventPublisher.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
