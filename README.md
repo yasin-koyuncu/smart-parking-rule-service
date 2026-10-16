@@ -48,6 +48,35 @@ Jobs (safe on several instances):
 * stale sweep (`stale-sweep-ms`): resolves violations not re-confirmed for `stale-minutes` as `LEFT`.
   Set `stale-minutes` well above the interval at which ingestion re-publishes a persisting violation.
 
+## Structure
+
+Package-by-layer under `com.parkview.ruleengine`; a call goes `controller`/`messaging` -> `service` -> `repository` and the ports in `client`. Classes stay under about 200 lines, methods under about 40.
+
+| Layer | Package | What lives there |
+|---|---|---|
+| Edge | `controller`, `controller/internal`, `messaging` | Thin: parse and validate, authorize (`@PreAuthorize` + `AccessPolicy`), call one service, map to a DTO. No repositories, no business rules. `FineController` (reads), `FineManagementController` (void, mark-paid), `ViolationController`, `PermitController`, `InternalFineController`; listeners `VehicleEventListener` and `PaymentEventListener` |
+| Use cases | `service` | One class per use case area (below) |
+| Rules | `engine` | `ViolationEvaluator` (decision order), `RuleResolver`, `RuleSchedule`, `VehicleContext`; no I/O except the ports |
+| Domain | `domain`, `geometry` | Entities and value objects with their own state transitions (`Fine.markPaid`, `Fine.voidFine`, `Violation`); `RuleEngineProperties.fineAmountFor` / `graceMinutesFor` hold the amount and grace rules |
+| Ports | `client` | `*Directory` interfaces and their adapters (`Jpa...` for tables of other services, `HttpVehicleDirectory`, `JollydayHolidayCalendar`) |
+| Mapping | `mapper` | Pure entity to DTO functions |
+
+Services:
+
+* `DetectionService`: one observation to violation state. `BoundaryService`: which spot. `SpotCacheService` / `RuleCacheService`: cached master data.
+* `ViolationService`: violation lifecycle (open, confirm, resolve). `ViolationJobs`: the two sweeps.
+* `FineIssuingService`: creates the fine of a due violation (inside the sweep transaction). `FineManagementService`: operator void and mark-paid. `FineSettlementService`: online payment. `FineQueryService`: reads and audit trail. `FineEvents`: payload and routing key of `fine.issued` / `fine.paid` / `fine.voided`.
+* `PermitService`: permits (the engine question `holdsAll` and operator CRUD). `Plates`, `ZoneIds`: normal forms of ids from requests.
+
+Every fine command locks the row (`select ... for update`), writes its `fine_actions` row in the same transaction and publishes its event after commit.
+
+Where to add things:
+
+* A new REST use case: the endpoint in the controller of its area (a new controller for a new area, URLs under `/api/v1/<area>`), the logic in a service of that area (a new `<Area>...Service` rather than growing one past about 200 lines), the response mapping in `mapper`.
+* A new fine command: a method in `FineManagementService` (lock, decide on the current state, mutate through a `Fine` method, audit row, event via `FineEvents`), a `FineActionType` value and the endpoint in `FineManagementController`.
+* A new violation type: `ViolationType`, its grace and fine amount in `RuleEngineProperties`, its check in `ViolationEvaluator`.
+* Data of another service: a port and adapter in `client` named `<Thing>Directory`.
+
 ## Rule engine
 
 Classes (`com.parkview.ruleengine.engine`): `ViolationEvaluator` (decision order), `RuleResolver` (which zone rules
@@ -303,7 +332,7 @@ MockMvc security tests (401/403/404/409/400, problem+json), listener payloads, T
 `SKIP LOCKED` claim, permit queries, read models against Supabase-style tables with extra columns, `time`/array columns,
 Liquibase 006 and 008 on the legacy `fines` shape) and a full flow test against real Postgres and RabbitMQ (incl. void, manual and online payment events, and a void racing a payment).
 The `fine:manage` / `violation:read` / zone matrices (admin, operator with and without the permission, other zone, driver, anonymous), body validation, the 409 cases,
-idempotency, voided fines hidden from lists and drivers, audit rows and event payloads are covered in `FineControllerTest`, `FineManagementControllerTest` and `FineServiceTest`.
+idempotency, voided fines hidden from lists and drivers, audit rows and event payloads are covered in `FineControllerTest`, `FineManagementControllerTest`, `FineManagementServiceTest`, `FineSettlementServiceTest` and `FineIssuingServiceTest`.
 
 ## Operations
 
