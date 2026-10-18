@@ -1,6 +1,15 @@
 spring:
   application:
     name: rule-service
+  autoconfigure:
+    exclude:
+      # Tracing is part of the application only when TRACING_ENABLED=true: TracingConfig imports this back in then.
+      - org.springframework.boot.actuate.autoconfigure.tracing.OpenTelemetryTracingAutoConfiguration
+  http:
+    client:
+      # HttpURLConnection like before (no selector threads): Boot's RestClient.Builder, which the lookup-service client now starts from so
+      # that its calls are observed and carry traceparent, would otherwise build a JDK HttpClient first.
+      factory: simple
   threads:
     virtual:
       enabled: true
@@ -36,6 +45,7 @@ spring:
     publisher-returns: true
     listener:
       simple:
+        observation-enabled: ${TRACING_ENABLED:false}   # listeners continue the publisher's trace
         prefetch: 20
         default-requeue-rejected: false
         retry:
@@ -44,6 +54,8 @@ spring:
           multiplier: 2.0
           max-interval: 10s
           max-attempts: 4
+    template:
+      observation-enabled: ${TRACING_ENABLED:false}   # publishes inject traceparent into the message headers
   lifecycle:
     timeout-per-shutdown-phase: 30s
 
@@ -75,6 +87,17 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+  # Distributed tracing. Off unless TRACING_ENABLED=true: with it off there is no tracer, no exporter, no trace
+  # headers and no connection attempt (see TracingConfig). W3C traceparent over HTTP and AMQP; actuator spans are not exported.
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${TRACING_SAMPLING:0.1}
+    propagation:
+      type: w3c
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces}
 
 springdoc:
   api-docs:

@@ -43,8 +43,9 @@ class HttpVehicleDirectory implements VehicleDirectory {
     private final Cache<String, Optional<VehicleInfo>> cache;
 
     @Autowired
-    HttpVehicleDirectory(LookupProperties properties, SecurityProperties security, EngineMetrics metrics) {
-        this(buildClient(properties, security), properties, metrics, Ticker.systemTicker());
+    HttpVehicleDirectory(LookupProperties properties, SecurityProperties security, EngineMetrics metrics,
+                         RestClient.Builder clientBuilder) {
+        this(buildClient(clientBuilder, properties, security), properties, metrics, Ticker.systemTicker());
     }
 
     HttpVehicleDirectory(RestClient client, LookupProperties properties, EngineMetrics metrics, Ticker ticker) {
@@ -74,11 +75,13 @@ class HttpVehicleDirectory implements VehicleDirectory {
                 .build();
     }
 
-    private static RestClient buildClient(LookupProperties properties, SecurityProperties security) {
+    /** Built from Boot's builder so the call is observed and carries the {@code traceparent} when tracing is on. */
+    private static RestClient buildClient(RestClient.Builder clientBuilder, LookupProperties properties,
+                                          SecurityProperties security) {
         var settings = ClientHttpRequestFactorySettings.defaults()
                 .withConnectTimeout(Duration.ofMillis(properties.connectTimeoutMs()))
                 .withReadTimeout(Duration.ofMillis(properties.readTimeoutMs()));
-        RestClient.Builder builder = RestClient.builder()
+        RestClient.Builder builder = clientBuilder
                 .baseUrl(properties.baseUrl())
                 .requestFactory(ClientHttpRequestFactoryBuilder.simple().build(settings));
         if (security.internalApiEnabled()) {
