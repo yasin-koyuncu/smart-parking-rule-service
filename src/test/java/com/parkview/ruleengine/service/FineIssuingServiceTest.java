@@ -9,12 +9,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -54,7 +58,8 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         assertThat(fine.getUserId()).isEqualTo(owner);
 
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-        verify(events).publish(eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.issued"), payload.capture());
+        verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), eq(fine.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.issued"),
+                payload.capture());
         FineIssuedEvent event = (FineIssuedEvent) payload.getValue();
         assertThat(event.fineId()).isEqualTo(fine.getId());
         assertThat(event.violationId()).isEqualTo(violation.getId());
@@ -65,6 +70,27 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         assertThat(event.amountSek()).isEqualByComparingTo(BigDecimal.valueOf(700));
         assertThat(event.timestamp()).isEqualTo(NOW.toEpochMilli());
         assertThat(event.violationType()).isEqualTo(ViolationType.WRONG_PERMIT);
+    }
+
+    @Test
+    void theEvidenceIsFrozenForTheFineBeforeItsEventIsQueued() {
+        Violation violation = TestFixtures.violation(ViolationType.OVERSTAY, NOW.minusSeconds(900), NOW.minusSeconds(60));
+
+        Fine fine = service.issueFine(violation);
+
+        InOrder order = inOrder(evidence, events);
+        order.verify(evidence).record(fine, violation);
+        order.verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), eq(fine.getId()), any(), eq("fine.issued"), any());
+    }
+
+    @Test
+    void whenTheEvidenceCannotBeWrittenNoEventIsQueuedAndTheErrorReachesTheTransaction() {
+        Violation violation = TestFixtures.violation(ViolationType.OVERSTAY, NOW.minusSeconds(900), NOW.minusSeconds(60));
+        when(evidence.record(any(), any())).thenThrow(new IllegalStateException("database down"));
+
+        assertThatThrownBy(() -> service.issueFine(violation)).isInstanceOf(IllegalStateException.class);
+
+        verifyNoInteractions(events);
     }
 
     @Test

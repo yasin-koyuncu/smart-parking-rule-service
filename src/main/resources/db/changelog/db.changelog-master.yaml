@@ -15,3 +15,9 @@ databaseChangeLog:
       file: db/changelog/007-fines-read-indexes.sql
   - include:
       file: db/changelog/008-fine-void-and-manual-payment.sql
+  - include:
+      file: db/changelog/009-fine-evidence.sql
+  - include:
+      file: db/changelog/010-fine-disputes.sql
+  - include:
+      file: db/changelog/011-rule-outbox-events.sql

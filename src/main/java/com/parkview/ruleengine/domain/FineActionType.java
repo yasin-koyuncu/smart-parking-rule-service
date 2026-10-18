@@ -6,7 +6,11 @@ import java.util.Locale;
 public enum FineActionType {
     VOID,
     MARK_PAID,
-    PAID_ONLINE;
+    PAID_ONLINE,
+    DISPUTE_OPENED,
+    DISPUTE_UPHELD,
+    DISPUTE_VOIDED,
+    DISPUTE_WITHDRAWN;
 
     public String wire() {
         return name().toLowerCase(Locale.ROOT);

@@ -25,11 +25,12 @@ public class InternalFineController {
 
     @GetMapping("/{id}")
     @Operation(summary = "Fine details for payment-service",
-            description = "The amount to pay is always taken from here, never from a client request.")
+            description = "The amount to pay is always taken from here, never from a client request. disputed is true while a person "
+                    + "reviews the fine: it must not be paid meanwhile.")
     @ApiResponse(responseCode = "200", description = "The fine")
     @ApiResponse(responseCode = "401", description = "Missing or wrong internal API key")
     @ApiResponse(responseCode = "404", description = "Unknown fine")
     public InternalFineResponse get(@PathVariable UUID id) {
-        return FineMapper.toInternalResponse(fines.get(id));
+        return FineMapper.toInternalResponse(fines.get(id), fines.isDisputed(id));
     }
 }

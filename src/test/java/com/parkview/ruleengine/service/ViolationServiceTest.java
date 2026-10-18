@@ -10,7 +10,6 @@ import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.dto.event.ViolationCreatedEvent;
 import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.engine.EngineMetrics;
-import com.parkview.ruleengine.messaging.EventPublisher;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.web.ConflictException;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
@@ -51,7 +50,7 @@ class ViolationServiceTest {
     private final ViolationRepository violations = mock(ViolationRepository.class);
     private final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
-    private final EventPublisher events = mock(EventPublisher.class);
+    private final OutboxService events = mock(OutboxService.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private ViolationService service;
 
@@ -86,7 +85,8 @@ class ViolationServiceTest {
         assertThat(saved.getValue().getUserId()).isEqualTo(owner);
 
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-        verify(events).publish(eq(RabbitConfig.VIOLATION_EXCHANGE), eq("violation.created"), payload.capture());
+        verify(events).enqueue(eq(OutboxService.AGGREGATE_VIOLATION), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE),
+                eq("violation.created"), payload.capture());
         ViolationCreatedEvent event = (ViolationCreatedEvent) payload.getValue();
         assertThat(event.plate()).isEqualTo(PLATE);
         assertThat(event.zoneId()).isEqualTo(ZONE);
@@ -235,7 +235,8 @@ class ViolationServiceTest {
         verify(violations).resolveIfActive(otherSpot.getId(), ResolutionReason.CORRECTED, NOW);
 
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-        verify(events, org.mockito.Mockito.times(2)).publish(eq(RabbitConfig.VIOLATION_EXCHANGE), eq("violation.resolved"), payload.capture());
+        verify(events, org.mockito.Mockito.times(2)).enqueue(eq(OutboxService.AGGREGATE_VIOLATION), any(UUID.class),
+                eq(RabbitConfig.VIOLATION_EXCHANGE), eq("violation.resolved"), payload.capture());
         ViolationResolvedEvent event = (ViolationResolvedEvent) payload.getAllValues().get(0);
         assertThat(event.reason()).isEqualTo(ResolutionReason.CORRECTED);
         assertThat(event.plate()).isEqualTo(PLATE);
@@ -297,7 +298,8 @@ class ViolationServiceTest {
 
         service.resolveManually(open.getId());
 
-        verify(events).publish(eq(RabbitConfig.VIOLATION_EXCHANGE), eq("violation.resolved"), any(ViolationResolvedEvent.class));
+        verify(events).enqueue(eq(OutboxService.AGGREGATE_VIOLATION), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE),
+                eq("violation.resolved"), any(ViolationResolvedEvent.class));
     }
 
     @Test

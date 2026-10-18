@@ -19,7 +19,7 @@ import static org.mockito.Mockito.when;
 
 class FineQueryServiceTest extends FineServiceTestBase {
 
-    private final FineQueryService service = new FineQueryService(fines, actions);
+    private final FineQueryService service = new FineQueryService(fines, actions, disputes);
 
     @Test
     void getUnknownFineIsNotFound() {

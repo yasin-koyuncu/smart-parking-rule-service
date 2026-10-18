@@ -201,7 +201,7 @@ class FineManagementControllerTest {
                 .andExpect(jsonPath("$.voidedAt").value("2026-10-09T10:01:00Z"))
                 .andExpect(jsonPath("$.userId").doesNotExist())
                 .andExpect(jsonPath("$.voidReason").doesNotExist())
-                .andExpect(jsonPath("$.length()").value(14));
+                .andExpect(jsonPath("$.length()").value(16));
 
         verify(fineManagement).voidFine(FINE_ID, "Plate misread", ACTOR);
     }
@@ -214,7 +214,7 @@ class FineManagementControllerTest {
                 .andExpect(jsonPath("$.paid").value(true))
                 .andExpect(jsonPath("$.paidAt").value("2026-10-09T10:01:00Z"))
                 .andExpect(jsonPath("$.voided").value(false))
-                .andExpect(jsonPath("$.length()").value(14));
+                .andExpect(jsonPath("$.length()").value(16));
 
         verify(fineManagement).markPaidManually(FINE_ID, "Bank transfer", PaidMethod.TRANSFER, ACTOR);
     }

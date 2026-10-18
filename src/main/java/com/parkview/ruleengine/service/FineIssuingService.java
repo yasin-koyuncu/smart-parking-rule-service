@@ -24,12 +24,14 @@ public class FineIssuingService {
     private final FineRepository fines;
     private final PlateOwnerDirectory plateOwners;
     private final FineEvents events;
+    private final FineEvidenceService evidence;
     private final RuleEngineProperties properties;
     private final Clock clock;
 
     /**
-     * Creates the fine for a violation that the caller has locked, links it and publishes
-     * {@code fine.issued} after the surrounding transaction commits.
+     * Creates the fine for a violation that the caller has locked, links it, freezes its evidence and writes
+     * {@code fine.issued} to the outbox, all in the surrounding transaction: either the fine, its evidence and its
+     * event exist, or none of them.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public Fine issueFine(Violation violation) {
@@ -41,6 +43,7 @@ public class FineIssuingService {
         Fine fine = fines.save(Fine.issue(violation, properties.fineAmountFor(violation.getViolationType()), owner, now));
         violation.markFined(fine.getId(), now);
 
+        evidence.record(fine, violation);
         events.issued(fine, violation, owner, now);
         log.info("Fine {} issued: {} SEK ({}) for plate {} in zone {}", fine.getId(), fine.getAmountSek(),
                 fine.getReason(), Plates.mask(fine.getPlate()), fine.getZoneId());

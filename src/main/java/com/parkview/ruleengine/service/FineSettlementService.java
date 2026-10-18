@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service;
 
+import com.parkview.ruleengine.domain.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineAction;
 import com.parkview.ruleengine.domain.FineActionType;
@@ -19,16 +20,21 @@ import java.util.UUID;
 
 /**
  * Settles a fine when payment-service reports the online payment ({@code payment.completed.fine}). Like the operator
- * commands in {@link FineManagementService} it locks the fine row, writes the audit row in the same transaction and
- * publishes {@code fine.paid} after commit, only on the actual transition.
+ * commands in {@link FineManagementService} it locks the fine row, writes the audit row and the {@code fine.paid} outbox
+ * event in the same transaction, only on the actual transition. A payment that completes for a fine whose dispute is open
+ * (payment-service refuses to start one, so this is a race) is never refused: the fine stays paid and the system closes
+ * the dispute as upheld with a note.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FineSettlementService {
 
+    static final String PAID_WHILE_DISPUTED_NOTE = "Closed automatically: the fine was paid while the dispute was open.";
+
     private final FineRepository fines;
     private final FineActionRepository actions;
+    private final DisputeCloser disputeCloser;
     private final FineEvents events;
     private final Clock clock;
 
@@ -52,6 +58,9 @@ public class FineSettlementService {
         if (fine.markPaid(now, PaidMethod.ONLINE, null)) {
             actions.save(FineAction.of(fineId, now, null, FineActionType.PAID_ONLINE, null, auditDetails(paymentId)));
             events.paid(fine, PaidMethod.ONLINE, now);
+            if (disputeCloser.closeOpen(fine, DisputeStatus.UPHELD, null, PAID_WHILE_DISPUTED_NOTE, now).isPresent()) {
+                log.warn("Fine {} was paid while a dispute was open; the dispute is closed as upheld by the system", fineId);
+            }
             log.info("Fine {} marked as paid (online)", fineId);
         }
     }

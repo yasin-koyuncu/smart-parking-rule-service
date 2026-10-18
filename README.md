@@ -15,15 +15,19 @@ Part of the Park & View platform (engineering contract: `smart-parking-e2e/docs/
 * Marks fines as paid when `payment.completed.fine` arrives and tells payment-service what a fine costs (and whether it was voided).
 * Lets operators with `fine:manage` void an unpaid fine or mark it as paid by hand (cash, transfer, other); every such command and
   every online payment is kept in an audit trail (`fine_actions`) and announced with `fine.voided` / `fine.paid`.
+* Freezes the evidence of every fine when it is issued (`fine_evidence`) and lets a driver (or an operator on the phone with a driver) ask a
+  person to review a fine, a **dispute**: while it is open the fine cannot be paid, an operator with `fine:manage` upholds or voids the fine
+  with a written reason, everything is audited. Fines stay automatic; humans can always review the decision (ADR 0005 in smart-parking-e2e).
+* Publishes every event through a transactional outbox (`rule_outbox_events`), written in the transaction of the state change.
 
 ## Architecture position
 
 ```
-ingestion --vehicle.detected--> [ rule-service ] --violation.created / violation.resolved / fine.issued / fine.paid / fine.voided--> notification, event-streaming
+ingestion --vehicle.detected--> [ rule-service ] --violation.created / violation.resolved / fine.issued / fine.paid / fine.voided / fine.disputed / fine.dispute.decided--> notification, event-streaming
 payment-service --payment.completed.fine--> [ rule-service ]
 payment-service --GET /internal/v1/fines/{id}--> [ rule-service ]
 frontend --JWT via api-gateway--> [ rule-service ]  (violations, fines, permits)
-rule-service reads parking_spots, zones, zone_rules, sessions, user_plates (owned by other services, behind the ports in client/)
+rule-service reads parking_spots, zones, zone_rules, sessions, user_plates, detections (owned by other services, behind the ports in client/)
 rule-service --GET /internal/v1/vehicles/{plate}?country=--> lookup-service   (only when a decision needs vehicle data)
 ```
 
@@ -65,15 +69,18 @@ Services:
 
 * `DetectionService`: one observation to violation state. `BoundaryService`: which spot. `SpotCacheService` / `RuleCacheService`: cached master data.
 * `ViolationService`: violation lifecycle (open, confirm, resolve). `ViolationJobs`: the two sweeps.
-* `FineIssuingService`: creates the fine of a due violation (inside the sweep transaction). `FineManagementService`: operator void and mark-paid. `FineSettlementService`: online payment. `FineQueryService`: reads and audit trail. `FineEvents`: payload and routing key of `fine.issued` / `fine.paid` / `fine.voided`.
+* `FineIssuingService`: creates the fine of a due violation and freezes its evidence (inside the sweep transaction). `FineEvidenceService`: writes and reads the frozen evidence, builds the driver's explanation. `FineManagementService`: operator void and mark-paid. `FineSettlementService`: online payment. `FineQueryService`: reads, audit trail and the dispute state of fines. `FineEvents`: payload and routing key of the fine events.
+* `DisputeService`: open, withdraw and decide a dispute (the void of a decision goes through `FineManagementService.voidFine`). `DisputeCloser`: the one place that ends a dispute (status, audit row, `fine.dispute.decided`). `DisputeQueryService`: reads and the operator list.
+* `OutboxService`: writes an event to the outbox (refuses to run without a transaction). `OutboxRelay` / `OutboxCleanup`: publish the rows, remove old ones.
 * `PermitService`: permits (the engine question `holdsAll` and operator CRUD). `Plates`, `ZoneIds`: normal forms of ids from requests.
 
-Every fine command locks the row (`select ... for update`), writes its `fine_actions` row in the same transaction and publishes its event after commit.
+Every fine command locks the row (`select ... for update`), writes its `fine_actions` row and its outbox event in the same transaction; the relay publishes the event after commit (see "Transactional outbox").
 
 Where to add things:
 
 * A new REST use case: the endpoint in the controller of its area (a new controller for a new area, URLs under `/api/v1/<area>`), the logic in a service of that area (a new `<Area>...Service` rather than growing one past about 200 lines), the response mapping in `mapper`.
-* A new fine command: a method in `FineManagementService` (lock, decide on the current state, mutate through a `Fine` method, audit row, event via `FineEvents`), a `FineActionType` value and the endpoint in `FineManagementController`.
+* A new fine command: a method in `FineManagementService` (lock, decide on the current state, mutate through a `Fine` method, audit row, event via `FineEvents`), a `FineActionType` value (and the value in the `fine_actions_action_check` constraint) and the endpoint in `FineManagementController`.
+* A new event: a record in `dto/event`, a routing key in `RabbitConfig`, a method in `FineEvents` (or `OutboxService.enqueue` directly) and its JSON schema in `contracts/events.json` of smart-parking-e2e. Never publish with `RabbitTemplate` directly: the outbox is the only way out.
 * A new violation type: `ViolationType`, its grace and fine amount in `RuleEngineProperties`, its check in `ViolationEvaluator`.
 * Data of another service: a port and adapter in `client` named `<Thing>Directory`.
 
@@ -182,12 +189,19 @@ a present claim, even an empty list, is never overridden. By default an operator
 | `GET /api/v1/fines/{id}/history` | `violation:read` + zone of the fine (admin: any zone) | audit trail, newest first, paged; 404 unknown |
 | `POST /api/v1/fines/{id}/void` | `fine:manage` + zone of the fine (admin: any zone) | body `{reason}`; 200 + the fine; 409 when the fine is paid; idempotent (already voided: 200, same body, nothing new); publishes `fine.voided` |
 | `POST /api/v1/fines/{id}/mark-paid` | `fine:manage` + zone of the fine (admin: any zone) | body `{reason, method}`; 200 + the fine; 409 when the fine is voided; idempotent (already paid: 200, nothing new); publishes `fine.paid` |
-| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid, voided}`; payment-service must not charge a voided fine |
+| `GET /api/v1/fines/{id}/evidence` | `violation:read` + zone of the fine (admin: any zone) | the frozen evidence incl. snapshot keys; `{recorded:false, fineId}` for fines issued before evidence was recorded; **404** for an unknown fine and for a fine outside the caller's zones |
+| `GET /api/v1/fines/{id}/explanation` | driver (plate of the fine in `plates` claim), or `violation:read` + zone | plain-language view, never snapshots or detection ids; 404 for someone else's fine; also for voided fines (the driver can see how a dispute ended) |
+| `POST /api/v1/fines/{id}/dispute` | driver (own plate, channel `driver`), or `fine:manage` + zone (channel `operator`, "customer called") | body `{message}` (10-1000 characters after trimming); 201 + `Location` + the dispute; 404 for someone else's fine; 409 when the fine is paid or voided, already has an open dispute or was already upheld |
+| `GET /api/v1/fines/{id}/dispute` | driver (own plate), or `violation:read` / `fine:manage` + zone | the latest dispute of the fine; 404 when there is none |
+| `POST /api/v1/disputes/{id}/withdraw` | driver (own plate) | 200 + the dispute; 404 for someone else's; 409 when not open any more |
+| `GET /api/v1/disputes?status=open\|decided\|all&zoneId=&page=&size=` | `fine:manage`, limited to the zones in the token (admin: all) | newest first, total in `X-Total-Count`; `status` defaults to `open`, `decided` = upheld, voided and withdrawn; `zoneId` must be one of the caller's zones (403 otherwise) |
+| `POST /api/v1/disputes/{id}/decision` | `fine:manage` + zone of the dispute (admin: any zone) | body `{outcome: upheld\|voided, note}` (note 10-1000 characters, mandatory); 200 + the dispute; 404 outside the caller's zones; 409 when already decided or withdrawn |
+| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid, voided, disputed}`; payment-service must not charge a voided fine nor start a payment while `disputed` |
 
 Fine JSON (read API and the response of the two commands; online payment goes through payment-service): `id, plate, zoneId, cameraId, reason, reasonCode, reasonText, amountSek,
-issuedAt, paid, imagePath, paidAt, voided, voidedAt`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
+issuedAt, paid, imagePath, paidAt, voided, voidedAt, disputed, disputeStatus`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
 `amountSek` a number, `issuedAt`, `paidAt` and `voidedAt` ISO-8601 instants; `cameraId`, `reasonCode`, `reasonText`, `imagePath`, `paidAt` and `voidedAt` may be null
-(`paidAt` is also null for fines paid before it was recorded). The owner's `userId`, the void reason and the actors are never returned here. The lists are served from
+(`paidAt` is also null for fines paid before it was recorded). `disputed` is true while a dispute is open, `disputeStatus` is the status of the latest dispute (`open | upheld | voided | withdrawn`) or null. The owner's `userId`, the void reason and the actors are never returned here. The lists are served from
 the indexes `fines_plate_issued_idx` and `fines_zone_issued_idx` (changeset 007). These endpoints replace the frontend's direct read of the `fines` table, so the row level
 security policy that lets every signed-in user read all fines can be dropped.
 
@@ -203,8 +217,36 @@ Void and mark-paid (permission `fine:manage`, an admin default; an operator need
 * The `reason` is operator free text: it is stored and shown to staff, never logged and never part of an event.
 
 Audit trail `GET /api/v1/fines/{id}/history`: `[{id, at, actorId, action, reason, details}]`, newest first (`?page=0&size=100`, total in `X-Total-Count`).
-`action` is `void | mark_paid | paid_online`; `actorId` is the operator (null for `paid_online`); `reason` is null for `paid_online`; `details` is `{}` for void,
-`{"method": "cash"}` for mark-paid and `{"method": "online", "paymentId": "..."}` for the online payment. Each command writes its row in the same transaction as the change.
+`action` is `void | mark_paid | paid_online | dispute_opened | dispute_upheld | dispute_voided | dispute_withdrawn`; `actorId` is the operator or driver (null for `paid_online` and
+for a dispute the system upheld); `reason` is null for `paid_online` and a withdrawal (for a dispute it is the message or the decision note); `details` is `{}` for void,
+`{"method": "cash"}` for mark-paid, `{"method": "online", "paymentId": "..."}` for the online payment, `{"disputeId", "channel"}` for `dispute_opened` and `{"disputeId"}` for the other
+dispute actions. Each command writes its row in the same transaction as the change.
+
+### Evidence and disputes
+
+**Frozen evidence.** When the fine sweep issues a fine, `FineIssuingService` writes one `fine_evidence` row in the same transaction (a rollback leaves neither fine nor evidence).
+It holds `plate, zoneId, zoneAddress, spotId, spotNumber, violationType, violationId, ruleSummary, graceMinutes, violationDetectedAt, graceExpiredAt, issuedAt, detectionIds, imagePaths,
+minConfidence, decisionBasis` (`automatic`). `ruleSummary` is plain text built when the violation was opened from the rule that decided it ("Parking is not allowed while this applies:
+zone rule "Weekday" (Mon-Fri 08:00-18:00)."), stored with the violation (`spot_violations.rule_summary`) and copied into the evidence, so editing the zone rules later changes nothing.
+`imagePaths` / `detectionIds` / `minConfidence` come from the newest (at most 10) non-rejected detections of the plate in the zone from 5 minutes before the violation until the fine
+(`detections`, read model `DetectionView`, ADR 0001); they are empty / null when there are none. Nothing updates or deletes evidence: the entity is `@Immutable`, the repository only
+has `save` and `findById`, and a trigger (`fine_evidence_immutable`) rejects every UPDATE and DELETE in the database (TRUNCATE is deliberately not covered). Fines issued before this
+change have no evidence (`recorded:false`, "not recorded"); nothing is back-filled. Snapshots can show other people's cars: only `GET .../evidence` (operators with `violation:read`)
+returns their keys, the driver's explanation never does. A key is used like the `imagePath` of a fine or detection (the existing snapshot endpoints of file-service/ingestion-service).
+
+**Disputes** (`fine_disputes`): `id, fine_id, plate, zone_id, opened_by_user_id, channel (driver|operator), message, status (open|upheld|voided|withdrawn), opened_at, decided_by_user_id,
+decided_at, decision_note`. At most one dispute per fine is open (partial unique index `fine_disputes_one_open_uq`). Rules:
+
+* A dispute can be opened for a fine that is neither paid nor voided; a second open dispute is 409; a fine that an operator already upheld cannot be disputed again (a withdrawn
+  dispute can be followed by a new one). The conflict messages are plain English sentences for the user interface.
+* While a dispute is open the fine cannot be paid: `disputed` in the internal API makes payment-service refuse to start a payment, and an operator's mark-paid is 409 ("decide the dispute first").
+* `decision` `voided` calls the existing `FineManagementService.voidFine` (same audit row, same `fine.voided` event, same row lock; the note is the void reason), which also ends the dispute as
+  voided. An operator's plain `void` of a fine with an open dispute ends the dispute as voided too. `upheld` ends it and releases the hold. A decided or withdrawn dispute is final.
+* A payment that completes for a fine whose dispute is still open (payment-service refuses to start one, so this is a race) is never refused or refunded here: the fine stays paid, the
+  system closes the dispute as `upheld` (no `decided_by_user_id`, note "Closed automatically: the fine was paid while the dispute was open.", audit `dispute_upheld` without actor) and
+  `fine.dispute.decided` is published. payment-service counts such payments in `payment_completed_for_disputed_total`.
+* Every command locks the fine row first (the same lock as void, mark-paid and the payment event) and then reads the dispute, so none of them interleave. The message and the decision
+  note are personal text: stored, shown to the driver and to staff, never logged and never part of an event. A fine or dispute the caller may not see is answered with 404, not 403.
 
 Violation JSON: `id, spotId, zoneId, plate, userId, violationType, detectedAt, graceUntil, lastSeenAt, resolvedAt,
 resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `violationType` is `BOUNDARY_EXCEEDED | WRONG_PERMIT | OVERSTAY | NO_PARKING | WRONG_VEHICLE_TYPE`.
@@ -220,6 +262,8 @@ resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `viol
 | published | `parkview.violation` / `fine.issued` | | `fineId, violationId, plate, userId?, zoneId, zoneAddress?, amountSek, timestamp(ms), violationType` |
 | published | `parkview.violation` / `fine.paid` | | `fineId, plate, zoneId, amountSek, method (online\|cash\|transfer\|other), occurredAt` |
 | published | `parkview.violation` / `fine.voided` | | `fineId, plate, zoneId, occurredAt` |
+| published | `parkview.violation` / `fine.disputed` | | `disputeId, fineId, plate, zoneId, channel (driver\|operator), occurredAt` |
+| published | `parkview.violation` / `fine.dispute.decided` | | `disputeId, fineId, plate, zoneId, userId?, outcome (upheld\|voided\|withdrawn), occurredAt`; `userId` is the owner of the plate when known |
 
 `vehicle.detected` is an **observation** published by ingestion for every occupied spot (throttled to about one per
 spot and plate every 30 s), not only for spots the detector flagged; the plate may be null (such observations are
@@ -229,25 +273,51 @@ treated as unknown. `violationType` of `violation.created` and `fine.issued` is 
 type of the violation the fine was issued for.
 
 Payloads are validated; invalid ones go to `parkview.dlq` without retry, transient failures are retried 4 times
-(exponential) before dead-lettering. Handlers are idempotent. Events are published after the database commit.
+(exponential) before dead-lettering. Handlers are idempotent. Events are written to the outbox in the transaction of the state change and published after it committed (see "Transactional outbox").
 `fine.issued` replaces the former key `violation.expired` (same payload).
 
 `fine.paid` is published once, on the actual transition from unpaid to paid: by the first `payment.completed.fine` of a fine (`method` `online`) or by an operator's
 mark-paid (`cash | transfer | other`). A repeated payment event, a repeated command or a payment of a fine that is already paid publishes nothing. `fine.voided` is published
-once when an operator voids a fine. Neither carries free text or the actor (that is in the audit trail); `amountSek` is the fine's amount, not the amount of the payment.
+once when an operator voids a fine (also when a dispute decision voids it). `fine.disputed` is published once when a dispute is opened, `fine.dispute.decided` once when it ends (also for a withdrawal
+and when the system upholds it because the fine was paid). None carries free text or the actor (that is in the audit trail); `amountSek` is the fine's amount, not the amount of the payment.
+
+## Transactional outbox
+
+Every event this service publishes (`violation.created`, `violation.resolved`, `fine.issued`, `fine.paid`, `fine.voided`, `fine.disputed`, `fine.dispute.decided`) is a row in `rule_outbox_events`, written by
+`OutboxService` in the same transaction as the state change (it refuses to run without one: a rollback leaves no event, a commit never loses one). The table is called `rule_outbox_events` because
+payment-service owns `outbox_events` in the same database and its relay publishes every row of that table. `OutboxRelay` (scheduled every `relay-interval`) claims due rows with `FOR UPDATE SKIP LOCKED`, sends them
+with publisher confirms and marks them published after the ack; consumers get what they got before: persistent JSON message, the row id as `messageId` (idempotency key), headers `x-event-type`, `x-source`
+(`rule-service`) and, when a request caused the event, `x-request-id` (the former `__TypeId__` header is gone, consumers infer the type from their listener).
+
+* Ordering: the claim query only offers the oldest unpublished row of each aggregate (a fine or a violation id), so the events of one fine leave in the order they were written and a failing row holds back only its own
+  fine. There is no order between different fines. The payload is stored as text (not jsonb), so the JSON the consumers get is byte-identical to the former direct publish.
+* Retries: nack, missing confirm or an unreachable broker leave the row in the outbox with exponential back-off (1 s, 2 s, 4 s ... `max-backoff`); rows are never given up, so a broker outage delays events and loses none.
+  Delivery is at least once: consumers de-duplicate on `messageId`.
+* A message the broker confirms but cannot route (no queue bound, e.g. no consumer connected yet) is counted (`rule_outbox_unroutable_total`), logged and treated as delivered, like the direct publish it replaces; with
+  `retry-unroutable=true` it stays in the outbox until a queue exists.
+* Clean-up: published rows older than `retention` are deleted hourly. Metrics: `rule_outbox_published_total`, `rule_outbox_failed_total`, `rule_outbox_unroutable_total`, `rule_outbox_pending`,
+  `rule_outbox_oldest_pending_seconds` (alert when it keeps growing: the broker is down or a row keeps failing; the row's `last_error` says why).
 
 ## Data
 
-Owned: `spot_violations`, `fines`, `plate_permits`, `fine_actions` (Liquibase `db/changelog`, idempotent and reconciling because the
-Supabase migrations created older shapes of the first two). Read only: `parking_spots`, `zones`, `zone_rules`, `sessions`, `user_plates`
+Owned: `spot_violations`, `fines`, `plate_permits`, `fine_actions`, `fine_evidence`, `fine_disputes`, `rule_outbox_events` (Liquibase `db/changelog`, idempotent and reconciling because the
+Supabase migrations created older shapes of the first two). Read only: `parking_spots`, `zones`, `zone_rules`, `sessions`, `user_plates`, `detections`
 (see "Data read from other services").
 
 * `spot_violations.violation_type` is upper-case; `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`).
   Changeset 006 widens `spot_violations_violation_type_check` and `fines_reason_check` idempotently.
 * `fines` also carries `paid_at`, `paid_method` (`online | cash | transfer | other`), `paid_by`, `voided_at`, `void_reason`, `voided_by` (changeset 008, add-if-missing;
   constraints `fines_paid_method_check` and `fines_not_paid_and_voided_check`). Fines paid before 008 have `paid_at` / `paid_method` null.
-* `fine_actions(id, fine_id -> fines on delete cascade, at, actor_id null, action void|mark_paid|paid_online, reason null, details jsonb)` with the index
+* `fine_actions(id, fine_id -> fines on delete cascade, at, actor_id null, action void|mark_paid|paid_online|dispute_opened|dispute_upheld|dispute_voided|dispute_withdrawn, reason null, details jsonb)` with the index
   `fine_actions_fine_at_idx (fine_id, at desc)`; row level security is on without policies (as for `plate_permits`): not reachable through PostgREST.
+* `fine_evidence(fine_id pk -> fines, plate, zone_id, zone_address, spot_id, spot_number, violation_type, violation_id, rule_summary, grace_minutes, violation_detected_at, grace_expired_at, issued_at,
+  detection_ids jsonb, image_paths jsonb, min_confidence numeric(5,4), decision_basis 'automatic', created_at)` (changeset 009; no cascade; trigger `fine_evidence_immutable` rejects UPDATE and DELETE),
+  and `spot_violations.rule_summary` (the rule text frozen into it).
+* `fine_disputes(id, fine_id -> fines on delete cascade, plate, zone_id, opened_by_user_id null, channel driver|operator, message, status open|upheld|voided|withdrawn, opened_at, decided_by_user_id null,
+  decided_at null, decision_note null)` (changeset 010) with the partial unique index `fine_disputes_one_open_uq (fine_id) where status = 'open'`, `fine_disputes_fine_opened_idx` and
+  `fine_disputes_zone_opened_idx`; row level security on without policies, like `fine_actions`.
+* `rule_outbox_events(id, seq identity, aggregate_type, aggregate_id, exchange, routing_key, payload text, request_id, created_at, published_at, attempts, next_attempt_at, last_error)` (changeset 011) with
+  partial indexes on the unpublished rows.
 * One open violation per plate, spot and type: partial unique index `spot_violations_open_uq`.
 * `plate_permits(plate, permit_type, zone_id null = all zones, valid_from, valid_to null = open ended, created_by)`.
   Permit types are compared case-insensitively against `parking_spots.permit_type`.
@@ -267,6 +337,7 @@ the mapped ones. Liquibase never creates or alters these tables and this service
 | `sessions` | session-service | `id`, `plate`, `zone_id`, `started_at`, `ended_at` | `SessionView` |
 | `user_plates` | Supabase schema (driver plates) | `id`, `user_id`, `plate` | `PlateOwnerView` |
 | `parking_spots` | parking-mapping-service | `id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read), `permit_type`, `coordinates` (jsonb), `boundary_grace_min`, `permit_grace_min`, `max_minutes` | `ParkingSpotView` |
+| `detections` | ingestion-service | `id`, `plate`, `corrected_plate`, `zone_id`, `image_path`, `confidence`, `review_status`, `at` (the snapshots that go into the evidence of a fine; rejected detections are left out) | `DetectionView` |
 
 ## Configuration
 
@@ -285,6 +356,18 @@ the mapped ones. Liquibase never creates or alters these tables and this service
 | `INTERNAL_API_KEY` | empty | no | secret for `/internal/**` and non-health actuator endpoints; empty disables them. Also sent as `X-Internal-Api-Key` to lookup-service |
 | `LOOKUP_SERVICE_URL` | `http://localhost:8089` | no | lookup-service base URL for vehicle registry data |
 | `DOCS_ENABLED` | `false` | no | Swagger UI and OpenAPI spec |
+
+Transactional outbox, Spring property `parkview.outbox.*` (set with `SPRING_APPLICATION_JSON` or the matching `PARKVIEW_OUTBOX_*` variables):
+
+| Property | Default | Description |
+|---|---|---|
+| `relay-enabled` | `true` | switch the scheduled relay and the clean-up off (tests, maintenance); events then accumulate in `rule_outbox_events` |
+| `relay-interval` | `250ms` | delay between two relay runs; also the delay between two events of one fine |
+| `batch-size` | `50` | rows claimed per run (at most one per fine or violation) |
+| `confirm-timeout` | `5s` | how long to wait for the broker's publisher confirm |
+| `max-backoff` | `60s` | upper bound of the exponential retry delay of a failing row |
+| `retention` | `14d` | how long published rows are kept |
+| `retry-unroutable` | `false` | `true`: a message without a bound queue stays in the outbox and is retried; `false`: it is counted and treated as delivered |
 
 Business settings, Spring property `parkview.rule-engine.*` (set with `SPRING_APPLICATION_JSON` or the matching `PARKVIEW_RULE_ENGINE_*` variables):
 
@@ -314,6 +397,27 @@ Lookup client, Spring property `parkview.lookup.*` (env `LOOKUP_SERVICE_URL` set
 | `negative-cache-ttl-seconds` | `60` | cache of "not found" and failed lookups |
 | `cache-max-size` | `10000` | cached plates |
 
+## Tracing
+
+Distributed tracing (OpenTelemetry through Micrometer Tracing, W3C `traceparent`) is **off by default**: while
+`TRACING_ENABLED` is unset there is no tracer, no exporter, no trace header and no connection attempt, and the
+service behaves exactly as before. It is switched on by environment variables alone:
+
+| Variable | Default | Description |
+|---|---|---|
+| `TRACING_ENABLED` | `false` | The single switch (`management.tracing.enabled`) |
+| `TRACING_SAMPLING` | `0.1` | Share of new traces recorded (`0` to `1`); a caller's sampled trace is always continued |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318` | OTLP/HTTP collector, spans go to `<endpoint>/v1/traces`; `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` takes a full URL |
+| `OTEL_SERVICE_NAME` | `rule-service` | Service name on the spans (default: `spring.application.name`) |
+
+Traced: incoming requests, the calls to lookup-service (client spans carrying `traceparent`), published events and consumed
+messages (continuing the publisher's trace).
+
+Not traced: `/actuator/**` (probes and scrapes are dropped before export). Spans never carry request or response
+bodies or tokens, and the raw URL (paths and queries hold plates and, on the stream, tokens) is removed before
+export: only the route template, method and status are recorded. `requestId` in the log pattern is unchanged; with
+tracing on Boot adds `[traceId-spanId]` to every log line.
+
 ## Run locally
 
 ```bash
@@ -331,6 +435,12 @@ fail-open case; vehicle-code mapping; grace values; overstay with a fixed clock)
 MockMvc security tests (401/403/404/409/400, problem+json), listener payloads, Testcontainers tests (unique index,
 `SKIP LOCKED` claim, permit queries, read models against Supabase-style tables with extra columns, `time`/array columns,
 Liquibase 006 and 008 on the legacy `fines` shape) and a full flow test against real Postgres and RabbitMQ (incl. void, manual and online payment events, and a void racing a payment).
+Evidence and disputes: `FineEvidenceServiceTest` (what is frozen, snapshots, fallbacks), `RuleSummariesTest` (the rule text per violation type), `FineEvidenceRepositoryTest` (round trip, the trigger
+rejects UPDATE and DELETE, the entity cannot change a row, no update/delete API), `FineIssuingTransactionTest` (fine, evidence and outbox row commit together, a rollback leaves none), `DisputeServiceTest`
+(rules, audit rows, events, void through the existing logic, payment hold, system upheld after a race, nothing logged), `DisputeRepositoryTest` (unique open index, constraints, latest status, list queries),
+`DisputeControllerTest` and `FineEvidenceControllerTest` (anonymous 401, other plate / other zone 404, missing permission 403, admin, validation 400, state errors 409, shapes, no snapshots in the explanation).
+Outbox: `OutboxRelayTest` (confirms, back-off, unroutable, order), `OutboxServiceTest` (bytes identical to the former direct publish), `OutboxEventRepositoryTest` (claim order, per-aggregate ordering, SKIP LOCKED
+with two sessions, clean-up), `OutboxRelayBrokerTest` and `RuleServiceFlowTest` (real RabbitMQ).
 The `fine:manage` / `violation:read` / zone matrices (admin, operator with and without the permission, other zone, driver, anonymous), body validation, the 409 cases,
 idempotency, voided fines hidden from lists and drivers, audit rows and event payloads are covered in `FineControllerTest`, `FineManagementControllerTest`, `FineManagementServiceTest`, `FineSettlementServiceTest` and `FineIssuingServiceTest`.
 
@@ -339,8 +449,11 @@ idempotency, voided fines hidden from lists and drivers, audit rows and event pa
 * Health: `/actuator/health/liveness` and `/readiness` (public); metrics: `/actuator/prometheus` (internal key). Logs carry `requestId`; plates are masked.
 * Several instances may run: inserts are protected by the unique index, fines by `SKIP LOCKED`.
 * Messages in `parkview.dlq` are invalid payloads or exhausted retries; inspect `x-death` headers.
-* Fines are never issued while the database or broker is unreachable; the sweep retries every `expire-sweep-ms`.
-  A violation that failed repeatedly is logged at ERROR with its id.
+* Fines are never issued while the database is unreachable; the sweep retries every `expire-sweep-ms`. A broker outage no longer blocks anything: events wait in `rule_outbox_events`
+  (watch `rule_outbox_pending` and `rule_outbox_oldest_pending_seconds`) and go out in order when the broker is back. A violation that failed repeatedly is logged at ERROR with its id.
+* Disputes pile up when nobody reads `GET /api/v1/disputes`: the `fine.disputed` event reaches notification-service and the operator stream. A fine under dispute that nobody decides stays unpayable;
+  an operator can always decide it or void the fine. A payment that raced with a dispute is logged at WARN ("paid while a dispute was open").
+* Snapshots in the evidence are storage keys: deleting a snapshot in storage does not change the evidence row, the key then simply resolves to nothing.
 * Without detections (camera or ingestion down) open violations are resolved as `LEFT` after `stale-minutes`
   instead of being fined.
 * Observations without a plate and polygons that cannot be parsed are ignored.

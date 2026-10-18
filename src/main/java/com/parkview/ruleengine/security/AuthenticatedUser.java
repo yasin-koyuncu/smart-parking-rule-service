@@ -2,6 +2,7 @@ package com.parkview.ruleengine.security;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 /**
  * The caller, as described by the verified JWT.
@@ -19,6 +20,15 @@ public record AuthenticatedUser(String userId, Role role, List<String> plates, L
 
     public boolean isOperatorOrAdmin() {
         return role == Role.ADMIN || role == Role.OPERATOR;
+    }
+
+    /** The token subject as a user id, or null when it is not a UUID (Supabase always issues one). */
+    public UUID userUuid() {
+        try {
+            return UUID.fromString(userId);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return null;
+        }
     }
 
     /** Upper-case, no spaces or dashes — the form plates are stored and compared in. */

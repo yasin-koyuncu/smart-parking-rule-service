@@ -77,6 +77,10 @@ public class Violation {
     @Column(name = "notified_at")
     private Instant notifiedAt;
 
+    /** Plain-language text of the rule that decided this violation when it was opened; null for older rows. */
+    @Column(name = "rule_summary", updatable = false)
+    private String ruleSummary;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
@@ -84,7 +88,14 @@ public class Violation {
     /** Opens a new violation that is first seen {@code detectedAt} and fined once {@code graceUntil} has passed. */
     public static Violation open(UUID spotId, String zoneId, String plate, UUID userId,
                                  ViolationType type, Instant detectedAt, Instant graceUntil) {
+        return open(spotId, zoneId, plate, userId, type, detectedAt, graceUntil, null);
+    }
+
+    /** Same, remembering the text of the rule that decided it (frozen into the evidence when the fine is issued). */
+    public static Violation open(UUID spotId, String zoneId, String plate, UUID userId,
+                                 ViolationType type, Instant detectedAt, Instant graceUntil, String ruleSummary) {
         Violation v = new Violation();
+        v.ruleSummary = ruleSummary;
         v.spotId = spotId;
         v.zoneId = zoneId;
         v.plate = plate;

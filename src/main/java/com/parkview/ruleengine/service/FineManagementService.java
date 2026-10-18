@@ -1,9 +1,11 @@
 package com.parkview.ruleengine.service;
 
+import com.parkview.ruleengine.domain.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineAction;
 import com.parkview.ruleengine.domain.FineActionType;
 import com.parkview.ruleengine.domain.PaidMethod;
+import com.parkview.ruleengine.repository.DisputeRepository;
 import com.parkview.ruleengine.repository.FineActionRepository;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.web.ConflictException;
@@ -23,8 +25,11 @@ import java.util.UUID;
  *
  * <p>Every command locks the fine row first and decides on its current state, so a void, a manual payment and the
  * online payment event (see {@link FineSettlementService}) never interleave. A command writes its {@code fine_actions}
- * audit row in the same transaction; its event is published after commit and only on the actual transition (a repeat
- * changes nothing and says nothing). The free text {@code reason} is stored but never logged and never part of an event.
+ * audit row and its outbox event in the same transaction, and only on the actual transition (a repeat changes nothing and
+ * says nothing). The free text {@code reason} is stored but never logged and never part of an event.
+ *
+ * <p>Disputes: voiding a fine ends its open dispute as voided (the void reason is the decision note); a fine with an open
+ * dispute cannot be marked as paid by hand, the dispute has to be decided first.
  */
 @Slf4j
 @Service
@@ -33,6 +38,8 @@ public class FineManagementService {
 
     private final FineRepository fines;
     private final FineActionRepository actions;
+    private final DisputeRepository disputes;
+    private final DisputeCloser disputeCloser;
     private final FineEvents events;
     private final Clock clock;
 
@@ -57,6 +64,7 @@ public class FineManagementService {
         fine.voidFine(now, reason, actor);
         actions.save(FineAction.of(fineId, now, actor, FineActionType.VOID, reason, Map.of()));
         events.voided(fine, now);
+        disputeCloser.closeOpen(fine, DisputeStatus.VOIDED, actor, reason, now);
         log.info("Fine {} voided by {}", fineId, actor);
         return fine;
     }
@@ -67,7 +75,7 @@ public class FineManagementService {
      *
      * @param method one of the manual methods (cash, transfer, other)
      * @throws ResourceNotFoundException when the id is unknown
-     * @throws ConflictException         when the fine is voided
+     * @throws ConflictException         when the fine is voided or has an open dispute
      */
     @Transactional
     public Fine markPaidManually(UUID fineId, String reason, PaidMethod method, UUID actor) {
@@ -80,6 +88,9 @@ public class FineManagementService {
         }
         if (fine.isVoided()) {
             throw new ConflictException("A voided fine cannot be marked as paid");
+        }
+        if (disputes.existsByFineIdAndStatus(fineId, DisputeStatus.OPEN)) {
+            throw new ConflictException("This fine is under review: decide the dispute before marking the fine as paid");
         }
         Instant now = clock.instant();
         fine.markPaid(now, method, actor);

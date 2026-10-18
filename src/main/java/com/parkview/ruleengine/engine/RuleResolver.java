@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -46,6 +47,7 @@ class RuleResolver {
         boolean noParking = false;
         String permitRequired = null;
         int maxMinutes = 0;
+        List<ZoneRule> deciding = new ArrayList<>();
 
         for (ZoneRule rule : rules.stream().sorted(EVALUATION_ORDER).toList()) {
             boolean decidesNoParking = !noParkingDecided && rule.noParking();
@@ -58,6 +60,7 @@ class RuleResolver {
                     || !vehicleMatches(rule, vehicle)) {
                 continue;
             }
+            deciding.add(rule);
             if (decidesNoParking) {
                 noParkingDecided = true;
                 noParking = true;
@@ -77,7 +80,7 @@ class RuleResolver {
                 break;
             }
         }
-        return new RuleOutcome(noParking, permitRequired, maxMinutes);
+        return new RuleOutcome(noParking, permitRequired, maxMinutes, List.copyOf(deciding));
     }
 
     private static boolean vehicleMatches(ZoneRule rule, VehicleContext vehicle) {

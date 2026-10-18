@@ -28,7 +28,7 @@ import static org.mockito.Mockito.when;
 
 class FineManagementServiceTest extends FineServiceTestBase {
 
-    private final FineManagementService service = new FineManagementService(fines, actions, fineEvents, clock);
+    private final FineManagementService service = new FineManagementService(fines, actions, disputes, closer, fineEvents, clock);
 
     // ---- void ----
 

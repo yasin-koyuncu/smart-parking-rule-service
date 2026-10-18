@@ -6,6 +6,7 @@ import com.parkview.ruleengine.domain.ResolutionReason;
 import com.parkview.ruleengine.domain.VehicleClass;
 import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.dto.event.VehicleDetectedEvent;
+import com.parkview.ruleengine.engine.Finding;
 import com.parkview.ruleengine.engine.Observation;
 import com.parkview.ruleengine.engine.ViolationEvaluator;
 import com.parkview.ruleengine.geometry.Polygon;
@@ -64,12 +65,13 @@ public class DetectionService {
         Observation observation = new Observation(ruleCache.zoneOf(event.zoneId()), spot, fit.get().insideLines(), plate,
                 VehicleClass.fromDetector(event.vehicleClass()).orElse(null), clock.instant());
 
-        Optional<ViolationType> violation = evaluator.evaluate(observation);
-        if (violation.isEmpty()) {
+        Optional<Finding> finding = evaluator.assess(observation);
+        if (finding.isEmpty()) {
             violationService.resolveOthers(plate, event.zoneId(), null, null, ResolutionReason.CORRECTED);
         } else {
-            violationService.confirm(spot, violation.get(), plate, event.cameraId());
-            violationService.resolveOthers(plate, event.zoneId(), spot.id(), violation.get(), ResolutionReason.CORRECTED);
+            ViolationType type = finding.get().type();
+            violationService.confirm(spot, type, plate, event.cameraId(), finding.get().ruleSummary());
+            violationService.resolveOthers(plate, event.zoneId(), spot.id(), type, ResolutionReason.CORRECTED);
         }
     }
 }

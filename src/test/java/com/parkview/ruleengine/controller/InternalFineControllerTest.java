@@ -68,7 +68,22 @@ class InternalFineControllerTest {
                 .andExpect(jsonPath("$.currency").value("SEK"))
                 .andExpect(jsonPath("$.paid").value(false))
                 .andExpect(jsonPath("$.voided").value(false))
-                .andExpect(jsonPath("$.length()").value(8));
+                .andExpect(jsonPath("$.disputed").value(false))
+                .andExpect(jsonPath("$.length()").value(9));
+    }
+
+    @Test
+    void aFineUnderDisputeIsFlaggedSoThatPaymentServiceRefusesToStartAPayment() throws Exception {
+        Fine fine = fine();
+        when(fineService.get(fine.getId())).thenReturn(fine);
+        when(fineService.isDisputed(fine.getId())).thenReturn(true);
+
+        mvc.perform(get("/internal/v1/fines/{id}", fine.getId()).header(InternalApiKeyFilter.HEADER, INTERNAL_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.disputed").value(true))
+                .andExpect(jsonPath("$.paid").value(false))
+                .andExpect(jsonPath("$.voided").value(false))
+                .andExpect(jsonPath("$.amountSek").value(700.0));
     }
 
     @Test

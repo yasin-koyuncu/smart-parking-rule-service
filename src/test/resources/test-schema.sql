@@ -71,3 +71,20 @@ create table if not exists sessions (
   payment_status text not null default 'UNPAID',
   created_at     timestamptz not null default now()
 );
+-- detections as owned by ingestion-service (Supabase base table plus the later columns), with more columns than rule-service maps.
+create table if not exists detections (
+  id               uuid primary key default gen_random_uuid(),
+  plate            text not null,
+  camera_id        text not null default 'cam-1',
+  zone_id          text not null,
+  outcome          text not null default 'detected',
+  at               timestamptz not null default now(),
+  user_id          uuid,
+  image_path       text,
+  confidence       numeric,
+  review_status    text not null default 'auto',
+  reviewed_by      uuid,
+  reviewed_at      timestamptz,
+  corrected_plate  text,
+  source           text
+);

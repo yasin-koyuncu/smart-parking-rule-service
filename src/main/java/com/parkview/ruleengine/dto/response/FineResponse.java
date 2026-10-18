@@ -21,6 +21,9 @@ public record FineResponse(
         String imagePath,
         @Schema(description = "When it was paid; null while unpaid and for fines paid before this was recorded") Instant paidAt,
         @Schema(description = "True when an operator voided the fine; a voided fine cannot be paid") boolean voided,
-        @Schema(description = "When the fine was voided; null when it is not voided") Instant voidedAt
+        @Schema(description = "When the fine was voided; null when it is not voided") Instant voidedAt,
+        @Schema(description = "True while a dispute is open: a person reviews the fine and it cannot be paid meanwhile") boolean disputed,
+        @Schema(description = "Status of the latest dispute of the fine; null when there never was one",
+                allowableValues = {"open", "upheld", "voided", "withdrawn"}) String disputeStatus
 ) {
 }

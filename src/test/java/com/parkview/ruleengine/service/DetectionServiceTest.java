@@ -7,6 +7,7 @@ import com.parkview.ruleengine.domain.VehicleClass;
 import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.domain.ZoneInfo;
 import com.parkview.ruleengine.dto.event.VehicleDetectedEvent;
+import com.parkview.ruleengine.engine.Finding;
 import com.parkview.ruleengine.engine.Observation;
 import com.parkview.ruleengine.engine.ViolationEvaluator;
 import com.parkview.ruleengine.geometry.Polygon;
@@ -68,35 +69,35 @@ class DetectionServiceTest {
     @Test
     void aViolationIsConfirmedAndEverythingElseOfThePlateIsCorrected() {
         parkedInSpot(true);
-        when(evaluator.evaluate(any(Observation.class))).thenReturn(Optional.of(ViolationType.WRONG_PERMIT));
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.of(new Finding(ViolationType.WRONG_PERMIT, "summary")));
 
         service.process(event("abc 123", SQUARE, null));
 
         InOrder order = inOrder(violations);
-        order.verify(violations).confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1");
+        order.verify(violations).confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", "summary");
         order.verify(violations).resolveOthers(PLATE, ZONE, spot.id(), ViolationType.WRONG_PERMIT, ResolutionReason.CORRECTED);
     }
 
     @Test
     void aDifferentTypeThanBeforeOpensTheNewViolationAndResolvesTheOthers() {
         parkedInSpot(true);
-        when(evaluator.evaluate(any(Observation.class))).thenReturn(Optional.of(ViolationType.OVERSTAY));
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.of(new Finding(ViolationType.OVERSTAY, "summary")));
 
         service.process(event(PLATE, SQUARE, "car"));
 
-        verify(violations).confirm(spot, ViolationType.OVERSTAY, PLATE, "cam-1");
+        verify(violations).confirm(spot, ViolationType.OVERSTAY, PLATE, "cam-1", "summary");
         verify(violations).resolveOthers(PLATE, ZONE, spot.id(), ViolationType.OVERSTAY, ResolutionReason.CORRECTED);
     }
 
     @Test
     void theEvaluatorGetsTheSpotTheZoneThePlateTheDetectorClassAndTheClockTime() {
         parkedInSpot(false);
-        when(evaluator.evaluate(any(Observation.class))).thenReturn(Optional.empty());
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.empty());
 
         service.process(event("abc 123", SQUARE, "motorcycle"));
 
         ArgumentCaptor<Observation> captured = ArgumentCaptor.forClass(Observation.class);
-        verify(evaluator).evaluate(captured.capture());
+        verify(evaluator).assess(captured.capture());
         Observation observation = captured.getValue();
         assertThat(observation.spot()).isEqualTo(spot);
         assertThat(observation.zone()).isEqualTo(zoneInfo);
@@ -109,23 +110,23 @@ class DetectionServiceTest {
     @Test
     void anUnknownDetectorClassIsPassedOnAsUnknown() {
         parkedInSpot(true);
-        when(evaluator.evaluate(any(Observation.class))).thenReturn(Optional.empty());
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.empty());
 
         service.process(event(PLATE, SQUARE, "hovercraft"));
 
         ArgumentCaptor<Observation> captured = ArgumentCaptor.forClass(Observation.class);
-        verify(evaluator).evaluate(captured.capture());
+        verify(evaluator).assess(captured.capture());
         assertThat(captured.getValue().detectedClass()).isNull();
     }
 
     @Test
     void noViolationResolvesOpenViolationsAsCorrected() {
         parkedInSpot(true);
-        when(evaluator.evaluate(any(Observation.class))).thenReturn(Optional.empty());
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.empty());
 
         service.process(event(PLATE, SQUARE, null));
 
-        verify(violations, never()).confirm(any(), any(), anyString(), anyString());
+        verify(violations, never()).confirm(any(), any(), anyString(), anyString(), any());
         verify(violations).resolveOthers(PLATE, ZONE, null, null, ResolutionReason.CORRECTED);
     }
 

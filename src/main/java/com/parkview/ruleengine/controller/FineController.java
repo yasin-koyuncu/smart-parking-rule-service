@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.controller;
 
+import com.parkview.ruleengine.domain.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.dto.response.FineActionResponse;
 import com.parkview.ruleengine.dto.response.FineResponse;
@@ -17,6 +18,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -36,7 +39,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/fines")
 @RequiredArgsConstructor
-@Tag(name = "Fines", description = "Fines issued by the rule engine: read API and the operator commands void and mark-paid")
+@Tag(name = "Fines", description = "Fines issued by the rule engine: read API, the operator commands void and mark-paid, evidence and disputes")
 public class FineController {
 
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "issuedAt").and(Sort.by("id"));
@@ -61,10 +64,8 @@ public class FineController {
             @Parameter(description = "Page size, at most 500") @RequestParam(defaultValue = "100") int size) {
         AuthenticatedUser user = currentUser.require();
         accessPolicy.requirePlate(user, plate);
-        return PagedResponses.of(fines
-                .byPlate(Plates.normalize(plate), includeVoided && user.isOperatorOrAdmin(),
-                        PagedResponses.pageable(page, size, NEWEST_FIRST))
-                .map(FineMapper::toResponse));
+        return PagedResponses.of(respond(fines.byPlate(Plates.normalize(plate), includeVoided && user.isOperatorOrAdmin(),
+                PagedResponses.pageable(page, size, NEWEST_FIRST))));
     }
 
     @GetMapping("/zone/{zoneId}")
@@ -83,9 +84,8 @@ public class FineController {
             @Parameter(description = "Zero-based page") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size, at most 500") @RequestParam(defaultValue = "100") int size) {
         accessPolicy.requireZone(currentUser.require(), zoneId);
-        return PagedResponses.of(fines
-                .byZone(zoneId, paid, includeVoided, PagedResponses.pageable(page, size, NEWEST_FIRST))
-                .map(FineMapper::toResponse));
+        return PagedResponses.of(respond(fines.byZone(zoneId, paid, includeVoided,
+                PagedResponses.pageable(page, size, NEWEST_FIRST))));
     }
 
     @GetMapping("/{id}")
@@ -107,13 +107,13 @@ public class FineController {
             }
             accessPolicy.requirePlate(user, fine.getPlate());
         }
-        return FineMapper.toResponse(fine);
+        return FineMapper.toResponse(fine, fines.disputeStatusOf(id));
     }
 
     @GetMapping("/{id}/history")
     @PreAuthorize("hasAuthority('violation:read')")
     @Operation(summary = "Audit trail of a fine",
-            description = "Voids, manual payments and online payments, newest first. Needs permission violation:read and the zone of the fine "
+            description = "Voids, manual payments, online payments and the dispute lifecycle, newest first. Needs permission violation:read and the zone of the fine "
                     + "(administrators: any zone).")
     @ApiResponse(responseCode = "200", description = "A page of entries; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "Not an operator of the fine's zone")
@@ -126,5 +126,11 @@ public class FineController {
         return PagedResponses.of(fines
                 .history(id, PagedResponses.pageable(page, size, HISTORY_NEWEST_FIRST))
                 .map(FineActionMapper::toResponse));
+    }
+
+    /** One extra query for the dispute state of the whole page. */
+    private Page<FineResponse> respond(Page<Fine> page) {
+        Map<UUID, DisputeStatus> disputeStatuses = fines.disputeStatusesOf(page.getContent());
+        return page.map(fine -> FineMapper.toResponse(fine, disputeStatuses.get(fine.getId())));
     }
 }

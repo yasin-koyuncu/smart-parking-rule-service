@@ -23,8 +23,8 @@ import static org.mockito.Mockito.when;
 
 class FineSettlementServiceTest extends FineServiceTestBase {
 
-    private final FineSettlementService service = new FineSettlementService(fines, actions, fineEvents, clock);
-    private final FineManagementService management = new FineManagementService(fines, actions, fineEvents, clock);
+    private final FineSettlementService service = new FineSettlementService(fines, actions, closer, fineEvents, clock);
+    private final FineManagementService management = new FineManagementService(fines, actions, disputes, closer, fineEvents, clock);
 
     // ---- online payment (payment.completed.fine) ----
 
@@ -60,7 +60,7 @@ class FineSettlementServiceTest extends FineServiceTestBase {
 
         assertThat(fine.isPaid()).isTrue();
         verify(actions, times(1)).save(any(FineAction.class));
-        verify(events, times(1)).publish(eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.paid"), any());
+        verify(events, times(1)).enqueue(any(), any(), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.paid"), any());
     }
 
     @Test

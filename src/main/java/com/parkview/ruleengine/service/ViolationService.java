@@ -11,7 +11,6 @@ import com.parkview.ruleengine.domain.ViolationType;
 import com.parkview.ruleengine.dto.event.ViolationCreatedEvent;
 import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.engine.EngineMetrics;
-import com.parkview.ruleengine.messaging.EventPublisher;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.web.ConflictException;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
@@ -36,7 +35,7 @@ import java.util.UUID;
  * {@link FineIssuingService} and the scheduled jobs in {@link ViolationJobs}.
  *
  * <p>Every state change runs in its own short transaction (a failing row never blocks the others)
- * and its event is published after that transaction commits.
+ * and its event is written to the outbox in that same transaction.
  */
 @Slf4j
 @Service
@@ -48,7 +47,7 @@ public class ViolationService {
     private final ViolationRepository violations;
     private final PlateOwnerDirectory plateOwners;
     private final ZoneDirectory zones;
-    private final EventPublisher events;
+    private final OutboxService outbox;
     private final RuleEngineProperties properties;
     private final EngineMetrics metrics;
     private final Clock clock;
@@ -59,9 +58,17 @@ public class ViolationService {
      * the existing one. A concurrent insert that loses against the partial unique index is "already exists".
      */
     public void confirm(ParkingSpot spot, ViolationType type, String plate, String cameraId) {
+        confirm(spot, type, plate, cameraId, null);
+    }
+
+    /**
+     * Same, remembering the plain-language text of the rule that decided it when a new violation is opened (it ends up in
+     * the evidence of the fine).
+     */
+    public void confirm(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary) {
         Instant now = clock.instant();
         try {
-            tx.executeWithoutResult(status -> confirmOrOpen(spot, type, plate, cameraId, now));
+            tx.executeWithoutResult(status -> confirmOrOpen(spot, type, plate, cameraId, ruleSummary, now));
         } catch (DataIntegrityViolationException e) {
             if (violations.findActive(plate, spot.id(), type).isEmpty()) {
                 throw e;
@@ -70,7 +77,8 @@ public class ViolationService {
         }
     }
 
-    private void confirmOrOpen(ParkingSpot spot, ViolationType type, String plate, String cameraId, Instant now) {
+    private void confirmOrOpen(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary,
+                               Instant now) {
         var active = violations.findActive(plate, spot.id(), type);
         if (active.isPresent()) {
             touchIfDue(active.get(), now);
@@ -83,7 +91,7 @@ public class ViolationService {
             violations.touch(fined.get(0), now);
             return;
         }
-        open(spot, type, plate, cameraId, now);
+        open(spot, type, plate, cameraId, ruleSummary, now);
     }
 
     private void touchIfDue(Violation violation, Instant now) {
@@ -93,14 +101,14 @@ public class ViolationService {
         }
     }
 
-    private void open(ParkingSpot spot, ViolationType type, String plate, String cameraId, Instant now) {
+    private void open(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary, Instant now) {
         UUID owner = plateOwners.ownerOf(plate).orElse(null);
         int graceMinutes = properties.graceMinutesFor(spot, type);
         Violation violation = violations.saveAndFlush(Violation.open(
-                spot.id(), spot.zoneId(), plate, owner, type, now, now.plus(Duration.ofMinutes(graceMinutes))));
+                spot.id(), spot.zoneId(), plate, owner, type, now, now.plus(Duration.ofMinutes(graceMinutes)), ruleSummary));
 
-        events.publish(RabbitConfig.VIOLATION_EXCHANGE, RabbitConfig.VIOLATION_CREATED_KEY,
-                new ViolationCreatedEvent(violation.getId(), plate, spot.zoneId(),
+        outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
+                RabbitConfig.VIOLATION_CREATED_KEY, new ViolationCreatedEvent(violation.getId(), plate, spot.zoneId(),
                         zones.addressOf(spot.zoneId()).orElse(null), cameraId, owner, spot.id(),
                         spot.spotNumber(), type, graceMinutes, now.toEpochMilli()));
         metrics.violationCreated(type);
@@ -149,9 +157,9 @@ public class ViolationService {
         tx.executeWithoutResult(status -> {
             Instant now = clock.instant();
             if (violations.resolveIfActive(violation.getId(), reason, now) == 1) {
-                events.publish(RabbitConfig.VIOLATION_EXCHANGE, RabbitConfig.VIOLATION_RESOLVED_KEY,
-                        new ViolationResolvedEvent(violation.getId(), violation.getPlate(),
-                                violation.getZoneId(), reason, now));
+                outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
+                        RabbitConfig.VIOLATION_RESOLVED_KEY, new ViolationResolvedEvent(violation.getId(),
+                                violation.getPlate(), violation.getZoneId(), reason, now));
                 log.info("Violation {} resolved ({})", violation.getId(), reason);
             }
         });

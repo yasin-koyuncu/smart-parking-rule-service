@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.controller;
 
+import com.parkview.ruleengine.domain.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.PaidMethod;
 import com.parkview.ruleengine.domain.Violation;
@@ -25,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static com.parkview.ruleengine.controller.WebTestSupport.token;
@@ -103,8 +105,32 @@ class FineControllerTest {
                 .andExpect(jsonPath("$[0].paidAt").value(nullValue()))
                 .andExpect(jsonPath("$[0].voided").value(false))
                 .andExpect(jsonPath("$[0].voidedAt").value(nullValue()))
+                .andExpect(jsonPath("$[0].disputed").value(false))
+                .andExpect(jsonPath("$[0].disputeStatus").value(nullValue()))
                 .andExpect(jsonPath("$[0].userId").doesNotExist())
-                .andExpect(jsonPath("$[0].length()").value(14));
+                .andExpect(jsonPath("$[0].length()").value(16));
+    }
+
+    @Test
+    void listItemsCarryTheDisputeStateOfTheirFine() throws Exception {
+        when(fineService.byPlate(eq("ABC123"), eq(false), any())).thenReturn(page(fine));
+        when(fineService.disputeStatusesOf(any())).thenReturn(Map.of(fine.getId(), DisputeStatus.OPEN));
+
+        mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("driver", List.of("ABC123"), List.of())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].disputed").value(true))
+                .andExpect(jsonPath("$[0].disputeStatus").value("open"));
+    }
+
+    @Test
+    void aDecidedDisputeIsReportedWithItsStatusButIsNoLongerADisputedFine() throws Exception {
+        when(fineService.get(fine.getId())).thenReturn(fine);
+        when(fineService.disputeStatusOf(fine.getId())).thenReturn(DisputeStatus.UPHELD);
+
+        mvc.perform(get("/api/v1/fines/{id}", fine.getId()).with(user("driver", List.of("ABC123"), List.of())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.disputed").value(false))
+                .andExpect(jsonPath("$.disputeStatus").value("upheld"));
     }
 
     @Test
@@ -115,7 +141,7 @@ class FineControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reason").value("wrong_permit"))
                 .andExpect(jsonPath("$.userId").doesNotExist())
-                .andExpect(jsonPath("$.length()").value(14));
+                .andExpect(jsonPath("$.length()").value(16));
     }
 
     // ---- GET /plate/{plate} ----

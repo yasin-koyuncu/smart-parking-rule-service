@@ -51,7 +51,13 @@ public class ViolationEvaluator {
     private final RuleEngineProperties properties;
     private final EngineMetrics metrics;
 
+    /** The violation the observation commits, if any. */
     public Optional<ViolationType> evaluate(Observation observation) {
+        return assess(observation).map(Finding::type);
+    }
+
+    /** The same decision, together with the plain-language text of the rule that decided it. */
+    public Optional<Finding> assess(Observation observation) {
         metrics.observationEvaluated();
         ParkingSpot spot = observation.spot();
         String zoneId = spot.zoneId();
@@ -61,18 +67,23 @@ public class ViolationEvaluator {
         RuleOutcome outcome = ruleResolver.resolve(rules, observation.zone(), observation.at(), vehicle);
 
         if (spot.isNoParking() || outcome.noParking()) {
-            return Optional.of(ViolationType.NO_PARKING);
+            return finding(ViolationType.NO_PARKING, observation, outcome, 0);
         }
         if (spot.isEv() && observation.plate() != null && vehicle.fuel() == Fuel.OTHER) {
-            return Optional.of(ViolationType.WRONG_VEHICLE_TYPE);
+            return finding(ViolationType.WRONG_VEHICLE_TYPE, observation, outcome, 0);
         }
         if (lacksRequiredPermit(observation, outcome)) {
-            return Optional.of(ViolationType.WRONG_PERMIT);
+            return finding(ViolationType.WRONG_PERMIT, observation, outcome, 0);
         }
         if (overstays(observation, outcome)) {
-            return Optional.of(ViolationType.OVERSTAY);
+            return finding(ViolationType.OVERSTAY, observation, outcome, effectiveLimitMinutes(observation, outcome));
         }
-        return observation.insideLines() ? Optional.empty() : Optional.of(ViolationType.BOUNDARY_EXCEEDED);
+        return observation.insideLines() ? Optional.empty()
+                : finding(ViolationType.BOUNDARY_EXCEEDED, observation, outcome, 0);
+    }
+
+    private static Optional<Finding> finding(ViolationType type, Observation observation, RuleOutcome outcome, int limitMinutes) {
+        return Optional.of(new Finding(type, RuleSummaries.of(type, observation, outcome, limitMinutes)));
     }
 
     /** One permit query for every permit type demanded (spot and rule), compared case-insensitively. */

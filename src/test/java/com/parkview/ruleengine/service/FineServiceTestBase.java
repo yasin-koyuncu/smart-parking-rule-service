@@ -6,7 +6,7 @@ import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineAction;
 import com.parkview.ruleengine.domain.ViolationType;
-import com.parkview.ruleengine.messaging.EventPublisher;
+import com.parkview.ruleengine.repository.DisputeRepository;
 import com.parkview.ruleengine.repository.FineActionRepository;
 import com.parkview.ruleengine.repository.FineRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,11 +36,14 @@ abstract class FineServiceTestBase {
     protected final FineActionRepository actions = mock(FineActionRepository.class);
     protected final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     protected final ZoneDirectory zones = mock(ZoneDirectory.class);
-    protected final EventPublisher events = mock(EventPublisher.class);
-    protected final FineEvents fineEvents = new FineEvents(events, zones);
+    protected final DisputeRepository disputes = mock(DisputeRepository.class);
+    protected final FineEvidenceService evidence = mock(FineEvidenceService.class);
+    protected final OutboxService events = mock(OutboxService.class);
+    protected final FineEvents fineEvents = new FineEvents(events, zones, owners);
+    protected final DisputeCloser closer = new DisputeCloser(disputes, actions, fineEvents);
     protected final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     protected final FineIssuingService issuing =
-            new FineIssuingService(fines, owners, fineEvents, TestFixtures.properties(), clock);
+            new FineIssuingService(fines, owners, fineEvents, evidence, TestFixtures.properties(), clock);
 
     @BeforeEach
     void stubRepositories() {
@@ -51,6 +54,7 @@ abstract class FineServiceTestBase {
         });
         when(owners.ownerOf(any())).thenReturn(Optional.empty());
         when(zones.addressOf(any())).thenReturn(Optional.empty());
+        when(disputes.findByFineIdAndStatus(any(), any())).thenReturn(Optional.empty());
     }
 
     /** An issued, unpaid fine of 700 SEK that the repository hands out (and locks) by id; issuing events are forgotten. */
@@ -69,7 +73,8 @@ abstract class FineServiceTestBase {
 
     protected Object publishedPayload(String routingKey) {
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-        verify(events).publish(eq(RabbitConfig.VIOLATION_EXCHANGE), eq(routingKey), payload.capture());
+        verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE), eq(routingKey),
+                payload.capture());
         return payload.getValue();
     }
 }

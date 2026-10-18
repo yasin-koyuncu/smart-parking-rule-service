@@ -3,6 +3,9 @@ package com.parkview.ruleengine;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkview.ruleengine.domain.PaidMethod;
+import com.parkview.ruleengine.domain.DisputeChannel;
+import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.service.DisputeService;
 import com.parkview.ruleengine.service.FineManagementService;
 import com.parkview.ruleengine.web.ConflictException;
 import org.junit.jupiter.api.BeforeEach;
@@ -76,6 +79,8 @@ class RuleServiceFlowTest {
     ObjectMapper mapper;
     @Autowired
     FineManagementService fineService;
+    @Autowired
+    DisputeService disputeService;
 
     /** Every probe message that {@link #awaitEvent} has read ("routing key body"), so tests can also assert what was NOT repeated. */
     private final List<String> consumed = new ArrayList<>();
@@ -262,6 +267,93 @@ class RuleServiceFlowTest {
         assertThat(audit.get("action")).isEqualTo("paid_online");
         assertThat(audit.get("actor_id")).isNull();
         assertThat(audit.get("details").toString()).contains("online");
+    }
+
+    @Test
+    void anAutomaticFineFreezesItsEvidenceAndAnOpenDisputeHoldsTheFineUntilTheSystemOrAnOperatorEndsIt() {
+        String zone = newZone("permit", "resident");
+        String plate = newPlate();
+        UUID owner = UUID.randomUUID();
+        jdbc.update("insert into user_plates (user_id, plate) values (?, ?)", owner, plate);
+        detect(zone, plate, VEHICLE_IN_SPOT);
+        awaitEvent("violation.created", plate);
+        jdbc.update("insert into detections (plate, zone_id, image_path, confidence) values (?, ?, 'snapshots/cam-1/flow.jpg', 0.88)", plate, zone);
+        jdbc.update("update spot_violations set grace_until = now() - interval '1 minute' where plate = ?", plate);
+        UUID fineId = UUID.fromString(awaitEvent("fine.issued", plate).get("fineId").asText());
+
+        // frozen evidence, written with the fine
+        Map<String, Object> evidence = jdbc.queryForMap("select * from fine_evidence where fine_id = ?", fineId);
+        assertThat(evidence.get("violation_type")).isEqualTo("WRONG_PERMIT");
+        assertThat(evidence.get("zone_address")).isEqualTo("Testgatan 1");
+        assertThat(evidence.get("spot_number")).isEqualTo("A1");
+        assertThat(evidence.get("rule_summary").toString()).contains("the spot requires a resident permit");
+        assertThat(evidence.get("image_paths").toString()).contains("snapshots/cam-1/flow.jpg");
+        assertThat(evidence.get("decision_basis")).isEqualTo("automatic");
+        jdbc.update("update zones set address = 'Renamed street 9' where id = ?", zone);
+        assertThat(jdbc.queryForObject("select zone_address from fine_evidence where fine_id = ?", String.class, fineId)).isEqualTo("Testgatan 1");
+
+        // the driver disputes it: announced, and the fine cannot be marked as paid meanwhile
+        var dispute = disputeService.open(fineId, DisputeChannel.DRIVER, owner, "I had a permit but it was not registered yet");
+        JsonNode disputed = awaitEvent("fine.disputed", plate);
+        assertThat(disputed.get("disputeId").asText()).isEqualTo(dispute.getId().toString());
+        assertThat(disputed.get("channel").asText()).isEqualTo("driver");
+        assertThat(disputed.fieldNames()).toIterable().containsExactlyInAnyOrder("disputeId", "fineId", "plate", "zoneId", "channel", "occurredAt");
+        assertThatThrownBy(() -> fineService.markPaidManually(fineId, "Paid at the counter", PaidMethod.CASH, UUID.randomUUID()))
+                .isInstanceOf(ConflictException.class);
+
+        // a payment that raced with the dispute is never refused: the fine stays paid, the system upholds the dispute
+        payOnline(fineId);
+        JsonNode decided = awaitEvent("fine.dispute.decided", plate);
+        assertThat(decided.get("outcome").asText()).isEqualTo("upheld");
+        assertThat(decided.get("userId").asText()).isEqualTo(owner.toString());
+        assertThat(decided.fieldNames()).toIterable().containsExactlyInAnyOrder("disputeId", "fineId", "plate", "zoneId", "userId", "outcome", "occurredAt", "decisionNote");
+        assertThat(jdbc.queryForObject("select paid from fines where id = ?", Boolean.class, fineId)).isTrue();
+        Map<String, Object> row = jdbc.queryForMap("select * from fine_disputes where id = ?", dispute.getId());
+        assertThat(row.get("status")).isEqualTo("upheld");
+        assertThat(row.get("decided_by_user_id")).isNull();
+        assertThat(jdbc.queryForList("select action from fine_actions where fine_id = ? order by at, action", String.class, fineId))
+                .containsExactlyInAnyOrder("dispute_opened", "paid_online", "dispute_upheld");
+    }
+
+    @Test
+    void anOperatorVoidingTheFineThroughTheDisputeAnnouncesTheVoidBeforeTheDecision() {
+        UUID fineId = insertFine(newPlate(), newZone("paid", null));
+        UUID operator = UUID.randomUUID();
+        var dispute = disputeService.open(fineId, DisputeChannel.OPERATOR, operator, "The customer called and explained");
+
+        disputeService.decide(dispute.getId(), DisputeStatus.VOIDED, operator, "The delivery note proves the stop");
+        assertThatThrownBy(() -> disputeService.decide(dispute.getId(), DisputeStatus.UPHELD, operator, "Changed my mind later"))
+                .isInstanceOf(ConflictException.class);
+
+        String plate = plateOf(fineId);
+        JsonNode decided = awaitEvent("fine.dispute.decided", plate);
+        assertThat(decided.get("outcome").asText()).isEqualTo("voided");
+        assertThat(published("fine.voided", plate)).isEqualTo(1);
+        assertThat(published("fine.dispute.decided", plate)).isEqualTo(1);
+        int voidedAt = consumed.indexOf(consumed.stream().filter(m -> m.startsWith("fine.voided ") && m.contains(plate)).findFirst().orElseThrow());
+        int decidedAt = consumed.indexOf(consumed.stream().filter(m -> m.startsWith("fine.dispute.decided ") && m.contains(plate)).findFirst().orElseThrow());
+        assertThat(voidedAt).as("events of one fine leave in the order they were written").isLessThan(decidedAt);
+        Map<String, Object> fine = jdbc.queryForMap("select * from fines where id = ?", fineId);
+        assertThat(fine.get("void_reason")).isEqualTo("The delivery note proves the stop");
+        assertThat(jdbc.queryForList("select action from fine_actions where fine_id = ?", String.class, fineId))
+                .containsExactlyInAnyOrder("dispute_opened", "void", "dispute_voided");
+    }
+
+    @Test
+    void everyEventGoesThroughTheOutboxAndIsMarkedPublishedOnceTheBrokerConfirmed() {
+        String zone = newZone("no_parking", null);
+        String plate = newPlate();
+
+        detect(zone, plate, VEHICLE_IN_SPOT);
+        awaitEvent("violation.created", plate);
+
+        await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(jdbc.queryForObject(
+                "select count(*) from rule_outbox_events where routing_key = 'violation.created' and published_at is not null "
+                        + "and payload like ?", Integer.class, "%" + plate + "%")).isEqualTo(1));
+        Map<String, Object> row = jdbc.queryForMap("select * from rule_outbox_events where payload like ?", "%" + plate + "%");
+        assertThat(row.get("aggregate_type")).isEqualTo("violation");
+        assertThat(row.get("exchange")).isEqualTo("parkview.violation");
+        assertThat(row.get("attempts")).isEqualTo(0);
     }
 
     private UUID insertFine(String plate, String zone) {

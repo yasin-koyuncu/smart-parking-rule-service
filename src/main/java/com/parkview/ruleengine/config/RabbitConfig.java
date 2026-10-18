@@ -31,6 +31,8 @@ public class RabbitConfig {
     public static final String FINE_ISSUED_KEY = "fine.issued";
     public static final String FINE_PAID_KEY = "fine.paid";
     public static final String FINE_VOIDED_KEY = "fine.voided";
+    public static final String FINE_DISPUTED_KEY = "fine.disputed";
+    public static final String FINE_DISPUTE_DECIDED_KEY = "fine.dispute.decided";
 
     @Bean
     TopicExchange vehicleExchange() {
