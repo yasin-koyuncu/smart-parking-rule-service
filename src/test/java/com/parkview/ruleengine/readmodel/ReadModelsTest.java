@@ -198,6 +198,63 @@ class ReadModelsTest {
         assertThat(view.getCoordinates()).isEqualTo("[[0, 0], [0, 10], [10, 10], [10, 0]]");
     }
 
+    private UUID insertViewSpot(String zone, UUID viewId, String imagePolygon) {
+        return jdbc.queryForObject("""
+                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon, boundary_grace_min)
+                values (?, 'paid', 'polygon', null, 'V1', ?, ?::jsonb, 7) returning id""",
+                UUID.class, zone, viewId, imagePolygon);
+    }
+
+    @Test
+    void spotsOnAViewLoadWithTheirImagePolygonAndNullCoordinates() {
+        UUID view = UUID.randomUUID();
+        UUID onView = insertViewSpot("z1", view, "[[10, 10], [10, 90], [90, 90]]");
+        insertViewSpot("z1", UUID.randomUUID(), "[[1, 1], [1, 2], [2, 2]]");
+        insertViewSpot("z2", view, "[[1, 1], [1, 2], [2, 2]]");
+        jdbc.update("insert into parking_spots (zone_id, type, shape, coordinates, view_id) values ('z1', 'paid', 'polygon', '[[0, 0], [0, 1], [1, 1]]'::jsonb, ?)", view);
+        entityManager.clear();
+
+        List<PlacedSpot> found = spots.findSpotsOnView(view, "z1");
+
+        assertThat(found).hasSize(2);
+        PlacedSpot placed = found.stream().filter(p -> p.spot().getId().equals(onView)).findFirst().orElseThrow();
+        assertThat(placed.imagePolygon()).isEqualTo("[[10, 10], [10, 90], [90, 90]]");
+        assertThat(placed.spot().getCoordinates()).isNull();
+        assertThat(placed.spot().getBoundaryGraceMin()).isEqualTo(7);
+        assertThat(spots.findSpotsOnView(UUID.randomUUID(), "z1")).isEmpty();
+    }
+
+    @Test
+    void polygonSpotsOutsideViewsAreTheLegacyOnes() {
+        UUID legacy = insertSpot("z1", "polygon", "[[0, 0], [0, 10], [10, 10]]");
+        insertSpot("z1", "point", "[59.3, 18.0]");
+        insertViewSpot("z1", UUID.randomUUID(), "[[1, 1], [1, 2], [2, 2]]");
+
+        List<ParkingSpotView> found = spots.findPolygonSpotsOutsideViews("z1");
+
+        assertThat(found).extracting(ParkingSpotView::getId).containsExactly(legacy);
+        assertThat(spots.findPolygonSpotsByZoneId("z1")).hasSize(2);
+    }
+
+    @Test
+    void aSpotIsFoundByIdWhetherOrNotItIsOnAView() {
+        UUID legacy = insertSpot("z1", "polygon", "[[0, 0], [0, 10], [10, 10]]");
+        UUID onView = insertViewSpot("z1", UUID.randomUUID(), "[[1, 1], [1, 2], [2, 2]]");
+
+        assertThat(spots.findById(legacy)).get().extracting(ParkingSpotView::getSpotNumber).isEqualTo("A1");
+        assertThat(spots.findById(onView)).get().extracting(ParkingSpotView::getSpotNumber).isEqualTo("V1");
+        assertThat(spots.findById(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void thePlacementViewIsAnImmutableSubselectSoSchemaValidationDoesNotNeedItsColumns() {
+        assertThat(SpotPlacementView.class.isAnnotationPresent(Immutable.class)).isTrue();
+        assertThat(SpotPlacementView.class.isAnnotationPresent(org.hibernate.annotations.Subselect.class)).isTrue();
+        assertThat(SpotPlacementView.class.isAnnotationPresent(Table.class)).isFalse();
+        assertThat(Arrays.stream(SpotPlacementView.class.getMethods()).map(Method::getName)).noneMatch(name -> name.startsWith("set"));
+        assertThat(Modifier.isProtected(SpotPlacementView.class.getDeclaredConstructors()[0].getModifiers())).isTrue();
+    }
+
     @Test
     void repositoriesExposeNoWriteApi() {
         for (Class<?> repository : REPOSITORIES) {

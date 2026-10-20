@@ -23,6 +23,9 @@ import java.util.Optional;
  * spot it occupies, the rule engine decides what (if anything) it breaks there, and the open violations of the
  * plate are confirmed, opened or resolved accordingly.
  *
+ * <p>An observation carrying a {@code viewId} is matched against the spots of that camera view, one without against the
+ * legacy spots of the zone (see {@link SpotCacheService}).
+ *
  * <p>An observation without a plate cannot be attributed to anyone and is ignored.
  */
 @Slf4j
@@ -43,9 +46,11 @@ public class DetectionService {
             log.debug("Observation in zone {} without a plate: ignored", event.zoneId());
             return;
         }
-        List<ParkingSpot> spots = spotCache.spotsOf(event.zoneId());
+        // An observation made on a camera view is matched against the spots of that view (their image polygons), a legacy one
+        // against the zone's spots that are on no view; the two kinds are never mixed.
+        List<ParkingSpot> spots = spotCache.spotsOf(event.zoneId(), event.viewId());
         if (spots.isEmpty()) {
-            log.debug("Zone {} has no polygon spots: nothing to check", event.zoneId());
+            log.debug("Zone {} view {} has no polygon spots: nothing to check", event.zoneId(), event.viewId());
             return;
         }
         Polygon vehicle;

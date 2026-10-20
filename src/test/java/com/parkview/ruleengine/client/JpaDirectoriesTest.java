@@ -67,7 +67,7 @@ class JpaDirectoriesTest {
         jdbc.update("delete from parking_spots");
         jdbc.update("delete from user_plates");
         jdbc.update("delete from zones");
-        spots = new JpaSpotDirectory(spotViews, new ObjectMapper());
+        spots = new JpaSpotDirectory(spotViews, new ObjectMapper(), new SpotViewSchema(jdbc));
         owners = new JpaPlateOwnerDirectory(plateViews);
         zones = new JpaZoneDirectory(zoneViews);
         rules = new JpaZoneRuleDirectory(ruleViews);
@@ -120,6 +120,61 @@ class JpaDirectoriesTest {
         insertSpot("z1", "polygon", "paid", null, "[[0, 0], [0, 10], [10, 10]]", null, null);
 
         assertThat(spots.polygonSpotsOf("z1")).hasSize(1);
+    }
+
+    private UUID insertViewSpot(String zone, UUID viewId, String shape, String imagePolygon, String coordinates) {
+        return jdbc.queryForObject("""
+                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon)
+                values (?, 'permit', ?, ?::jsonb, 'V1', ?, ?::jsonb) returning id""",
+                UUID.class, zone, shape, coordinates, viewId, imagePolygon);
+    }
+
+    @Test
+    void legacySpotsAreThoseDrawnOnNoViewAndAnUnpositionedGeoSpotIsSkipped() {
+        UUID view = UUID.randomUUID();
+        insertSpot("z1", "polygon", "paid", null, "[[0, 0], [0, 10], [10, 10]]", null, null);
+        insertViewSpot("z1", view, "polygon", "[[5, 5], [5, 50], [50, 50]]", "[[0, 0], [0, 10], [10, 10]]");
+        jdbc.update("insert into parking_spots (zone_id, type, shape, coordinates) values ('z1', 'paid', 'polygon', null)");
+
+        List<ParkingSpot> found = spots.polygonSpotsOf("z1");
+
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).spotNumber()).isEqualTo("A1");
+    }
+
+    @Test
+    void viewSpotsUseTheImagePolygonOfThatViewOnly() {
+        UUID view = UUID.randomUUID();
+        UUID otherView = UUID.randomUUID();
+        UUID geoSpot = insertViewSpot("z1", view, "geo", "[[0, 0], [0, 20], [20, 20], [20, 0]]", null);
+        insertViewSpot("z1", otherView, "polygon", "[[1, 1], [1, 9], [9, 9]]", "[[1, 1], [1, 9], [9, 9]]");
+        insertViewSpot("z2", view, "polygon", "[[1, 1], [1, 9], [9, 9]]", null);
+        insertViewSpot("z1", view, "polygon", null, "[[1, 1], [1, 9], [9, 9]]");
+        insertViewSpot("z1", view, "polygon", "[[1, 1], [2, 2]]", null);
+        insertSpot("z1", "polygon", "paid", null, "[[0, 0], [0, 10], [10, 10]]", null, null);
+
+        List<ParkingSpot> found = spots.polygonSpotsOfView("z1", view);
+
+        assertThat(found).hasSize(1);
+        ParkingSpot spot = found.get(0);
+        assertThat(spot.id()).isEqualTo(geoSpot);
+        assertThat(spot.zoneId()).isEqualTo("z1");
+        assertThat(spot.spotNumber()).isEqualTo("V1");
+        assertThat(spot.type()).isEqualTo("permit");
+        assertThat(PolygonGeometry.area(spot.polygon())).isEqualTo(400.0);
+        assertThat(spots.polygonSpotsOfView("z1", UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void theSpotNumberIsReadForLegacyAndViewSpots() {
+        UUID view = UUID.randomUUID();
+        insertSpot("z1", "polygon", "paid", null, "[[0, 0], [0, 10], [10, 10]]", null, null);
+        UUID onView = insertViewSpot("z1", view, "polygon", "[[1, 1], [1, 9], [9, 9]]", null);
+        UUID legacy = jdbc.queryForObject("select id from parking_spots where view_id is null", UUID.class);
+
+        assertThat(spots.spotNumberOf(legacy)).contains("A1");
+        assertThat(spots.spotNumberOf(onView)).contains("V1");
+        assertThat(spots.spotNumberOf(UUID.randomUUID())).isEmpty();
     }
 
     @Test

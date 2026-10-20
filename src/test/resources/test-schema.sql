@@ -24,7 +24,7 @@ create table if not exists parking_spots (
   zone_id            text not null,
   type               text not null,
   shape              text not null,
-  coordinates        jsonb not null,
+  coordinates        jsonb,                -- null for a spot that only has a geo polygon (parking-mapping-service)
   spot_number        text,
   label              text,
   max_minutes        integer,
@@ -35,7 +35,28 @@ create table if not exists parking_spots (
   source             text default 'manual',
   ai_confidence      numeric(4,3),
   created_at         timestamptz not null default now(),
-  updated_at         timestamptz not null default now()
+  updated_at         timestamptz not null default now(),
+  view_id            uuid,                 -- camera_views.id; null for a legacy spot (raw camera pixels in coordinates)
+  image_polygon      jsonb                 -- polygon in the corrected image of the view, [[x,y],...]
+);
+-- Camera views (parking-mapping-service). rule-service does not read this table, only the two parking_spots columns above.
+create table if not exists camera_views (
+  id                  uuid primary key default gen_random_uuid(),
+  camera_id           text not null,
+  zone_id             text not null,
+  label               text not null,
+  preset_token        text,
+  original_image_key  text not null,
+  corrected_image_key text not null,
+  image_width         integer not null,
+  image_height        integer not null,
+  perspective_matrix  jsonb,
+  reference_points    jsonb,
+  geo_matrix          jsonb,
+  active              boolean not null default true,
+  calibrated_at       timestamptz,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now()
 );
 -- zone_rules as created by the Supabase migration: time / text[] / int[] columns plus columns rule-service does not map.
 create table if not exists zone_rules (

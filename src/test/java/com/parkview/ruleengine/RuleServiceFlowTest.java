@@ -149,6 +149,43 @@ class RuleServiceFlowTest {
         return found[0];
     }
 
+    private void detectOnView(String zone, String plate, List<List<Integer>> polygon, UUID viewId) {
+        rabbit.convertAndSend("parkview.vehicle", "vehicle.detected", Map.of(
+                "cameraId", "cam-1", "zoneId", zone, "plate", plate, "vehiclePolygon", polygon,
+                "iou", 1.0, "confidence", 0.9, "timestamp", System.currentTimeMillis(), "viewId", viewId.toString()));
+    }
+
+    @Test
+    void anObservationOnACameraViewIsMatchedAgainstTheSpotsOfThatViewAndALegacyOneAgainstTheLegacySpots() {
+        String zone = "zone-" + UUID.randomUUID();
+        UUID view = UUID.randomUUID();
+        jdbc.update("insert into zones (id, address) values (?, 'Testgatan 1')", zone);
+        // a legacy spot at the origin (raw camera pixels) and a spot drawn on a view far away (image polygon, no coordinates)
+        jdbc.update("""
+                insert into parking_spots (zone_id, type, shape, coordinates, spot_number)
+                values (?, 'no_parking', 'polygon', ?::jsonb, 'LEGACY')""", zone, SPOT_POLYGON);
+        jdbc.update("""
+                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon)
+                values (?, 'no_parking', 'polygon', null, 'ON-VIEW', ?, ?::jsonb)""", zone, view, "[[100, 100], [100, 110], [110, 110], [110, 100]]");
+        String legacyAtView = newPlate();
+        String viewAtLegacy = newPlate();
+        String onView = newPlate();
+        String legacy = newPlate();
+
+        detect(zone, legacyAtView, VEHICLE_ELSEWHERE);                       // legacy event, where only the view spot is
+        detectOnView(zone, viewAtLegacy, VEHICLE_IN_SPOT, view);             // view event, where only the legacy spot is
+        detectOnView(zone, onView, VEHICLE_ELSEWHERE, view);
+        detect(zone, legacy, VEHICLE_IN_SPOT);
+
+        String sql = "select s.spot_number from spot_violations v join parking_spots s on s.id = v.spot_id where v.plate = ?";
+        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(200)).untilAsserted(() -> {
+            assertThat(jdbc.queryForList(sql, String.class, onView)).containsExactly("ON-VIEW");
+            assertThat(jdbc.queryForList(sql, String.class, legacy)).containsExactly("LEGACY");
+        });
+        awaitProcessed();
+        assertThat(jdbc.queryForObject("select count(*) from spot_violations where plate in (?, ?)", Integer.class, legacyAtView, viewAtLegacy)).isZero();
+    }
+
     @Test
     void wrongPermitViolationIsCreatedOnceAndPublished() {
         String zone = newZone("permit", "resident");

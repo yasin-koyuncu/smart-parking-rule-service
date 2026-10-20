@@ -34,7 +34,12 @@ rule-service --GET /internal/v1/vehicles/{plate}?country=--> lookup-service   (o
 Flow for one observation (`DetectionService`):
 
 1. No plate: ignored (a violation cannot be attributed).
-2. Bounding-box pre-filter, then the spot with the largest overlap is chosen (`BoundaryService`); the vehicle counts
+2. The candidate spots depend on the observation: with a `viewId` (the frame was checked against a camera view) they
+   are the spots of that view and their geometry is `parking_spots.image_polygon`, the pixel space of the view's
+   corrected image that `vehiclePolygon` is in; without one (legacy) they are the zone's spots that are on no view,
+   geometry `coordinates` (raw camera pixels). The two sets are never mixed: a legacy observation cannot match a view
+   spot and a view observation cannot match a legacy spot. Then a bounding-box pre-filter, and the spot with the
+   largest overlap is chosen (`BoundaryService`); the vehicle counts
    as parked there when at least `min-overlap` of it lies in the spot. Only that spot is evaluated. Inside the lines
    means IoU >= `iou-threshold` or containment >= `containment-threshold`.
 3. The rule engine (`ViolationEvaluator`) returns the violation, if any (see "Rule engine").
@@ -255,7 +260,7 @@ resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `viol
 
 | Direction | Exchange / routing key | Queue | Payload |
 |---|---|---|---|
-| consumed | `parkview.vehicle` / `vehicle.detected` | `vehicle.detected` | `cameraId, zoneId, plate?, vehiclePolygon[[x,y]], spotId?, spotNumber?, iou, confidence, timestamp(ms), vehicleClass?` |
+| consumed | `parkview.vehicle` / `vehicle.detected` | `vehicle.detected` | `cameraId, zoneId, plate?, vehiclePolygon[[x,y]], spotId?, spotNumber?, iou, confidence, timestamp(ms), vehicleClass?, viewId?` |
 | consumed | `parkview.payment` / `payment.completed.fine` | `payment.completed.rule-engine` | `paymentId, referenceId (fine id), referenceType, userId?, amountSek, timestamp(ms)` |
 | published | `parkview.violation` / `violation.created` | | `violationId, plate, zoneId, zoneAddress?, cameraId?, userId?, spotId, spotNumber?, violationType, graceMinutes, timestamp(ms)` |
 | published | `parkview.violation` / `violation.resolved` | | `violationId, plate, zoneId, reason (CORRECTED\|LEFT\|MANUAL), occurredAt` |
@@ -268,7 +273,8 @@ resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `viol
 `vehicle.detected` is an **observation** published by ingestion for every occupied spot (throttled to about one per
 spot and plate every 30 s), not only for spots the detector flagged; the plate may be null (such observations are
 ignored). `vehicleClass` is `car | motorcycle | bus | truck`, absent or null when unknown; other values are tolerated and
-treated as unknown. `violationType` of `violation.created` and `fine.issued` is the upper-case enum name
+treated as unknown. `viewId` (uuid, optional) is the camera view the frame was checked against; it selects which spots the
+vehicle is matched against (see flow step 2) and is absent for observations of a camera without views. `violationType` of `violation.created` and `fine.issued` is the upper-case enum name
 (`BOUNDARY_EXCEEDED | WRONG_PERMIT | OVERSTAY | NO_PARKING | WRONG_VEHICLE_TYPE`); `fine.issued.violationType` is the
 type of the violation the fine was issued for.
 
@@ -336,8 +342,21 @@ the mapped ones. Liquibase never creates or alters these tables and this service
 | `zone_rules` | Supabase schema / parking-mapping-service | `id`, `zone_id`, `label`, `priority`, `enabled`, `vehicle_types` (`text[]`), `permit_required`, `weekdays` (`int[]`), `start_time`, `end_time` (`time`, read as text and parsed), `applies_holidays`, `max_minutes`, `no_parking` | `ZoneRuleView` |
 | `sessions` | session-service | `id`, `plate`, `zone_id`, `started_at`, `ended_at` | `SessionView` |
 | `user_plates` | Supabase schema (driver plates) | `id`, `user_id`, `plate` | `PlateOwnerView` |
-| `parking_spots` | parking-mapping-service | `id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read), `permit_type`, `coordinates` (jsonb), `boundary_grace_min`, `permit_grace_min`, `max_minutes` | `ParkingSpotView` |
+| `parking_spots` | parking-mapping-service | `id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read for legacy spots), `permit_type`, `coordinates` (jsonb, null for a spot that only has a geo polygon: skipped), `boundary_grace_min`, `permit_grace_min`, `max_minutes` | `ParkingSpotView` |
+| `parking_spots` (camera views) | parking-mapping-service | `view_id` (uuid, null = legacy spot), `image_polygon` (jsonb, polygon in the view's corrected image) | `SpotPlacementView` (a `@Subselect`, see below) |
 | `detections` | ingestion-service | `id`, `plate`, `corrected_plate`, `zone_id`, `image_path`, `confidence`, `review_status`, `at` (the snapshots that go into the evidence of a fine; rejected detections are left out) | `DetectionView` |
+
+**Camera views.** A spot is either a legacy spot (`view_id` null, polygon in `coordinates`) or drawn on a camera view
+(`view_id` set, polygon in `image_polygon`). `SpotDirectory` has `polygonSpotsOf(zone)` for the first kind and
+`polygonSpotsOfView(zone, viewId)` for the second; `SpotCacheService` caches each separately (key: zone and view id,
+the same TTL; there is no `map.updated` invalidation, the TTL is the only way a change in mapping becomes visible).
+The two columns are read through `SpotPlacementView`, a `@Subselect` entity and not a `@Table` one, because
+`ddl-auto: validate` would refuse to start against a database that has not got the migration yet; `SpotViewSchema`
+asks `information_schema` whether both columns exist each time a zone is loaded. In a database without them every
+polygon spot is a legacy spot and there are no view spots (no error, and the migration is noticed without a restart).
+A view query also filters on the zone of the event, so a view id never yields spots of another zone.
+The test schema (`src/test/resources/test-schema.sql`) has the new columns and `camera_views`;
+`test-schema-before-views.sql` takes it back to the old shape for `SpotsBeforeViewsMigrationTest`.
 
 ## Configuration
 
@@ -383,7 +402,7 @@ Business settings, Spring property `parkview.rule-engine.*` (set with `SPRING_AP
 | `expire-sweep-ms` / `expire-batch-size` | `60000` / `20` | fine sweep delay and batch size |
 | `stale-minutes` / `stale-sweep-ms` | `15` / `60000` | re-confirmation window and sweep delay |
 | `touch-interval-seconds` | `10` | minimum time between `last_seen_at` writes per violation |
-| `spot-cache-ttl-minutes` | `5` | how long zone polygons are cached |
+| `spot-cache-ttl-minutes` | `5` | how long zone polygons are cached (per zone and view) |
 | `rule-cache-ttl-seconds` | `60` | how long a zone's rules and master data (`zones`) are cached; operator edits take effect within this time |
 | `vehicle-lookup-enabled` | `true` | whether vehicle registry data may be fetched; off means every decision that needs it is "cannot judge" |
 

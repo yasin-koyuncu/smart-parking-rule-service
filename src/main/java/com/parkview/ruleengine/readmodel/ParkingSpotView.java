@@ -18,7 +18,8 @@ import java.util.UUID;
  * rule-service reads the spot geometry and grace settings to decide which spot a detected vehicle occupies.
  * Maps just the columns used; never written by this service and never created by its Liquibase changelog.
  * {@code coordinates} is kept as the raw JSON text so that unusable geometry is rejected per spot by the
- * adapter instead of failing the whole query.
+ * adapter instead of failing the whole query; it is null for a spot that only has a geo polygon. The camera-view columns
+ * ({@code view_id}, {@code image_polygon}) are deliberately not mapped here, see {@link SpotPlacementView}.
  */
 @Entity
 @Immutable

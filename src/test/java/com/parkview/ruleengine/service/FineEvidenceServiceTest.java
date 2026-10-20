@@ -57,7 +57,7 @@ class FineEvidenceServiceTest {
         fine = Fine.issue(violation, new BigDecimal("700"), null, ISSUED);
         ReflectionTestUtils.setField(fine, "id", UUID.randomUUID());
         when(zones.addressOf(TestFixtures.ZONE)).thenReturn(Optional.of("Storgatan 1"));
-        when(spots.spotsOf(TestFixtures.ZONE)).thenReturn(List.of(spot));
+        when(spots.spotNumberOf(spot.id())).thenReturn(Optional.of("A1"));
         when(detections.involvedIn(any(), any(), any(), any(), anyInt())).thenReturn(List.of());
         when(evidence.save(any(FineEvidence.class))).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -131,7 +131,7 @@ class FineEvidenceServiceTest {
 
     @Test
     void aSpotThatNoLongerExistsLeavesTheSpotNumberOutButNotTheEvidence() {
-        when(spots.spotsOf(TestFixtures.ZONE)).thenReturn(List.of());
+        when(spots.spotNumberOf(spot.id())).thenReturn(Optional.empty());
 
         FineEvidence e = recorded();
 

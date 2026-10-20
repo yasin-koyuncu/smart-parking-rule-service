@@ -37,7 +37,7 @@ class ListenersTest {
     void vehicleListenerDelegatesToTheDetectionService() {
         DetectionService detection = mock(DetectionService.class);
         VehicleDetectedEvent event = new VehicleDetectedEvent("cam", "zone", "ABC123",
-                List.of(List.of(0.0, 0.0), List.of(1.0, 0.0), List.of(1.0, 1.0)), null, null, 1.0, 0.9, 1L, "car");
+                List.of(List.of(0.0, 0.0), List.of(1.0, 0.0), List.of(1.0, 1.0)), null, null, 1.0, 0.9, 1L, "car", null);
 
         new VehicleEventListener(detection).onVehicleDetected(event);
 
@@ -69,6 +69,22 @@ class ListenersTest {
         assertThat(event.vehicleClass()).isNull();
         assertThat(event.vehiclePolygon()).hasSize(4);
         assertThat(validator.validate(event)).isEmpty();
+    }
+
+    @Test
+    void theOptionalViewIdIsReadAndItsAbsenceMeansALegacyObservation() throws Exception {
+        String template = "{\"cameraId\":\"c\",\"zoneId\":\"z\",\"plate\":\"ABC123\",\"vehiclePolygon\":[[0,0],[0,1],[1,1]]%s}";
+
+        VehicleDetectedEvent onView = mapper.readValue(
+                template.formatted(",\"viewId\":\"7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11\",\"somethingNew\":1"), VehicleDetectedEvent.class);
+        VehicleDetectedEvent legacy = mapper.readValue(template.formatted(""), VehicleDetectedEvent.class);
+        VehicleDetectedEvent explicitNull = mapper.readValue(template.formatted(",\"viewId\":null"), VehicleDetectedEvent.class);
+
+        assertThat(onView.viewId()).isEqualTo(UUID.fromString("7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11"));
+        assertThat(validator.validate(onView)).isEmpty();
+        assertThat(legacy.viewId()).isNull();
+        assertThat(explicitNull.viewId()).isNull();
+        assertThat(validator.validate(legacy)).isEmpty();
     }
 
     @Test

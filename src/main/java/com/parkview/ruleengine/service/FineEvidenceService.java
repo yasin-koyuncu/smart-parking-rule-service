@@ -68,10 +68,8 @@ public class FineEvidenceService {
         return new FineExplanation(fine, frozen.orElse(null), address, status);
     }
 
+    /** The spot's label, whether it is a legacy spot or drawn on a camera view; null when the spot no longer exists. */
     private String spotNumberOf(Violation violation) {
-        return spots.spotsOf(violation.getZoneId()).stream()
-                .filter(spot -> spot.id().equals(violation.getSpotId()))
-                .map(spot -> spot.spotNumber())
-                .findFirst().orElse(null);
+        return spots.spotNumberOf(violation.getSpotId()).orElse(null);
     }
 }

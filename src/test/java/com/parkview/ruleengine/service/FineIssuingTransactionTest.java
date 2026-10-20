@@ -107,7 +107,7 @@ class FineIssuingTransactionTest {
         spot = TestFixtures.spot("permit", "resident", 0, 30);
         when(owners.ownerOf(any())).thenReturn(Optional.empty());
         when(zones.addressOf(any())).thenReturn(Optional.of("Storgatan 1"));
-        when(spots.spotsOf(TestFixtures.ZONE)).thenReturn(List.of(spot));
+        when(spots.spotNumberOf(spot.id())).thenReturn(Optional.of("A1"));
         when(detections.involvedIn(any(), any(), any(), any(), anyInt())).thenReturn(List.of(
                 new DetectionDirectory.Detection(UUID.randomUUID(), "snapshots/cam-1/a.jpg", new BigDecimal("0.91"), NOW.minusSeconds(120)),
                 new DetectionDirectory.Detection(UUID.randomUUID(), "snapshots/cam-1/b.jpg", new BigDecimal("0.87"), NOW.minusSeconds(240))));

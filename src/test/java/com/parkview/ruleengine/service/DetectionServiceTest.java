@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -53,12 +54,16 @@ class DetectionServiceTest {
     @BeforeEach
     void setUp() {
         service = new DetectionService(spotCache, ruleCache, boundary, evaluator, violations, Clock.fixed(NOW, ZoneOffset.UTC));
-        when(spotCache.spotsOf(ZONE)).thenReturn(List.of(spot));
+        when(spotCache.spotsOf(ZONE, null)).thenReturn(List.of(spot));
         when(ruleCache.zoneOf(ZONE)).thenReturn(zoneInfo);
     }
 
     private static VehicleDetectedEvent event(String plate, List<List<Double>> polygon, String vehicleClass) {
-        return new VehicleDetectedEvent("cam-1", ZONE, plate, polygon, null, null, 0.9, 0.9, NOW.toEpochMilli(), vehicleClass);
+        return new VehicleDetectedEvent("cam-1", ZONE, plate, polygon, null, null, 0.9, 0.9, NOW.toEpochMilli(), vehicleClass, null);
+    }
+
+    private static VehicleDetectedEvent eventOnView(UUID viewId) {
+        return new VehicleDetectedEvent("cam-1", ZONE, PLATE, SQUARE, null, null, 0.9, 0.9, NOW.toEpochMilli(), null, viewId);
     }
 
     private void parkedInSpot(boolean insideLines) {
@@ -150,7 +155,7 @@ class DetectionServiceTest {
 
     @Test
     void zonesWithoutSpotsAreSkipped() {
-        when(spotCache.spotsOf(ZONE)).thenReturn(List.of());
+        when(spotCache.spotsOf(ZONE, null)).thenReturn(List.of());
 
         service.process(event(PLATE, SQUARE, null));
 
@@ -160,6 +165,44 @@ class DetectionServiceTest {
     @Test
     void anUnusablePolygonIsDiscarded() {
         service.process(event(PLATE, List.of(List.of(0.0, 0.0), List.of(1.0), List.of(2.0, 2.0)), null));
+
+        verifyNoInteractions(boundary, evaluator, violations);
+    }
+
+    @Test
+    void anObservationOnAViewIsMatchedAgainstTheSpotsOfThatViewOnly() {
+        UUID viewId = UUID.randomUUID();
+        ParkingSpot viewSpot = TestFixtures.spot("no_parking", null, 0, 0);
+        when(spotCache.spotsOf(ZONE, viewId)).thenReturn(List.of(viewSpot));
+        when(boundary.check(any(Polygon.class), eq(List.of(viewSpot))))
+                .thenReturn(Optional.of(new BoundaryCheckResult(viewSpot, 1.0, 1.0, true)));
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.of(new Finding(ViolationType.NO_PARKING, "summary")));
+
+        service.process(eventOnView(viewId));
+
+        verify(spotCache).spotsOf(ZONE, viewId);
+        verify(spotCache, never()).spotsOf(ZONE, null);
+        verify(boundary, never()).check(any(Polygon.class), eq(List.of(spot)));
+        verify(violations).confirm(viewSpot, ViolationType.NO_PARKING, PLATE, "cam-1", "summary");
+    }
+
+    @Test
+    void aLegacyObservationNeverSeesTheSpotsOfAView() {
+        parkedInSpot(true);
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.empty());
+
+        service.process(event(PLATE, SQUARE, null));
+
+        verify(spotCache).spotsOf(ZONE, null);
+        verify(spotCache, never()).spotsOf(eq(ZONE), any(UUID.class));
+    }
+
+    @Test
+    void aViewWithoutSpotsIsSkippedEvenWhenTheZoneHasLegacySpots() {
+        UUID viewId = UUID.randomUUID();
+        when(spotCache.spotsOf(ZONE, viewId)).thenReturn(List.of());
+
+        service.process(eventOnView(viewId));
 
         verifyNoInteractions(boundary, evaluator, violations);
     }
