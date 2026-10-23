@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * An immutable simple polygon given by its vertices (the closing edge is implicit).
- * Either winding order is accepted; {@link PolygonGeometry} normalises where it matters.
+ * Either winding order is accepted; {@link PolygonGeometry} does not care which way round the vertices go.
  */
 public record Polygon(List<Point> vertices) {
 

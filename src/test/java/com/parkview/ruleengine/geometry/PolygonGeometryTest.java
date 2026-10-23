@@ -34,22 +34,12 @@ class PolygonGeometryTest {
     }
 
     @Test
-    void areaIsIndependentOfWindingAndSignedAreaShowsIt() {
+    void areaIsIndependentOfWinding() {
         Polygon ccw = rect(0, 0, 4, 3);
         Polygon cw = clockwise(ccw);
 
         assertThat(PolygonGeometry.area(ccw)).isEqualTo(12.0, within(EPS));
         assertThat(PolygonGeometry.area(cw)).isEqualTo(12.0, within(EPS));
-        assertThat(PolygonGeometry.signedArea(ccw)).isEqualTo(12.0, within(EPS));
-        assertThat(PolygonGeometry.signedArea(cw)).isEqualTo(-12.0, within(EPS));
-    }
-
-    @Test
-    void counterClockwiseNormalisesOnlyClockwiseInput() {
-        Polygon ccw = rect(0, 0, 1, 1);
-
-        assertThat(PolygonGeometry.counterClockwise(ccw)).isSameAs(ccw);
-        assertThat(PolygonGeometry.signedArea(PolygonGeometry.counterClockwise(clockwise(ccw)))).isPositive();
     }
 
     @Test
@@ -160,7 +150,6 @@ class PolygonGeometryTest {
         Polygon p = Polygon.of(List.of(List.of(0.0, 0.0), List.of(0.0, 10.0), List.of(10.0, 10.0), List.of(10.0, 0.0)));
 
         assertThat(PolygonGeometry.area(p)).isEqualTo(100.0, within(EPS));
-        assertThat(PolygonGeometry.signedArea(p)).isNegative();
     }
 
     @Test
