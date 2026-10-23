@@ -41,7 +41,9 @@ Flow for one observation (`DetectionService`):
    spot and a view observation cannot match a legacy spot. Then a bounding-box pre-filter, and the spot with the
    largest overlap is chosen (`BoundaryService`); the vehicle counts
    as parked there when at least `min-overlap` of it lies in the spot. Only that spot is evaluated. Inside the lines
-   means IoU >= `iou-threshold` or containment >= `containment-threshold`.
+   means IoU >= `iou-threshold` or containment >= `containment-threshold`. **This is the only place that decides whether a
+   vehicle is parked correctly:** ai-detection only reports which vehicle stands in which spot (and no longer sends
+   `violation`/`violations`), and ingestion-service sends no threshold. Change the thresholds here.
 3. The rule engine (`ViolationEvaluator`) returns the violation, if any (see "Rule engine").
 4. Violation found: opened once per plate+spot+type (database partial unique index), otherwise re-confirmed
    (`last_seen_at` is refreshed at most every `touch-interval-seconds`). A vehicle that was already fined and is
