@@ -66,7 +66,8 @@ Package-by-layer under `com.parkview.ruleengine`; a call goes `controller`/`mess
 | Edge | `controller`, `controller/internal`, `messaging` | Thin: parse and validate, authorize (`@PreAuthorize` + `AccessPolicy`), call one service, map to a DTO. No repositories, no business rules. `FineController` (reads), `FineManagementController` (void, mark-paid), `ViolationController`, `PermitController`, `InternalFineController`; listeners `VehicleEventListener` and `PaymentEventListener` |
 | Use cases | `service` | One class per use case area (below) |
 | Rules | `engine` | `ViolationEvaluator` (decision order), `RuleResolver`, `RuleSchedule`, `VehicleContext`; no I/O except the ports |
-| Domain | `domain`, `geometry` | Entities and value objects with their own state transitions (`Fine.markPaid`, `Fine.voidFine`, `Violation`); `RuleEngineProperties.fineAmountFor` / `graceMinutesFor` hold the amount and grace rules |
+| Domain | `domain`, `geometry` | Entities with their own state transitions (`Fine.markPaid`, `Fine.voidFine`, `Violation`) in `domain`; `domain/type` (enums), `domain/converter` (JPA converters), `domain/value` (read-only values such as `ParkingSpot`, `ZoneInfo`); `RuleEngineProperties.fineAmountFor` / `graceMinutesFor` hold the amount and grace rules. `geometry/PolygonGeometry` answers how much two polygons overlap (area, intersection, IoU, containment) with JTS, the standard Java geometry library |
+| Services by area | `service/fine` (fines, evidence, disputes: a dispute belongs to a fine and the two call each other), `service/violation` (violation lifecycle, detection, boundary and permit checks), `service/outbox` (outbox, relay, cleanup), `service/cache` | One package per area; `util` holds the small static helpers (`Plates`, `ZoneIds`, `ReasonTexts`); `client/jpa`, `client/http`, `client/holiday` hold the adapters behind the ports in `client/` |
 | Ports | `client` | `*Directory` interfaces and their adapters (`Jpa...` for tables of other services, `HttpVehicleDirectory`, `JollydayHolidayCalendar`) |
 | Mapping | `mapper` | Pure entity to DTO functions |
 
@@ -447,7 +448,7 @@ docker build -t rule-service . && docker run --rm -p 8081:8081 -e DB_URL=... -e 
 ```
 
 The `local` profile only sets a database password and an internal API key for development.
-Tests: geometry table tests (clockwise and counter-clockwise polygons), table-driven rule engine tests (time windows
+Tests: geometry table tests (clockwise and counter-clockwise polygons, crossing edges), table-driven rule engine tests (time windows
 incl. midnight crossing, holidays and Europe/Stockholm DST dates; priority and first match wins; every violation type and
 fail-open case; vehicle-code mapping; grace values; overstay with a fixed clock), the Jollyday calendar for the Swedish
 2026 holidays, the lookup client (MockRestServiceServer), violation lifecycle (type change, grace per type), fine issuing,
