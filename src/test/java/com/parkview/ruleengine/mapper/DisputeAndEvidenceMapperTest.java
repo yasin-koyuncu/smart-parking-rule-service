@@ -5,18 +5,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkview.ruleengine.domain.Dispute;
-import com.parkview.ruleengine.domain.DisputeChannel;
-import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.domain.type.DisputeChannel;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineEvidence;
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.dto.response.EvidenceResponse;
 import com.parkview.ruleengine.dto.response.ExplanationResponse;
 import com.parkview.ruleengine.dto.response.FineResponse;
 import com.parkview.ruleengine.dto.response.InternalFineResponse;
-import com.parkview.ruleengine.service.DisputeDetails;
-import com.parkview.ruleengine.service.FineExplanation;
+import com.parkview.ruleengine.service.fine.DisputeDetails;
+import com.parkview.ruleengine.service.fine.FineExplanation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -111,7 +111,7 @@ class DisputeAndEvidenceMapperTest {
     @Test
     void everyViolationTypeHasAPlainLanguageText() {
         for (ViolationType type : ViolationType.values()) {
-            assertThat(com.parkview.ruleengine.domain.ReasonTexts.of(type)).isNotBlank().endsWith(".");
+            assertThat(com.parkview.ruleengine.util.ReasonTexts.of(type)).isNotBlank().endsWith(".");
         }
     }
 

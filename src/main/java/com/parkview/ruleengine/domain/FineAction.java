@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
+import com.parkview.ruleengine.domain.type.FineActionType;
 /**
  * One entry of the audit trail of a fine: an operator voided it or marked it as paid, or payment-service paid it.
  * Written in the same transaction as the change itself and never updated. {@code reason} is operator free text

@@ -3,7 +3,7 @@ package com.parkview.ruleengine.persistence;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineEvidence;
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.repository.FineEvidenceRepository;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;

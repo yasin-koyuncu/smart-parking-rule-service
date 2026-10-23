@@ -5,7 +5,7 @@ import com.parkview.ruleengine.dto.response.ExplanationResponse;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.mapper.EvidenceMapper;
 import com.parkview.ruleengine.security.CurrentUser;
-import com.parkview.ruleengine.service.FineEvidenceService;
+import com.parkview.ruleengine.service.fine.FineEvidenceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;

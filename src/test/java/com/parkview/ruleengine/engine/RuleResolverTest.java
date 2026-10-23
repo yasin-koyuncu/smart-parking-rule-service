@@ -2,11 +2,11 @@ package com.parkview.ruleengine.engine;
 
 import com.parkview.ruleengine.client.HolidayCalendar;
 import com.parkview.ruleengine.client.VehicleDirectory;
-import com.parkview.ruleengine.domain.Fuel;
-import com.parkview.ruleengine.domain.VehicleClass;
-import com.parkview.ruleengine.domain.VehicleInfo;
-import com.parkview.ruleengine.domain.ZoneInfo;
-import com.parkview.ruleengine.domain.ZoneRule;
+import com.parkview.ruleengine.domain.type.Fuel;
+import com.parkview.ruleengine.domain.type.VehicleClass;
+import com.parkview.ruleengine.domain.value.VehicleInfo;
+import com.parkview.ruleengine.domain.value.ZoneInfo;
+import com.parkview.ruleengine.domain.value.ZoneRule;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

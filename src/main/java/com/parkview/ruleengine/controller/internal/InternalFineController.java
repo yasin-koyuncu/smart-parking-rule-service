@@ -2,7 +2,7 @@ package com.parkview.ruleengine.controller.internal;
 
 import com.parkview.ruleengine.dto.response.InternalFineResponse;
 import com.parkview.ruleengine.mapper.FineMapper;
-import com.parkview.ruleengine.service.FineQueryService;
+import com.parkview.ruleengine.service.fine.FineQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;

@@ -4,7 +4,7 @@ import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineEvidence;
 import com.parkview.ruleengine.dto.response.EvidenceResponse;
 import com.parkview.ruleengine.dto.response.ExplanationResponse;
-import com.parkview.ruleengine.service.FineExplanation;
+import com.parkview.ruleengine.service.fine.FineExplanation;
 
 import java.util.Locale;
 import java.util.UUID;

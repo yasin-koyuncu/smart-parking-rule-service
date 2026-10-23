@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.dto.event;
 
-import com.parkview.ruleengine.domain.ResolutionReason;
+import com.parkview.ruleengine.domain.type.ResolutionReason;
 
 import java.time.Instant;
 import java.util.UUID;

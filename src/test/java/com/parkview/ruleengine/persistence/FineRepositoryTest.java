@@ -1,8 +1,8 @@
 package com.parkview.ruleengine.persistence;
 
 import com.parkview.ruleengine.domain.Fine;
-import com.parkview.ruleengine.domain.PaidMethod;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.PaidMethod;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.repository.FineRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.client;
 
-import com.parkview.ruleengine.domain.ZoneInfo;
+import com.parkview.ruleengine.domain.value.ZoneInfo;
 
 import java.util.Optional;
 

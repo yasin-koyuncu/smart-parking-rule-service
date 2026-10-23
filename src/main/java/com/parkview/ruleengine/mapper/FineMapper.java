@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.mapper;
 
-import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.dto.response.FineResponse;
 import com.parkview.ruleengine.dto.response.InternalFineResponse;

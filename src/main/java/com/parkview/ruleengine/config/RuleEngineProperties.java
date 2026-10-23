@@ -1,7 +1,7 @@
 package com.parkview.ruleengine.config;
 
-import com.parkview.ruleengine.domain.ParkingSpot;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.value.ParkingSpot;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;

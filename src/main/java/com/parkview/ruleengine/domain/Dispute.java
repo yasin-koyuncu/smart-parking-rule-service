@@ -14,6 +14,10 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.parkview.ruleengine.domain.converter.DisputeChannelConverter;
+import com.parkview.ruleengine.domain.converter.DisputeStatusConverter;
+import com.parkview.ruleengine.domain.type.DisputeChannel;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 /**
  * A request to have a fine reviewed by a person. At most one dispute per fine is open (partial unique index
  * {@code fine_disputes_one_open_uq}); every other status is final. {@code message} and {@code decisionNote} are

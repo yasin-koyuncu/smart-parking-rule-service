@@ -1,8 +1,8 @@
 package com.parkview.ruleengine.engine;
 
-import com.parkview.ruleengine.domain.ParkingSpot;
-import com.parkview.ruleengine.domain.ViolationType;
-import com.parkview.ruleengine.domain.ZoneRule;
+import com.parkview.ruleengine.domain.value.ParkingSpot;
+import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.domain.value.ZoneRule;
 
 import java.time.DayOfWeek;
 import java.time.LocalTime;

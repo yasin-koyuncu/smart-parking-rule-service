@@ -1,7 +1,7 @@
 package com.parkview.ruleengine.persistence;
 
 import com.parkview.ruleengine.domain.FineAction;
-import com.parkview.ruleengine.domain.FineActionType;
+import com.parkview.ruleengine.domain.type.FineActionType;
 import com.parkview.ruleengine.repository.FineActionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

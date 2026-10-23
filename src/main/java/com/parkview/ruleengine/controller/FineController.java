@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.controller;
 
-import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.dto.response.FineActionResponse;
 import com.parkview.ruleengine.dto.response.FineResponse;
@@ -9,8 +9,8 @@ import com.parkview.ruleengine.mapper.FineMapper;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.AuthenticatedUser;
 import com.parkview.ruleengine.security.CurrentUser;
-import com.parkview.ruleengine.service.FineQueryService;
-import com.parkview.ruleengine.service.Plates;
+import com.parkview.ruleengine.service.fine.FineQueryService;
+import com.parkview.ruleengine.util.Plates;
 import com.parkview.ruleengine.web.PagedResponses;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;

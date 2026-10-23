@@ -3,7 +3,7 @@ package com.parkview.ruleengine.persistence;
 import com.parkview.ruleengine.domain.PlatePermit;
 import com.parkview.ruleengine.dto.request.CreatePermitRequest;
 import com.parkview.ruleengine.repository.PlatePermitRepository;
-import com.parkview.ruleengine.service.PermitService;
+import com.parkview.ruleengine.service.violation.PermitService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

@@ -5,12 +5,12 @@ import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** A transaction template over a no-op transaction manager, for unit tests that only need the callback to run. */
-final class TestTransactions {
+public final class TestTransactions {
 
     private TestTransactions() {
     }
 
-    static TransactionTemplate template() {
+    public static TransactionTemplate template() {
         return new TransactionTemplate(new AbstractPlatformTransactionManager() {
             @Override
             protected Object doGetTransaction() {

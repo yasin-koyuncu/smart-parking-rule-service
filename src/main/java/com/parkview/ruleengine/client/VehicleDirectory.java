@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.client;
 
-import com.parkview.ruleengine.domain.VehicleInfo;
+import com.parkview.ruleengine.domain.value.VehicleInfo;
 
 import java.util.Optional;
 

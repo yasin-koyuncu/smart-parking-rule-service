@@ -1,7 +1,7 @@
 package com.parkview.ruleengine.dto.response;
 
-import com.parkview.ruleengine.domain.ResolutionReason;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ResolutionReason;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;

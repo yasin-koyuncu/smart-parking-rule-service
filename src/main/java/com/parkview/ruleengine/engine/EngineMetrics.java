@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.engine;
 
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.stereotype.Component;
 

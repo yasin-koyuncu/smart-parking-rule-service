@@ -1,18 +1,18 @@
 package com.parkview.ruleengine.controller;
 
 import com.parkview.ruleengine.domain.Dispute;
-import com.parkview.ruleengine.domain.DisputeChannel;
-import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.domain.type.DisputeChannel;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
-import com.parkview.ruleengine.service.DisputeDetails;
-import com.parkview.ruleengine.service.DisputeQueryService;
-import com.parkview.ruleengine.service.DisputeService;
-import com.parkview.ruleengine.service.FineQueryService;
+import com.parkview.ruleengine.service.fine.DisputeDetails;
+import com.parkview.ruleengine.service.fine.DisputeQueryService;
+import com.parkview.ruleengine.service.fine.DisputeService;
+import com.parkview.ruleengine.service.fine.FineQueryService;
 import com.parkview.ruleengine.web.ConflictException;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;

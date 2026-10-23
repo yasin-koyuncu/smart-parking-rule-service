@@ -1,9 +1,9 @@
 package com.parkview.ruleengine.engine;
 
 import com.parkview.ruleengine.client.HolidayCalendar;
-import com.parkview.ruleengine.domain.Fuel;
-import com.parkview.ruleengine.domain.ZoneInfo;
-import com.parkview.ruleengine.domain.ZoneRule;
+import com.parkview.ruleengine.domain.type.Fuel;
+import com.parkview.ruleengine.domain.value.ZoneInfo;
+import com.parkview.ruleengine.domain.value.ZoneRule;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

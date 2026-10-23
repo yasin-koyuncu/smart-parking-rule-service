@@ -3,7 +3,7 @@ package com.parkview.ruleengine.controller;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.AuthenticatedUser;
-import com.parkview.ruleengine.service.FineQueryService;
+import com.parkview.ruleengine.service.fine.FineQueryService;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;

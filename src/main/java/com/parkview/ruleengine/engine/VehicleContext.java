@@ -1,9 +1,9 @@
 package com.parkview.ruleengine.engine;
 
 import com.parkview.ruleengine.client.VehicleDirectory;
-import com.parkview.ruleengine.domain.Fuel;
-import com.parkview.ruleengine.domain.VehicleClass;
-import com.parkview.ruleengine.domain.VehicleInfo;
+import com.parkview.ruleengine.domain.type.Fuel;
+import com.parkview.ruleengine.domain.type.VehicleClass;
+import com.parkview.ruleengine.domain.value.VehicleInfo;
 
 import java.util.Optional;
 

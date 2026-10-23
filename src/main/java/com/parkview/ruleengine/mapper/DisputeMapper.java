@@ -2,9 +2,9 @@ package com.parkview.ruleengine.mapper;
 
 import com.parkview.ruleengine.domain.Dispute;
 import com.parkview.ruleengine.domain.Fine;
-import com.parkview.ruleengine.domain.ReasonTexts;
+import com.parkview.ruleengine.util.ReasonTexts;
 import com.parkview.ruleengine.dto.response.DisputeResponse;
-import com.parkview.ruleengine.service.DisputeDetails;
+import com.parkview.ruleengine.service.fine.DisputeDetails;
 
 import java.util.Locale;
 

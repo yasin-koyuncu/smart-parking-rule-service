@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.client;
 
-import com.parkview.ruleengine.domain.ParkingSpot;
+import com.parkview.ruleengine.domain.value.ParkingSpot;
 
 import java.util.List;
 import java.util.Optional;

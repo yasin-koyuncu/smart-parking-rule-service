@@ -17,6 +17,9 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.parkview.ruleengine.domain.converter.LowercaseViolationTypeConverter;
+import com.parkview.ruleengine.domain.type.PaidMethod;
+import com.parkview.ruleengine.domain.type.ViolationType;
 /**
  * A fine issued for a violation. The table is shared with other services (payment reads it through
  * the internal API, the Supabase migrations created its original shape); this service is the only

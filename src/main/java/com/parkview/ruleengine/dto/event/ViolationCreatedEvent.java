@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.dto.event;
 
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 
 import java.util.UUID;
 

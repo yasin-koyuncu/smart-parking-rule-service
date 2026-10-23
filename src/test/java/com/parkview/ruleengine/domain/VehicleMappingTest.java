@@ -9,6 +9,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.time.ZoneId;
 import java.util.Optional;
 
+import com.parkview.ruleengine.domain.type.Fuel;
+import com.parkview.ruleengine.domain.type.VehicleClass;
+import com.parkview.ruleengine.domain.value.ZoneInfo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class VehicleMappingTest {

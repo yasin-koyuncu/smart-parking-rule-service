@@ -2,7 +2,7 @@ package com.parkview.ruleengine.messaging;
 
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.dto.event.VehicleDetectedEvent;
-import com.parkview.ruleengine.service.DetectionService;
+import com.parkview.ruleengine.service.violation.DetectionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;

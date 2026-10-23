@@ -1,13 +1,13 @@
 package com.parkview.ruleengine.persistence;
 
 import com.parkview.ruleengine.domain.Dispute;
-import com.parkview.ruleengine.domain.DisputeChannel;
-import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.domain.type.DisputeChannel;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineAction;
-import com.parkview.ruleengine.domain.FineActionType;
+import com.parkview.ruleengine.domain.type.FineActionType;
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.repository.DisputeRepository;
 import com.parkview.ruleengine.repository.FineActionRepository;
 import org.junit.jupiter.api.BeforeEach;

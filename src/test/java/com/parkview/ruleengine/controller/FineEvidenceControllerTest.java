@@ -1,16 +1,16 @@
 package com.parkview.ruleengine.controller;
 
-import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineEvidence;
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
-import com.parkview.ruleengine.service.FineEvidenceService;
-import com.parkview.ruleengine.service.FineExplanation;
-import com.parkview.ruleengine.service.FineQueryService;
+import com.parkview.ruleengine.service.fine.FineEvidenceService;
+import com.parkview.ruleengine.service.fine.FineExplanation;
+import com.parkview.ruleengine.service.fine.FineQueryService;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

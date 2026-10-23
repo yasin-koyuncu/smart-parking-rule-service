@@ -1,11 +1,11 @@
 package com.parkview.ruleengine.controller;
 
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
-import com.parkview.ruleengine.service.ViolationService;
+import com.parkview.ruleengine.service.violation.ViolationService;
 import com.parkview.ruleengine.web.ConflictException;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;

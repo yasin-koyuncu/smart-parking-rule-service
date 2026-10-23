@@ -1,9 +1,9 @@
 package com.parkview.ruleengine.persistence;
 
 import com.parkview.ruleengine.domain.Fine;
-import com.parkview.ruleengine.domain.ResolutionReason;
+import com.parkview.ruleengine.domain.type.ResolutionReason;
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import org.junit.jupiter.api.BeforeEach;

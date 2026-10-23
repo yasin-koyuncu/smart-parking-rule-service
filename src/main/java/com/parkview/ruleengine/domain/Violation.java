@@ -16,6 +16,8 @@ import org.hibernate.annotations.CreationTimestamp;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.parkview.ruleengine.domain.type.ResolutionReason;
+import com.parkview.ruleengine.domain.type.ViolationType;
 /**
  * An open or closed breach of a parking rule by one plate in one spot. At most one <em>open</em>
  * violation exists per plate, spot and type (partial unique index {@code spot_violations_open_uq}).

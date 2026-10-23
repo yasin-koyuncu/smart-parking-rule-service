@@ -5,7 +5,7 @@ import com.parkview.ruleengine.dto.request.CreatePermitRequest;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
-import com.parkview.ruleengine.service.PermitService;
+import com.parkview.ruleengine.service.violation.PermitService;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

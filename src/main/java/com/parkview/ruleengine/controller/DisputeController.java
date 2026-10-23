@@ -1,8 +1,8 @@
 package com.parkview.ruleengine.controller;
 
 import com.parkview.ruleengine.domain.Dispute;
-import com.parkview.ruleengine.domain.DisputeChannel;
-import com.parkview.ruleengine.domain.DisputeStatus;
+import com.parkview.ruleengine.domain.type.DisputeChannel;
+import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.dto.request.DisputeDecisionRequest;
 import com.parkview.ruleengine.dto.request.DisputeRequest;
 import com.parkview.ruleengine.dto.response.DisputeResponse;
@@ -10,9 +10,9 @@ import com.parkview.ruleengine.mapper.DisputeMapper;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.AuthenticatedUser;
 import com.parkview.ruleengine.security.CurrentUser;
-import com.parkview.ruleengine.service.DisputeQueryService;
-import com.parkview.ruleengine.service.DisputeService;
-import com.parkview.ruleengine.service.ZoneIds;
+import com.parkview.ruleengine.service.fine.DisputeQueryService;
+import com.parkview.ruleengine.service.fine.DisputeService;
+import com.parkview.ruleengine.util.ZoneIds;
 import com.parkview.ruleengine.web.PagedResponses;
 import com.parkview.ruleengine.web.ResourceNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;

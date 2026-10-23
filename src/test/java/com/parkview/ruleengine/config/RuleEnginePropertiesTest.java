@@ -1,7 +1,7 @@
 package com.parkview.ruleengine.config;
 
-import com.parkview.ruleengine.domain.ParkingSpot;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.value.ParkingSpot;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;

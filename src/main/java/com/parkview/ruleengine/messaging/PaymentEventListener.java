@@ -2,7 +2,7 @@ package com.parkview.ruleengine.messaging;
 
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.dto.event.PaymentCompletedEvent;
-import com.parkview.ruleengine.service.FineSettlementService;
+import com.parkview.ruleengine.service.fine.FineSettlementService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;

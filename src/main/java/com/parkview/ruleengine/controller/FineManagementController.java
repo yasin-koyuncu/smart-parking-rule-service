@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.controller;
 
-import com.parkview.ruleengine.domain.PaidMethod;
+import com.parkview.ruleengine.domain.type.PaidMethod;
 import com.parkview.ruleengine.dto.request.MarkFinePaidRequest;
 import com.parkview.ruleengine.dto.request.VoidFineRequest;
 import com.parkview.ruleengine.dto.response.FineResponse;
@@ -8,8 +8,8 @@ import com.parkview.ruleengine.mapper.FineMapper;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.AuthenticatedUser;
 import com.parkview.ruleengine.security.CurrentUser;
-import com.parkview.ruleengine.service.FineManagementService;
-import com.parkview.ruleengine.service.FineQueryService;
+import com.parkview.ruleengine.service.fine.FineManagementService;
+import com.parkview.ruleengine.service.fine.FineQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;

@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.engine;
 
-import com.parkview.ruleengine.domain.ZoneRule;
+import com.parkview.ruleengine.domain.value.ZoneRule;
 
 import java.time.LocalDate;
 import java.time.LocalTime;

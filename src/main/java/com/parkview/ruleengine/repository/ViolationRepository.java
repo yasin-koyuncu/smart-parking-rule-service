@@ -1,8 +1,8 @@
 package com.parkview.ruleengine.repository;
 
-import com.parkview.ruleengine.domain.ResolutionReason;
+import com.parkview.ruleengine.domain.type.ResolutionReason;
 import com.parkview.ruleengine.domain.Violation;
-import com.parkview.ruleengine.domain.ViolationType;
+import com.parkview.ruleengine.domain.type.ViolationType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

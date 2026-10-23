@@ -1,8 +1,8 @@
 package com.parkview.ruleengine.engine;
 
-import com.parkview.ruleengine.domain.ParkingSpot;
-import com.parkview.ruleengine.domain.VehicleClass;
-import com.parkview.ruleengine.domain.ZoneInfo;
+import com.parkview.ruleengine.domain.value.ParkingSpot;
+import com.parkview.ruleengine.domain.type.VehicleClass;
+import com.parkview.ruleengine.domain.value.ZoneInfo;
 
 import java.time.Instant;
 
