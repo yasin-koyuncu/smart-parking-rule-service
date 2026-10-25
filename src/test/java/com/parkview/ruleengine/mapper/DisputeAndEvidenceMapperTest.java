@@ -53,10 +53,10 @@ class DisputeAndEvidenceMapperTest {
 
     @Test
     void fineResponsesCarryTheDisputeState() {
-        assertThat(FineMapper.toResponse(fine, null)).extracting(FineResponse::disputed, FineResponse::disputeStatus).containsExactly(false, null);
-        assertThat(FineMapper.toResponse(fine, DisputeStatus.OPEN)).extracting(FineResponse::disputed, FineResponse::disputeStatus).containsExactly(true, "open");
+        assertThat(FineMapper.toResponse(fine, null, true)).extracting(FineResponse::disputed, FineResponse::disputeStatus).containsExactly(false, null);
+        assertThat(FineMapper.toResponse(fine, DisputeStatus.OPEN, true)).extracting(FineResponse::disputed, FineResponse::disputeStatus).containsExactly(true, "open");
         for (DisputeStatus closed : List.of(DisputeStatus.UPHELD, DisputeStatus.VOIDED, DisputeStatus.WITHDRAWN)) {
-            FineResponse response = FineMapper.toResponse(fine, closed);
+            FineResponse response = FineMapper.toResponse(fine, closed, true);
             assertThat(response.disputed()).as(closed.name()).isFalse();
             assertThat(response.disputeStatus()).isEqualTo(closed.wire());
         }

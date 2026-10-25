@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,7 +56,13 @@ public interface ViolationRepository extends JpaRepository<Violation, UUID> {
 
     Page<Violation> findByPlate(String plate, Pageable pageable);
 
-    /** Active violations whose grace has passed and that were re-confirmed since {@code seenSince}. */
+    /** The violations of a plate in the given zones only; the collection must not be empty. */
+    Page<Violation> findByPlateAndZoneIdIn(String plate, Collection<String> zoneIds, Pageable pageable);
+
+    /**
+     * Active violations whose grace has passed and that were confirmed by a detection since {@code seenSince} (the fine
+     * freshness window: the vehicle has to be demonstrably still there).
+     */
     @Query("""
             select v.id from Violation v
             where v.resolvedAt is null and v.fineIssuedAt is null

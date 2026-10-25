@@ -22,6 +22,6 @@ public class PaymentEventListener {
 
     @RabbitListener(queues = RabbitConfig.PAYMENT_COMPLETED_QUEUE)
     public void onPaymentCompleted(@Payload @Valid PaymentCompletedEvent event) {
-        fineSettlement.markPaidOnline(event.referenceId(), event.paymentId());
+        fineSettlement.markPaidOnline(event.referenceId(), event.paymentId(), event.amountSek());
     }
 }

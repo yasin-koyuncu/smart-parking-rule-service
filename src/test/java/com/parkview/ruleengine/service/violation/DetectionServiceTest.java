@@ -56,7 +56,7 @@ class DetectionServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DetectionService(spotCache, ruleCache, boundary, evaluator, violations, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new DetectionService(spotCache, ruleCache, boundary, evaluator, violations, TestFixtures.properties(), Clock.fixed(NOW, ZoneOffset.UTC));
         when(spotCache.spotsOf(ZONE, null)).thenReturn(List.of(spot));
         when(ruleCache.zoneOf(ZONE)).thenReturn(zoneInfo);
     }
@@ -82,7 +82,7 @@ class DetectionServiceTest {
         service.process(event("abc 123", SQUARE, null));
 
         InOrder order = inOrder(violations);
-        order.verify(violations).confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", "summary");
+        order.verify(violations).confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", "summary", NOW);
         order.verify(violations).resolveOthers(PLATE, ZONE, spot.id(), ViolationType.WRONG_PERMIT, ResolutionReason.CORRECTED);
     }
 
@@ -93,7 +93,7 @@ class DetectionServiceTest {
 
         service.process(event(PLATE, SQUARE, "car"));
 
-        verify(violations).confirm(spot, ViolationType.OVERSTAY, PLATE, "cam-1", "summary");
+        verify(violations).confirm(spot, ViolationType.OVERSTAY, PLATE, "cam-1", "summary", NOW);
         verify(violations).resolveOthers(PLATE, ZONE, spot.id(), ViolationType.OVERSTAY, ResolutionReason.CORRECTED);
     }
 
@@ -134,7 +134,7 @@ class DetectionServiceTest {
 
         service.process(event(PLATE, SQUARE, null));
 
-        verify(violations, never()).confirm(any(), any(), anyString(), anyString(), any());
+        verify(violations, never()).confirm(any(), any(), anyString(), anyString(), any(), any());
         verify(violations).resolveOthers(PLATE, ZONE, null, null, ResolutionReason.CORRECTED);
     }
 
@@ -186,7 +186,7 @@ class DetectionServiceTest {
         verify(spotCache).spotsOf(ZONE, viewId);
         verify(spotCache, never()).spotsOf(ZONE, null);
         verify(boundary, never()).check(any(Polygon.class), eq(List.of(spot)));
-        verify(violations).confirm(viewSpot, ViolationType.NO_PARKING, PLATE, "cam-1", "summary");
+        verify(violations).confirm(viewSpot, ViolationType.NO_PARKING, PLATE, "cam-1", "summary", NOW);
     }
 
     @Test
@@ -208,5 +208,44 @@ class DetectionServiceTest {
         service.process(eventOnView(viewId));
 
         verifyNoInteractions(boundary, evaluator, violations);
+    }
+
+
+    private static VehicleDetectedEvent eventAt(Instant observed) {
+        return new VehicleDetectedEvent("cam-1", ZONE, PLATE, SQUARE, null, null, 0.9, 0.9, observed.toEpochMilli(), null, null);
+    }
+
+    @Test
+    void anObservationOlderThanTheMaximumAgeIsDroppedWithoutTouchingAnything() {
+        parkedInSpot(true);
+
+        service.process(eventAt(NOW.minusSeconds(601)));
+
+        verifyNoInteractions(violations, evaluator, boundary);
+    }
+
+    @Test
+    void anObservationJustWithinTheMaximumAgeIsProcessedWithItsOwnTime() {
+        parkedInSpot(true);
+        Instant seen = NOW.minusSeconds(600);
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.of(new Finding(ViolationType.WRONG_PERMIT, "summary")));
+
+        service.process(eventAt(seen));
+
+        ArgumentCaptor<Observation> captured = ArgumentCaptor.forClass(Observation.class);
+        verify(evaluator).assess(captured.capture());
+        assertThat(captured.getValue().at()).isEqualTo(seen);
+        verify(violations).confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", "summary", seen);
+    }
+
+    @Test
+    void aTimeInTheFutureIsClampedToNowAndAMissingTimeCountsAsNow() {
+        parkedInSpot(true);
+        when(evaluator.assess(any(Observation.class))).thenReturn(Optional.of(new Finding(ViolationType.WRONG_PERMIT, "summary")));
+
+        service.process(eventAt(NOW.plusSeconds(3600)));
+        service.process(new VehicleDetectedEvent("cam-1", ZONE, PLATE, SQUARE, null, null, 0.9, 0.9, 0L, null, null));
+
+        verify(violations, org.mockito.Mockito.times(2)).confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", "summary", NOW);
     }
 }

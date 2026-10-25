@@ -28,6 +28,12 @@ public class CurrentUser {
         return get().orElseThrow(() -> new AccessDeniedException("Authenticated user with a known role required"));
     }
 
+    /** Whether the caller holds the permission (a granted authority named exactly like it, e.g. {@code violation:read}). */
+    public boolean hasAuthority(String authority) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream().anyMatch(a -> authority.equals(a.getAuthority()));
+    }
+
     public static Optional<AuthenticatedUser> from(Jwt jwt) {
         Map<String, Object> appMetadata = jwt.getClaimAsMap("app_metadata");
         if (appMetadata == null) {

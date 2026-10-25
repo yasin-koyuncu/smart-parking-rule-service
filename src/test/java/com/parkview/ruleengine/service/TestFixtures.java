@@ -24,14 +24,14 @@ public final class TestFixtures {
     public static RuleEngineProperties properties() {
         return new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30, 5, 5, 10,
                 BigDecimal.valueOf(900), BigDecimal.valueOf(450), BigDecimal.valueOf(700), BigDecimal.valueOf(900),
-                BigDecimal.valueOf(700), 60000, 20, 15, 60000, 30, 5, 60, true);
+                BigDecimal.valueOf(700), 60000, 20, 15, 120, 60000, 30, 5, 15, 600, 6, 60, true);
     }
 
     public static Polygon rect(double x0, double y0, double x1, double y1) {
         return new Polygon(List.of(new Point(x0, y0), new Point(x1, y0), new Point(x1, y1), new Point(x0, y1)));
     }
 
-    public static ParkingSpot spot(String type, String permitType, int boundaryGrace, int permitGrace) {
+    public static ParkingSpot spot(String type, String permitType, Integer boundaryGrace, Integer permitGrace) {
         return new ParkingSpot(UUID.randomUUID(), ZONE, "A1", type, permitType, rect(0, 0, 10, 10), boundaryGrace, permitGrace, 0);
     }
 

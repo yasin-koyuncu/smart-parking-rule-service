@@ -218,7 +218,7 @@ class RuleServiceFlowTest {
         detect(zone, plate, VEHICLE_IN_SPOT);
         awaitEvent("violation.created", plate);
 
-        jdbc.update("insert into plate_permits (plate, permit_type, zone_id, created_by) values (?, 'Resident', ?, 'op')", plate, zone);
+        jdbc.update("insert into plate_permits (plate, permit_type, zone_id, created_by, valid_from) values (?, 'Resident', ?, 'op', now() - interval '1 hour')", plate, zone);
         detect(zone, plate, VEHICLE_IN_SPOT);
 
         JsonNode resolved = awaitEvent("violation.resolved", plate);
@@ -232,7 +232,7 @@ class RuleServiceFlowTest {
     void aPlateWithAPermitNeverGetsAViolation() {
         String zone = newZone("permit", "resident");
         String plate = newPlate();
-        jdbc.update("insert into plate_permits (plate, permit_type, zone_id, created_by) values (?, 'resident', null, 'op')", plate);
+        jdbc.update("insert into plate_permits (plate, permit_type, zone_id, created_by, valid_from) values (?, 'resident', null, 'op', now() - interval '1 hour')", plate);
 
         detect(zone, plate, VEHICLE_IN_SPOT);
         String marker = newPlate();
@@ -403,9 +403,14 @@ class RuleServiceFlowTest {
     }
 
     private void payOnline(UUID fineId) {
+        payOnline(fineId, UUID.randomUUID().toString());
+    }
+
+    private void payOnline(UUID fineId, String paymentId) {
         rabbit.convertAndSend("parkview.payment", "payment.completed.fine", Map.of(
-                "paymentId", UUID.randomUUID().toString(), "referenceId", fineId.toString(), "referenceType", "FINE",
-                "amountSek", 450, "timestamp", System.currentTimeMillis()));
+                "paymentId", paymentId, "referenceId", fineId.toString(), "referenceType", "FINE",
+                "amountSek", jdbc.queryForObject("select amount_sek from fines where id = ?", java.math.BigDecimal.class, fineId),
+                "timestamp", System.currentTimeMillis()));
     }
 
     private long published(String routingKey, String plate) {
@@ -417,15 +422,32 @@ class RuleServiceFlowTest {
         UUID fineId = insertFine(newPlate(), newZone("paid", null));
         UUID otherFine = insertFine(newPlate(), newZone("paid", null));
 
-        payOnline(fineId);
+        payOnline(fineId, "pay-same");
         awaitEvent("fine.paid", plateOf(fineId));
-        payOnline(fineId);
+        payOnline(fineId, "pay-same");      // the same event delivered again
         payOnline(otherFine);
         // the payment queue is processed in order: once the other fine is announced the repeat has been handled
         awaitEvent("fine.paid", plateOf(otherFine));
 
         assertThat(published("fine.paid", plateOf(fineId))).isEqualTo(1);
         assertThat(jdbc.queryForObject("select count(*) from fine_actions where fine_id = ?", Integer.class, fineId)).isEqualTo(1);
+    }
+
+    @Test
+    void aSecondPaymentForAnAlreadyPaidFineIsFlaggedForReviewOnceAndPublishesNothing() {
+        UUID fineId = insertFine(newPlate(), newZone("paid", null));
+        UUID marker = insertFine(newPlate(), newZone("paid", null));
+
+        payOnline(fineId, "pay-1");
+        awaitEvent("fine.paid", plateOf(fineId));
+        payOnline(fineId, "pay-2");
+        payOnline(fineId, "pay-2");
+        payOnline(marker);
+        awaitEvent("fine.paid", plateOf(marker));
+
+        assertThat(published("fine.paid", plateOf(fineId))).isEqualTo(1);
+        assertThat(jdbc.queryForList("select action from fine_actions where fine_id = ? order by action", String.class, fineId))
+                .containsExactly("paid_online", "payment_needs_review");
     }
 
     @Test
@@ -452,7 +474,8 @@ class RuleServiceFlowTest {
         assertThat(fine.get("paid_method")).isEqualTo("cash");
         assertThat(fine.get("paid_by")).isEqualTo(operator);
         assertThat(fine.get("paid_at")).isNotNull();
-        Map<String, Object> audit = jdbc.queryForMap("select * from fine_actions where fine_id = ?", fineId);
+        // the online payment that came after the manual one is a case for a refund, in the audit trail but not the mark-paid row
+        Map<String, Object> audit = jdbc.queryForMap("select * from fine_actions where fine_id = ? and action = 'mark_paid'", fineId);
         assertThat(audit.get("action")).isEqualTo("mark_paid");
         assertThat(audit.get("actor_id")).isEqualTo(operator);
         assertThat(audit.get("reason")).isEqualTo("Paid at the counter");
@@ -484,7 +507,9 @@ class RuleServiceFlowTest {
         assertThat(fine.get("void_reason")).isEqualTo("Plate misread");
         assertThat(fine.get("voided_by")).isEqualTo(operator);
         assertThat(fine.get("paid")).isEqualTo(false);
-        assertThat(jdbc.queryForObject("select count(*) from fine_actions where fine_id = ?", Integer.class, fineId)).isEqualTo(1);
+        // the void and the payment that raced with it are in the audit trail, the payment as a case for a refund
+        assertThat(jdbc.queryForList("select action from fine_actions where fine_id = ? order by action", String.class, fineId))
+                .containsExactly("payment_needs_review", "void");
     }
 
     @Test
@@ -539,6 +564,80 @@ class RuleServiceFlowTest {
 
         assertThat(awaitEvent("violation.resolved", plate).get("reason").asText()).isEqualTo("LEFT");
         assertThat(jdbc.queryForObject("select count(*) from fines where plate = ?", Integer.class, plate)).isZero();
+    }
+
+    @Test
+    void aCarThatLeftDuringTheGraceIsNotFinedAndTheSessionEndResolvesItAsLeftEvenWhenDeliveredTwice() {
+        String zone = newZone("permit", "resident");
+        String plate = newPlate();
+        detect(zone, plate, VEHICLE_IN_SPOT);
+        awaitEvent("violation.created", plate);
+        // grace over, but last confirmed 5 minutes ago: older than the fine freshness (120 s), younger than the stale window (15 min)
+        jdbc.update("""
+                update spot_violations set grace_until = now() - interval '1 minute',
+                       last_seen_at = now() - interval '5 minutes' where plate = ?""", plate);
+
+        awaitProcessed();   // several fine sweeps (300 ms) have run since the update
+        assertThat(jdbc.queryForObject("select count(*) from fines where plate = ?", Integer.class, plate)).isZero();
+        assertThat(violationRow(plate).get("resolved_at")).as("still open until the session ends").isNull();
+
+        for (int i = 0; i < 2; i++) {
+            rabbit.convertAndSend("parkview.session", "session.ended", Map.of(
+                    "sessionId", UUID.randomUUID().toString(), "plate", plate, "zoneId", zone,
+                    "endedAt", java.time.Instant.now().toString(), "occurredAt", java.time.Instant.now().toString(), "costSek", 0));
+        }
+
+        assertThat(awaitEvent("violation.resolved", plate).get("reason").asText()).isEqualTo("LEFT");
+        awaitProcessed();
+        assertThat(violationRow(plate).get("resolution_reason")).isEqualTo("LEFT");
+        assertThat(jdbc.queryForObject("select count(*) from fines where plate = ?", Integer.class, plate)).isZero();
+        assertThat(consumed.stream().filter(m -> m.startsWith("violation.resolved") && m.contains(plate)).count())
+                .as("the redelivered session.ended resolved nothing a second time").isEqualTo(1);
+    }
+
+    @Test
+    void aSessionEndNeverTouchesAViolationThatAlreadyHasAFine() {
+        String zone = newZone("permit", "resident");
+        String plate = newPlate();
+        detect(zone, plate, VEHICLE_IN_SPOT);
+        awaitEvent("violation.created", plate);
+        jdbc.update("update spot_violations set grace_until = now() - interval '1 minute' where plate = ?", plate);
+        awaitEvent("fine.issued", plate);
+
+        rabbit.convertAndSend("parkview.session", "session.ended", Map.of(
+                "plate", plate, "zoneId", zone, "endedAt", java.time.Instant.now().plusSeconds(5).toString()));
+        awaitProcessed();
+
+        assertThat(violationRow(plate).get("resolved_at")).isNull();
+        assertThat(violationRow(plate).get("fine_issued_at")).isNotNull();
+    }
+
+    @Test
+    void anObservationOlderThanTheMaximumAgeIsDroppedWhileAFreshOneOfTheSameCarIsNot() {
+        String zone = newZone("no_parking", null);
+        String stale = newPlate();
+        rabbit.convertAndSend("parkview.vehicle", "vehicle.detected", Map.of(
+                "cameraId", "cam-1", "zoneId", zone, "plate", stale, "vehiclePolygon", VEHICLE_IN_SPOT,
+                "iou", 1.0, "confidence", 0.9, "timestamp", System.currentTimeMillis() - 20 * 60_000L));
+
+        awaitProcessed();
+        assertThat(jdbc.queryForObject("select count(*) from spot_violations where plate = ?", Integer.class, stale)).isZero();
+
+        detect(zone, stale, VEHICLE_IN_SPOT);
+        awaitEvent("violation.created", stale);
+    }
+
+    @Test
+    void aVoidedSessionDoesNotMakeAnOverstay() {
+        String zone = newZone("paid", null);
+        jdbc.update("update zones set max_minutes = 60 where id = ?", zone);
+        String plate = newPlate();
+        jdbc.update("insert into sessions (plate, zone_id, started_at, voided_at) values (?, ?, now() - interval '90 minutes', now())", plate, zone);
+
+        detect(zone, plate, VEHICLE_IN_SPOT);
+        awaitProcessed();
+
+        assertThat(jdbc.queryForObject("select count(*) from spot_violations where plate = ?", Integer.class, plate)).isZero();
     }
 
     @Test

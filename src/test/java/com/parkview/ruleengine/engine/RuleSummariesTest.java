@@ -49,7 +49,7 @@ class RuleSummariesTest {
         EngineMetrics metrics = new EngineMetrics(new SimpleMeterRegistry());
         RuleEngineProperties properties = new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30, 5, 5, 10,
                 BigDecimal.valueOf(900), BigDecimal.valueOf(450), BigDecimal.valueOf(700), BigDecimal.valueOf(900),
-                BigDecimal.valueOf(700), 60000, 20, 15, 60000, 10, 5, 60, true);
+                BigDecimal.valueOf(700), 60000, 20, 15, 120, 60000, 10, 5, 15, 600, 6, 60, true);
         evaluator = new ViolationEvaluator(ruleCache, new RuleResolver(holidays, metrics), permits, sessions, vehicles, properties, metrics);
         when(ruleCache.rulesOf(ZONE_ID)).thenReturn(List.of());
         when(vehicles.lookup(anyString(), anyString())).thenReturn(Optional.empty());

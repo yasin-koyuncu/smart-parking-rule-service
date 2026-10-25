@@ -341,7 +341,7 @@ class DisputeServiceTest extends FineServiceTestBase {
     void aPaymentThatCompletesWhileTheDisputeIsOpenKeepsTheFinePaidAndTheSystemUpholdsTheDispute() {
         Fine fine = unpaidFine();
         Dispute dispute = openDispute(fine);
-        FineSettlementService settlement = new FineSettlementService(fines, actions, closer, fineEvents, clock);
+        FineSettlementService settlement = new FineSettlementService(fines, actions, closer, fineEvents, new com.parkview.ruleengine.engine.EngineMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()), clock);
 
         settlement.markPaidOnline(fine.getId(), "pay-1");
 

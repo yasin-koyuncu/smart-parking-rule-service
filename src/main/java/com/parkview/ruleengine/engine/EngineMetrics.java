@@ -33,4 +33,9 @@ public class EngineMetrics {
     public void ruleMatched(String outcome) {
         registry.counter("ruleengine.rules.matched", "outcome", outcome).increment();
     }
+
+    /** A completed payment needs a person to look at it ({@code cause}: voided, already_paid, amount_mismatch, unknown_fine). */
+    public void paymentNeedsReview(String cause) {
+        registry.counter("ruleengine.payments.needs_review", "cause", cause).increment();
+    }
 }

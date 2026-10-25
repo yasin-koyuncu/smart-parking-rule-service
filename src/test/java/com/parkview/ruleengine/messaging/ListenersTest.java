@@ -1,5 +1,9 @@
 package com.parkview.ruleengine.messaging;
 
+import com.parkview.ruleengine.service.violation.ViolationService;
+import com.parkview.ruleengine.service.cache.SpotCacheService;
+import com.parkview.ruleengine.dto.event.MapUpdatedEvent;
+import com.parkview.ruleengine.dto.event.SessionEndedEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.parkview.ruleengine.dto.event.FineIssuedEvent;
@@ -52,7 +56,7 @@ class ListenersTest {
         new PaymentEventListener(fines).onPaymentCompleted(
                 new PaymentCompletedEvent("p-1", fineId, "FINE", null, BigDecimal.TEN, 1L));
 
-        verify(fines).markPaidOnline(fineId, "p-1");
+        verify(fines).markPaidOnline(fineId, "p-1", BigDecimal.TEN);
     }
 
     @Test
@@ -165,5 +169,53 @@ class ListenersTest {
         assertThat(paid.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
         assertThat(voided.fieldNames()).toIterable().containsExactlyInAnyOrder("fineId", "plate", "zoneId", "occurredAt");
         assertThat(voided.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
+    }
+
+
+    @Test
+    void sessionEndedResolvesTheViolationsOfThePlateInTheZoneUsingTheEndTime() {
+        ViolationService violations = mock(ViolationService.class);
+        Instant ended = Instant.parse("2026-10-09T09:55:00Z");
+
+        new SessionEventListener(violations).onSessionEnded(new SessionEndedEvent("abc 123", "z1", ended, Instant.parse("2026-10-09T10:00:00Z")));
+        new SessionEventListener(violations).onSessionEnded(new SessionEndedEvent("ABC123", "z1", null, Instant.parse("2026-10-09T10:00:00Z")));
+
+        verify(violations).resolveEnded("ABC123", "z1", ended);
+        verify(violations).resolveEnded("ABC123", "z1", Instant.parse("2026-10-09T10:00:00Z"));
+    }
+
+    @Test
+    void sessionEndedPayloadFromSessionServiceIsParsedTolerantlyAndNeedsPlateAndZone() throws Exception {
+        String json = """
+                {"sessionId":"7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11","plate":"ABC123","zoneId":"z1","zoneAddress":"Storgatan 1",
+                 "cameraId":"cam-1","userId":null,"startedAt":"2026-10-09T09:00:00Z","endedAt":"2026-10-09T09:55:00Z",
+                 "durationMinutes":55,"costSek":12.50,"occurredAt":"2026-10-09T09:55:01Z","somethingNew":true}
+                """;
+
+        SessionEndedEvent event = mapper.readValue(json, SessionEndedEvent.class);
+        SessionEndedEvent minimal = mapper.readValue("{\"plate\":\"ABC123\",\"zoneId\":\"z1\"}", SessionEndedEvent.class);
+        SessionEndedEvent noPlate = mapper.readValue("{\"zoneId\":\"z1\"}", SessionEndedEvent.class);
+
+        assertThat(event.endedAt()).isEqualTo(Instant.parse("2026-10-09T09:55:00Z"));
+        assertThat(event.endTime()).isEqualTo(Instant.parse("2026-10-09T09:55:00Z"));
+        assertThat(validator.validate(event)).isEmpty();
+        assertThat(validator.validate(minimal)).isEmpty();
+        assertThat(minimal.endTime()).isNull();
+        assertThat(validator.validate(noPlate)).isNotEmpty();
+    }
+
+    @Test
+    void mapUpdatedEvictsTheSpotsOfThatZoneAndTheCataloguePayloadIsParsed() throws Exception {
+        SpotCacheService cache = mock(SpotCacheService.class);
+        MapUpdatedEvent event = mapper.readValue("""
+                {"zoneId":"z1","versionNumber":7,"spotCount":12,"changeReason":"rollback","timestamp":1760000000000,"x":1}
+                """, MapUpdatedEvent.class);
+
+        new MapEventListener(cache).onMapUpdated(event);
+
+        verify(cache).evict("z1");
+        assertThat(event.versionNumber()).isEqualTo(7);
+        assertThat(validator.validate(event)).isEmpty();
+        assertThat(validator.validate(mapper.readValue("{\"versionNumber\":1}", MapUpdatedEvent.class))).isNotEmpty();
     }
 }

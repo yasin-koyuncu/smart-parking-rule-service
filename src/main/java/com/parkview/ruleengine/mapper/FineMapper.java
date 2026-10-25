@@ -24,11 +24,13 @@ public final class FineMapper {
      * Public view: deliberately without the owner's user id. {@code reason} is the stored lower-case form.
      *
      * @param disputeStatus status of the latest dispute of the fine, null when it never had one; {@code disputed} is true while it is open
+     * @param withImagePath false for a caller without {@code violation:read} (a driver): the storage key of the camera snapshot is evidence
+     *                      for staff, drivers get it through the evidence endpoint only (ADR 0008)
      */
-    public static FineResponse toResponse(Fine f, DisputeStatus disputeStatus) {
+    public static FineResponse toResponse(Fine f, DisputeStatus disputeStatus, boolean withImagePath) {
         return new FineResponse(f.getId(), f.getPlate(), f.getZoneId(), f.getCameraId(),
                 f.getReason().name().toLowerCase(Locale.ROOT), f.getReasonCode(), f.getReasonText(),
-                f.getAmountSek(), f.getIssuedAt(), f.isPaid(), f.getImagePath(), f.getPaidAt(), f.isVoided(), f.getVoidedAt(),
+                f.getAmountSek(), f.getIssuedAt(), f.isPaid(), withImagePath ? f.getImagePath() : null, f.getPaidAt(), f.isVoided(), f.getVoidedAt(),
                 disputeStatus == DisputeStatus.OPEN, disputeStatus == null ? null : disputeStatus.wire());
     }
 }

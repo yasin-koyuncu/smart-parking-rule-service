@@ -65,7 +65,7 @@ class RuleEnginePropertiesTest {
     void graceComesFromTheSpotWhereItDefinesOneAndOtherwiseFromTheConfiguredDefaults() {
         RuleEngineProperties defaults = bind(Map.of());
         ParkingSpot own = spot(4, 7);
-        ParkingSpot none = spot(0, 0);
+        ParkingSpot none = spot(null, null);
 
         assertThat(defaults.graceMinutesFor(own, ViolationType.BOUNDARY_EXCEEDED)).isEqualTo(4);
         assertThat(defaults.graceMinutesFor(own, ViolationType.WRONG_PERMIT)).isEqualTo(7);
@@ -77,7 +77,37 @@ class RuleEnginePropertiesTest {
         assertThat(defaults.graceMinutesFor(own, ViolationType.WRONG_VEHICLE_TYPE)).isEqualTo(10);
     }
 
-    private static ParkingSpot spot(int boundaryGrace, int permitGrace) {
+    @Test
+    void aSpotGraceOfZeroIsZeroAndOnlyAMissingOrNegativeOneFallsBackToTheDefault() {
+        RuleEngineProperties defaults = bind(Map.of());
+
+        assertThat(defaults.graceMinutesFor(spot(0, 0), ViolationType.BOUNDARY_EXCEEDED)).isZero();
+        assertThat(defaults.graceMinutesFor(spot(0, 0), ViolationType.WRONG_PERMIT)).isZero();
+        assertThat(defaults.graceMinutesFor(spot(null, 0), ViolationType.BOUNDARY_EXCEEDED)).isEqualTo(10);
+        assertThat(defaults.graceMinutesFor(spot(0, null), ViolationType.WRONG_PERMIT)).isEqualTo(30);
+        assertThat(defaults.graceMinutesFor(spot(-1, -1), ViolationType.BOUNDARY_EXCEEDED)).isEqualTo(10);
+    }
+
+    @Test
+    void theFreshnessObservationAgeCacheAndRefineDefaultsAreTheSafeOnes() {
+        RuleEngineProperties defaults = bind(Map.of());
+        RuleEngineProperties custom = bind(Map.of(
+                "parkview.rule-engine.fine-freshness-seconds", "30",
+                "parkview.rule-engine.observation-max-age-seconds", "60",
+                "parkview.rule-engine.spot-cache-negative-ttl-seconds", "3",
+                "parkview.rule-engine.refine-block-hours", "0"));
+
+        assertThat(defaults.fineFreshness()).isEqualTo(Duration.ofSeconds(120));
+        assertThat(defaults.observationMaxAge()).isEqualTo(Duration.ofMinutes(10));
+        assertThat(defaults.spotCacheNegativeTtl()).isEqualTo(Duration.ofSeconds(15));
+        assertThat(defaults.refineBlock()).isEqualTo(Duration.ofHours(6));
+        assertThat(custom.fineFreshness()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(custom.observationMaxAge()).isEqualTo(Duration.ofSeconds(60));
+        assertThat(custom.spotCacheNegativeTtl()).isEqualTo(Duration.ofSeconds(3));
+        assertThat(custom.refineBlockHours()).isZero();
+    }
+
+    private static ParkingSpot spot(Integer boundaryGrace, Integer permitGrace) {
         return new ParkingSpot(UUID.randomUUID(), "z1", "A1", "paid", null, null, boundaryGrace, permitGrace, 0);
     }
 

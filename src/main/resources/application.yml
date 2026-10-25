@@ -50,10 +50,12 @@ spring:
         default-requeue-rejected: false
         retry:
           enabled: true
-          initial-interval: 1s
-          multiplier: 2.0
-          max-interval: 10s
-          max-attempts: 4
+          # ~2.5 min in total (2s, 6s, 18s, 54s, 60s between 6 attempts): long enough for a database restart or failover, so that
+          # payment.completed.fine is not dead-lettered by a blip while the money is already taken
+          initial-interval: ${RABBIT_RETRY_INITIAL_INTERVAL:2s}
+          multiplier: ${RABBIT_RETRY_MULTIPLIER:3.0}
+          max-interval: ${RABBIT_RETRY_MAX_INTERVAL:60s}
+          max-attempts: ${RABBIT_RETRY_MAX_ATTEMPTS:6}
     template:
       observation-enabled: ${TRACING_ENABLED:false}   # publishes inject traceparent into the message headers
   lifecycle:
@@ -135,9 +137,13 @@ parkview:
     expire-sweep-ms: 60000
     expire-batch-size: 20
     stale-minutes: 15
+    fine-freshness-seconds: 120
     stale-sweep-ms: 60000
     touch-interval-seconds: 10
     spot-cache-ttl-minutes: 5
+    spot-cache-negative-ttl-seconds: 15
+    observation-max-age-seconds: 600
+    refine-block-hours: 6
     rule-cache-ttl-seconds: 60
     vehicle-lookup-enabled: true
   lookup:

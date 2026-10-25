@@ -31,9 +31,15 @@ import java.time.Duration;
  * @param expireSweepMs               delay between runs of the fine-issuing sweep
  * @param expireBatchSize             violations fined per batch (each in its own transaction)
  * @param staleMinutes                a violation not re-confirmed by a detection for this long is resolved as LEFT and is not fined
+ * @param fineFreshnessSeconds        a violation is only fined when a detection confirmed it at most this long ago (the vehicle is demonstrably
+ *                                    still there); must be well above the observation cadence plus {@code touch-interval-seconds}
  * @param staleSweepMs                delay between runs of the stale-violation sweep
  * @param touchIntervalSeconds        minimum time between two {@code last_seen_at} writes for one violation
  * @param spotCacheTtlMinutes         how long a zone's spot polygons are cached
+ * @param spotCacheNegativeTtlSeconds how long a zone WITHOUT spots is cached (short, so the first spots drawn become visible quickly)
+ * @param observationMaxAgeSeconds    an observation older than this (event time) is dropped: after an outage or a backlog it no longer says where the vehicle is
+ * @param refineBlockHours            a plate that was fined for a reason in a zone is not given a new violation for the same reason there
+ *                                    within this many hours, whatever happens to the spot (re-scan, "empty the area"); 0 turns the block off
  * @param ruleCacheTtlSeconds         how long a zone's rules and master data are cached
  * @param vehicleLookupEnabled        whether vehicle registry data may be fetched when a decision needs it
  */
@@ -56,9 +62,13 @@ public record RuleEngineProperties(
         @DefaultValue("60000") @Min(100) long expireSweepMs,
         @DefaultValue("20") @Min(1) @Max(500) int expireBatchSize,
         @DefaultValue("15") @Min(1) int staleMinutes,
+        @DefaultValue("120") @Min(1) int fineFreshnessSeconds,
         @DefaultValue("60000") @Min(100) long staleSweepMs,
         @DefaultValue("10") @PositiveOrZero int touchIntervalSeconds,
         @DefaultValue("5") @Min(1) int spotCacheTtlMinutes,
+        @DefaultValue("15") @Min(1) int spotCacheNegativeTtlSeconds,
+        @DefaultValue("600") @Min(1) int observationMaxAgeSeconds,
+        @DefaultValue("6") @PositiveOrZero int refineBlockHours,
         @DefaultValue("60") @Min(1) int ruleCacheTtlSeconds,
         @DefaultValue("true") boolean vehicleLookupEnabled
 ) {
@@ -73,19 +83,38 @@ public record RuleEngineProperties(
         };
     }
 
-    /** Grace before the fine: the spot's own value where it defines one (boundary, permit), otherwise the configured default. */
+    /**
+     * Grace before the fine: the spot's own value where it defines one (boundary, permit), otherwise the configured default.
+     * A spot that defines no grace (null, or a negative value that cannot be one) uses the default; an explicit 0 is a grace of 0.
+     */
     public int graceMinutesFor(ParkingSpot spot, ViolationType type) {
         return switch (type) {
-            case WRONG_PERMIT -> spot.permitGraceMin() > 0 ? spot.permitGraceMin() : defaultPermitGraceMinutes;
-            case BOUNDARY_EXCEEDED -> spot.boundaryGraceMin() > 0 ? spot.boundaryGraceMin() : defaultBoundaryGraceMinutes;
+            case WRONG_PERMIT -> ownOrDefault(spot.permitGraceMin(), defaultPermitGraceMinutes);
+            case BOUNDARY_EXCEEDED -> ownOrDefault(spot.boundaryGraceMin(), defaultBoundaryGraceMinutes);
             case NO_PARKING -> noParkingGraceMinutes;
             case OVERSTAY -> overstayGraceMinutes;
             case WRONG_VEHICLE_TYPE -> wrongVehicleTypeGraceMinutes;
         };
     }
 
+    private static int ownOrDefault(Integer own, int fallback) {
+        return own != null && own >= 0 ? own : fallback;
+    }
+
     public Duration staleAfter() {
         return Duration.ofMinutes(staleMinutes);
+    }
+
+    public Duration fineFreshness() {
+        return Duration.ofSeconds(fineFreshnessSeconds);
+    }
+
+    public Duration observationMaxAge() {
+        return Duration.ofSeconds(observationMaxAgeSeconds);
+    }
+
+    public Duration refineBlock() {
+        return Duration.ofHours(refineBlockHours);
     }
 
     public Duration touchInterval() {
@@ -94,6 +123,10 @@ public record RuleEngineProperties(
 
     public Duration spotCacheTtl() {
         return Duration.ofMinutes(spotCacheTtlMinutes);
+    }
+
+    public Duration spotCacheNegativeTtl() {
+        return Duration.ofSeconds(spotCacheNegativeTtlSeconds);
     }
 
     public Duration ruleCacheTtl() {

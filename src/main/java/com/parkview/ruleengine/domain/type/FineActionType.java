@@ -10,7 +10,9 @@ public enum FineActionType {
     DISPUTE_OPENED,
     DISPUTE_UPHELD,
     DISPUTE_VOIDED,
-    DISPUTE_WITHDRAWN;
+    DISPUTE_WITHDRAWN,
+    /** A payment completed that the fine cannot account for (already paid, voided, other amount): a person must look at it. */
+    PAYMENT_NEEDS_REVIEW;
 
     public String wire() {
         return name().toLowerCase(Locale.ROOT);

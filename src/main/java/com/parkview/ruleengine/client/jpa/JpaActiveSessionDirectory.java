@@ -14,10 +14,14 @@ import java.util.Optional;
 class JpaActiveSessionDirectory implements ActiveSessionDirectory {
 
     private final SessionViewRepository sessions;
+    private final SessionVoidSchema schema;
 
+    /** A voided session (an operator corrected a wrong one) is not active: it must not cause an overstay. */
     @Override
     public Optional<Instant> startOfActiveSession(String normalizedPlate, String zoneId) {
-        return sessions.findFirstByPlateAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc(normalizedPlate, zoneId)
-                .map(SessionView::getStartedAt);
+        Optional<SessionView> active = schema.present()
+                ? sessions.findActiveNotVoided(normalizedPlate, zoneId)
+                : sessions.findFirstByPlateAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc(normalizedPlate, zoneId);
+        return active.map(SessionView::getStartedAt);
     }
 }

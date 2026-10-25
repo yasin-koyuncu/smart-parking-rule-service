@@ -31,7 +31,7 @@ import static org.mockito.Mockito.when;
 class ViolationJobsTest {
 
     private static final Instant NOW = Instant.parse("2026-10-09T10:00:00Z");
-    private static final Instant SEEN_SINCE = NOW.minus(Duration.ofMinutes(15));
+    private static final Instant SEEN_SINCE = NOW.minus(Duration.ofSeconds(120));
 
     private final ViolationRepository violations = mock(ViolationRepository.class);
     private final ViolationService violationService = mock(ViolationService.class);

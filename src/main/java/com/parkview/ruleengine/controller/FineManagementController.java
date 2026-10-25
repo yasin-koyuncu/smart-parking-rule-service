@@ -53,7 +53,7 @@ public class FineManagementController {
     public FineResponse voidFine(@PathVariable UUID id, @Valid @RequestBody VoidFineRequest request) {
         AuthenticatedUser user = currentUser.require();
         accessPolicy.requireZone(user, fineQuery.get(id).getZoneId());
-        return FineMapper.toResponse(fineManagement.voidFine(id, request.reason(), actorOf(user)), fineQuery.disputeStatusOf(id));
+        return FineMapper.toResponse(fineManagement.voidFine(id, request.reason(), actorOf(user)), fineQuery.disputeStatusOf(id), true);
     }
 
     @PostMapping("/{id}/mark-paid")
@@ -72,7 +72,7 @@ public class FineManagementController {
         PaidMethod method = PaidMethod.parse(request.method())
                 .orElseThrow(() -> new IllegalStateException("method is validated by the request"));
         return FineMapper.toResponse(fineManagement.markPaidManually(id, request.reason(), method, actorOf(user)),
-                fineQuery.disputeStatusOf(id));
+                fineQuery.disputeStatusOf(id), true);
     }
 
     /** The audit trail records who acted: the token subject, which Supabase always issues as a UUID. */

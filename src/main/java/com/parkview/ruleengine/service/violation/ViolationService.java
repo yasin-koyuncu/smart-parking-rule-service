@@ -11,7 +11,9 @@ import com.parkview.ruleengine.domain.value.ParkingSpot;
 import com.parkview.ruleengine.dto.event.ViolationCreatedEvent;
 import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.engine.EngineMetrics;
+import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
+import com.parkview.ruleengine.service.cache.SpotCacheService;
 import com.parkview.ruleengine.service.outbox.OutboxService;
 import com.parkview.ruleengine.util.Plates;
 import com.parkview.ruleengine.web.ConflictException;
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -46,12 +49,17 @@ public class ViolationService {
 
     private static final int STALE_BATCH = 200;
 
+    /** PostgreSQL SQLSTATE of a foreign key violation. */
+    private static final String FOREIGN_KEY_VIOLATION = "23503";
+
     private final ViolationRepository violations;
+    private final FineRepository fines;
     private final PlateOwnerDirectory plateOwners;
     private final ZoneDirectory zones;
     private final OutboxService outbox;
     private final RuleEngineProperties properties;
     private final EngineMetrics metrics;
+    private final SpotCacheService spotCache;
     private final Clock clock;
     private final TransactionTemplate tx;
 
@@ -60,18 +68,28 @@ public class ViolationService {
      * the existing one. A concurrent insert that loses against the partial unique index is "already exists".
      */
     public void confirm(ParkingSpot spot, ViolationType type, String plate, String cameraId) {
-        confirm(spot, type, plate, cameraId, null);
+        confirm(spot, type, plate, cameraId, null, clock.instant());
     }
 
     /**
      * Same, remembering the plain-language text of the rule that decided it when a new violation is opened (it ends up in
      * the evidence of the fine).
+     *
+     * @param observedAt when the vehicle was seen (the event time, never later than now): it is the start of the grace period
+     *                   and the {@code last_seen_at} of the violation, so a backlog never gives an old sighting a fresh grace
      */
-    public void confirm(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary) {
-        Instant now = clock.instant();
+    public void confirm(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary,
+                        Instant observedAt) {
         try {
-            tx.executeWithoutResult(status -> confirmOrOpen(spot, type, plate, cameraId, ruleSummary, now));
+            tx.executeWithoutResult(status -> confirmOrOpen(spot, type, plate, cameraId, ruleSummary, observedAt));
         } catch (DataIntegrityViolationException e) {
+            if (isForeignKeyViolation(e)) {
+                // The spot (or its zone) was deleted after the cache loaded it, e.g. by a re-scan: not an error, and a retry
+                // would only dead-letter the message. Plates are personal data and stay out of the log.
+                spotCache.evict(spot.zoneId());
+                log.debug("Spot {} of zone {} no longer exists: observation dropped, spot cache evicted", spot.id(), spot.zoneId());
+                return;
+            }
             if (violations.findActive(plate, spot.id(), type).isEmpty()) {
                 throw e;
             }
@@ -79,21 +97,39 @@ public class ViolationService {
         }
     }
 
+    private static boolean isForeignKeyViolation(Throwable error) {
+        for (Throwable t = error; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            if (t instanceof SQLException sql && FOREIGN_KEY_VIOLATION.equals(sql.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void confirmOrOpen(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary,
-                               Instant now) {
+                               Instant observedAt) {
         var active = violations.findActive(plate, spot.id(), type);
         if (active.isPresent()) {
-            touchIfDue(active.get(), now);
+            touchIfDue(active.get(), observedAt);
             return;
         }
         // A vehicle that was already fined and is still there must not collect a second fine.
         List<UUID> fined = violations.findRecentlyFinedIds(
-                plate, spot.id(), type, now.minus(properties.staleAfter()), PageRequest.of(0, 1));
+                plate, spot.id(), type, observedAt.minus(properties.staleAfter()), PageRequest.of(0, 1));
         if (!fined.isEmpty()) {
-            violations.touch(fined.get(0), now);
+            violations.touch(fined.get(0), observedAt);
             return;
         }
-        open(spot, type, plate, cameraId, ruleSummary, now);
+        // The same stay must not be fined twice when the spot was replaced meanwhile (re-scan, "empty the area", rollback): the
+        // new spot has a new id and the cascade took the old violation with it, so only the fine itself remembers it. A voided
+        // fine counts too: an operator decided about this stay already.
+        if (properties.refineBlockHours() > 0 && fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual(
+                plate, spot.zoneId(), type, observedAt.minus(properties.refineBlock()))) {
+            log.debug("A fine for {} in zone {} was issued within {} h: no new violation", type, spot.zoneId(),
+                    properties.refineBlockHours());
+            return;
+        }
+        open(spot, type, plate, cameraId, ruleSummary, observedAt);
     }
 
     private void touchIfDue(Violation violation, Instant now) {
@@ -141,30 +177,61 @@ public class ViolationService {
     }
 
     /**
-     * Operator action. Idempotent for an already resolved violation.
+     * The session of the plate in the zone ended (session-service): the vehicle has left, so its open violations there are
+     * resolved as LEFT, and none of them is fined. Idempotent: a redelivered event finds nothing open. A violation that already
+     * has a fine stays as it is.
+     *
+     * <p>A violation that a detection confirmed after {@code endedAt} is left alone: the vehicle is still there (the driver
+     * ended the session without leaving, or the event arrived late). Should a clock difference between the services make
+     * this skip a violation that should have been resolved, the fine sweep still refuses it as not recently seen.
+     *
+     * @param endedAt when the session ended, null when unknown (then every open violation of the plate in the zone is resolved)
+     * @return how many violations this call resolved
+     */
+    public int resolveEnded(String plate, String zoneId, Instant endedAt) {
+        int resolved = 0;
+        for (Violation open : violations.findActiveByPlateAndZone(plate, zoneId)) {
+            if (endedAt != null && open.getLastSeenAt().isAfter(endedAt)) {
+                continue;
+            }
+            if (resolve(open, ResolutionReason.LEFT)) {
+                resolved++;
+            }
+        }
+        return resolved;
+    }
+
+    /**
+     * Operator action. Idempotent for an already resolved violation. Not one transaction around the whole method: the
+     * atomic update decides, and when it changes nothing the violation is read again, so that a fine issued in between is
+     * reported as the conflict it is instead of as a success.
      *
      * @throws ResourceNotFoundException when the id is unknown
      * @throws ConflictException         when a fine was already issued
      */
-    @Transactional
     public void resolveManually(UUID id) {
         Violation violation = get(id);
         if (violation.getFineIssuedAt() != null) {
             throw new ConflictException("A fine has already been issued for this violation");
         }
-        resolve(violation, ResolutionReason.MANUAL);
+        if (!resolve(violation, ResolutionReason.MANUAL) && get(id).getFineIssuedAt() != null) {
+            throw new ConflictException("A fine has already been issued for this violation");
+        }
     }
 
-    private void resolve(Violation violation, ResolutionReason reason) {
-        tx.executeWithoutResult(status -> {
+    /** @return true when this call closed the violation, false when it was no longer open (resolved, fined or gone) */
+    private boolean resolve(Violation violation, ResolutionReason reason) {
+        return Boolean.TRUE.equals(tx.execute(status -> {
             Instant now = clock.instant();
             if (violations.resolveIfActive(violation.getId(), reason, now) == 1) {
                 outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
                         RabbitConfig.VIOLATION_RESOLVED_KEY, new ViolationResolvedEvent(violation.getId(),
                                 violation.getPlate(), violation.getZoneId(), reason, now));
                 log.info("Violation {} resolved ({})", violation.getId(), reason);
+                return true;
             }
-        });
+            return false;
+        }));
     }
 
     @Transactional(readOnly = true)
@@ -180,5 +247,14 @@ public class ViolationService {
     @Transactional(readOnly = true)
     public Page<Violation> byPlate(String plate, Pageable pageable) {
         return violations.findByPlate(plate, pageable);
+    }
+
+    /** Same, limited to the given zones (an operator). No zones, no violations. */
+    @Transactional(readOnly = true)
+    public Page<Violation> byPlateInZones(String plate, List<String> zoneIds, Pageable pageable) {
+        if (zoneIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return violations.findByPlateAndZoneIdIn(plate, zoneIds, pageable);
     }
 }

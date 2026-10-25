@@ -15,8 +15,9 @@ import java.util.UUID;
 /**
  * Read-only view of {@code sessions}, which is owned by session-service. rule-service reads the start of the
  * active session ({@code ended_at} is null) of a plate to decide whether it overstays.
- * Maps just the columns used (not {@code spot_id}: the Supabase base table lacks it until session-service
- * has migrated); never written by this service and never created by its Liquibase changelog.
+ * Maps just the columns used (not {@code spot_id} and not {@code voided_at}: the Supabase base table lacks them until
+ * session-service has migrated, and a mapped column that is missing fails the schema validation at startup; the voided
+ * filter is a native query, see {@link SessionViewRepository}); never written by this service and never created by its Liquibase changelog.
  */
 @Entity
 @Immutable

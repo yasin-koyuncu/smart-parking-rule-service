@@ -43,6 +43,8 @@ import java.util.UUID;
 public class FineController {
 
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "issuedAt").and(Sort.by("id"));
+    /** The permission that makes the camera snapshot key of a fine visible; drivers never have it (ADR 0008). */
+    private static final String EVIDENCE_PERMISSION = "violation:read";
     private static final Sort HISTORY_NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "at").and(Sort.by("id"));
 
     private final FineQueryService fines;
@@ -53,7 +55,8 @@ public class FineController {
     @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read')")
     @Operation(summary = "All fines of a plate",
             description = "Newest first. Drivers may only query plates in their plates claim and never see voided fines; operators and "
-                    + "administrators holding violation:read any plate, without voided fines unless includeVoided=true.")
+                    + "administrators holding violation:read any plate, without voided fines unless includeVoided=true. An operator sees "
+                    + "only the fines in their zones, an administrator those of every zone. Only callers with violation:read get imagePath.")
     @ApiResponse(responseCode = "200", description = "A page of fines; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "A driver asked for a plate that is not theirs")
     public ResponseEntity<List<FineResponse>> getByPlate(
@@ -64,8 +67,13 @@ public class FineController {
             @Parameter(description = "Page size, at most 500") @RequestParam(defaultValue = "100") int size) {
         AuthenticatedUser user = currentUser.require();
         accessPolicy.requirePlate(user, plate);
-        return PagedResponses.of(respond(fines.byPlate(Plates.normalize(plate), includeVoided && user.isOperatorOrAdmin(),
-                PagedResponses.pageable(page, size, NEWEST_FIRST))));
+        String normalized = Plates.normalize(plate);
+        boolean withVoided = includeVoided && user.isOperatorOrAdmin();
+        var pageable = PagedResponses.pageable(page, size, NEWEST_FIRST);
+        List<String> zones = accessPolicy.zoneScopeOf(user).orElse(null);
+        return PagedResponses.of(respond(zones != null
+                ? fines.byPlateInZones(normalized, withVoided, zones, pageable)
+                : fines.byPlate(normalized, withVoided, pageable)));
     }
 
     @GetMapping("/zone/{zoneId}")
@@ -107,7 +115,7 @@ public class FineController {
             }
             accessPolicy.requirePlate(user, fine.getPlate());
         }
-        return FineMapper.toResponse(fine, fines.disputeStatusOf(id));
+        return FineMapper.toResponse(fine, fines.disputeStatusOf(id), currentUser.hasAuthority(EVIDENCE_PERMISSION));
     }
 
     @GetMapping("/{id}/history")
@@ -131,6 +139,7 @@ public class FineController {
     /** One extra query for the dispute state of the whole page. */
     private Page<FineResponse> respond(Page<Fine> page) {
         Map<UUID, DisputeStatus> disputeStatuses = fines.disputeStatusesOf(page.getContent());
-        return page.map(fine -> FineMapper.toResponse(fine, disputeStatuses.get(fine.getId())));
+        boolean withImagePath = currentUser.hasAuthority(EVIDENCE_PERMISSION);
+        return page.map(fine -> FineMapper.toResponse(fine, disputeStatuses.get(fine.getId()), withImagePath));
     }
 }

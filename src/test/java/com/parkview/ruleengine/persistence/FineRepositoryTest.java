@@ -169,4 +169,33 @@ class FineRepositoryTest {
         assertThat(locked.getId()).isEqualTo(id);
         assertThat(unknownFound).isFalse();
     }
+
+
+    @Test
+    void plateListInZonesLeavesOutOtherZonesAndVoidedFinesOnRequest() {
+        UUID inZ1 = insert("ABC123", "z1", NOW, false);
+        insert("ABC123", "z2", NOW.minusSeconds(10), false);
+        UUID voidedInZ1 = insert("ABC123", "z1", NOW.minusSeconds(20), false);
+        jdbc.update("update fines set voided_at = now() where id = ?", voidedInZ1);
+
+        assertThat(fines.findByPlateAndZoneIdInAndVoidedAtIsNull("ABC123", java.util.List.of("z1"), PageRequest.of(0, 10, NEWEST_FIRST))
+                .getContent()).extracting(Fine::getId).containsExactly(inZ1);
+        assertThat(fines.findByPlateAndZoneIdIn("ABC123", java.util.List.of("z1"), PageRequest.of(0, 10, NEWEST_FIRST)).getContent())
+                .extracting(Fine::getId).containsExactly(inZ1, voidedInZ1);
+        assertThat(fines.findByPlateAndZoneIdIn("ABC123", java.util.List.of("z3"), PageRequest.of(0, 10, NEWEST_FIRST)).getContent()).isEmpty();
+    }
+
+    @Test
+    void aRecentFineOfTheSamePlateZoneAndReasonIsFoundWhateverTheSpot() {
+        insert("ABC123", "z1", NOW.minusSeconds(3600), false);   // reason wrong_vehicle_type
+        Instant since = NOW.minusSeconds(6 * 3600);
+
+        assertThat(fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual("ABC123", "z1", ViolationType.WRONG_VEHICLE_TYPE, since)).isTrue();
+        // another reason, plate or zone, or a fine older than the window, does not count
+        assertThat(fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual("ABC123", "z1", ViolationType.OVERSTAY, since)).isFalse();
+        assertThat(fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual("XYZ999", "z1", ViolationType.WRONG_VEHICLE_TYPE, since)).isFalse();
+        assertThat(fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual("ABC123", "z2", ViolationType.WRONG_VEHICLE_TYPE, since)).isFalse();
+        assertThat(fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual("ABC123", "z1", ViolationType.WRONG_VEHICLE_TYPE,
+                NOW.minusSeconds(60))).isFalse();
+    }
 }

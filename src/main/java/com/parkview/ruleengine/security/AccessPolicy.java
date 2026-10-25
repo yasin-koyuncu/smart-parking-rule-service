@@ -3,7 +3,9 @@ package com.parkview.ruleengine.security;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Object-level authorisation rules (the role check says "may use this endpoint",
@@ -37,7 +39,19 @@ public class AccessPolicy {
         }
     }
 
-    /** Operators and admins may look up any plate (enforcement work); drivers only their own. */
+    /**
+     * The zones a list of records of a plate must be limited to: the zones of an operator (possibly none), nothing (empty) for
+     * an administrator, who sees every zone. A driver is not limited by zone but by plate, see {@link #requirePlate}.
+     * Looking at a plate gives an operator no view into the zones of other operators.
+     */
+    public Optional<List<String>> zoneScopeOf(AuthenticatedUser user) {
+        return user.role() == Role.OPERATOR ? Optional.of(List.copyOf(user.zones())) : Optional.empty();
+    }
+
+    /**
+     * May this caller address the plate at all: staff always (the lists of a plate are then limited to their zones, see
+     * {@link #zoneScopeOf}), drivers only their own.
+     */
     public boolean canAccessPlate(AuthenticatedUser user, String plate) {
         if (user.isOperatorOrAdmin()) {
             return true;

@@ -9,8 +9,8 @@ import java.util.UUID;
  *
  * @param type             lower-case spot type, e.g. {@code permit}, {@code no_parking}, {@code paid}
  * @param permitType       permit required in a {@code permit} spot, otherwise null
- * @param boundaryGraceMin grace before a boundary fine; zero or less means "use the default"
- * @param permitGraceMin   grace before a wrong-permit fine; zero or less means "use the default"
+ * @param boundaryGraceMin grace before a boundary fine in minutes; null means "use the default", 0 means no grace
+ * @param permitGraceMin   grace before a wrong-permit fine in minutes; null means "use the default", 0 means no grace
  * @param maxMinutes       maximum stay in a {@code timed} or {@code loading} spot; zero or less means none
  */
 public record ParkingSpot(
@@ -20,8 +20,8 @@ public record ParkingSpot(
         String type,
         String permitType,
         Polygon polygon,
-        int boundaryGraceMin,
-        int permitGraceMin,
+        Integer boundaryGraceMin,
+        Integer permitGraceMin,
         int maxMinutes
 ) {
 

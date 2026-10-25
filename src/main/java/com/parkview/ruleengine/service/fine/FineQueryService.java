@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -61,6 +62,18 @@ public class FineQueryService {
     /** @param includeVoided false (the default of the API) leaves out voided fines */
     public Page<Fine> byPlate(String plate, boolean includeVoided, Pageable pageable) {
         return includeVoided ? fines.findByPlate(plate, pageable) : fines.findByPlateAndVoidedAtIsNull(plate, pageable);
+    }
+
+    /**
+     * Same, limited to the given zones (an operator): a plate with fines in other zones shows none of them. No zones, no fines.
+     */
+    public Page<Fine> byPlateInZones(String plate, boolean includeVoided, List<String> zoneIds, Pageable pageable) {
+        if (zoneIds.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        return includeVoided
+                ? fines.findByPlateAndZoneIdIn(plate, zoneIds, pageable)
+                : fines.findByPlateAndZoneIdInAndVoidedAtIsNull(plate, zoneIds, pageable);
     }
 
     /**

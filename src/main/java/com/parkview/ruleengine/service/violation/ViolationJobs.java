@@ -21,8 +21,10 @@ import java.util.UUID;
  * <ul>
  *   <li>fine sweep: fines violations whose grace period has passed. Each violation is claimed with
  *       {@code FOR UPDATE SKIP LOCKED} and fined in its own transaction, so a failure affects only that
- *       violation and two instances never fine the same one. Violations that were not re-confirmed for
- *       {@code stale-minutes} are not fined (the vehicle is gone, the stale sweep closes them).</li>
+ *       violation and two instances never fine the same one. A violation is only fined when a detection confirmed it
+ *       within {@code fine-freshness-seconds}: rule-service is not told that a car left, so a violation that stopped being
+ *       confirmed (the car drove away during the grace period) must not be fined just because its grace is over. The
+ *       stale sweep, or {@code session.ended}, closes it.</li>
  *   <li>stale sweep: resolves violations no detection has confirmed for {@code stale-minutes} as LEFT.</li>
  * </ul>
  */
@@ -57,7 +59,7 @@ public class ViolationJobs {
     /** One batch of the fine sweep. */
     BatchResult issueBatch() {
         Instant now = clock.instant();
-        Instant seenSince = now.minus(properties.staleAfter());
+        Instant seenSince = now.minus(properties.fineFreshness());
         List<UUID> due = violations.findDueForFine(now, seenSince, PageRequest.of(0, properties.expireBatchSize()));
 
         int fined = 0;

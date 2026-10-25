@@ -109,4 +109,57 @@ class SpotCacheServiceTest {
 
         assertThat(cache.spotNumberOf(viewSpot.id())).contains("B7");
     }
+
+
+    @Test
+    void evictingAZoneForgetsTheLegacySpotsAndEveryViewButNotOtherZones() {
+        when(directory.polygonSpotsOf("other")).thenReturn(List.of(legacySpot));
+        cache.spotsOf(ZONE);
+        cache.spotsOf(ZONE, viewId);
+        cache.spotsOf("other");
+        ParkingSpot replaced = TestFixtures.spot("permit", "resident", null, null);
+        when(directory.polygonSpotsOf(ZONE)).thenReturn(List.of(replaced));
+
+        cache.evict(ZONE);
+
+        assertThat(cache.spotsOf(ZONE)).containsExactly(replaced);
+        cache.spotsOf(ZONE, viewId);
+        cache.spotsOf("other");
+        verify(directory, times(2)).polygonSpotsOf(ZONE);
+        verify(directory, times(2)).polygonSpotsOfView(ZONE, viewId);
+        verify(directory, times(1)).polygonSpotsOf("other");
+    }
+
+    @Test
+    void aZoneWithoutSpotsIsCachedOnlyForTheShortNegativeTtl() {
+        when(directory.polygonSpotsOf("empty")).thenReturn(List.of());
+
+        assertThat(cache.spotsOf("empty")).isEmpty();
+        now.set(now.get().plus(TestFixtures.properties().spotCacheNegativeTtl()).minusSeconds(1));
+        assertThat(cache.spotsOf("empty")).isEmpty();
+        verify(directory, times(1)).polygonSpotsOf("empty");
+
+        ParkingSpot drawn = TestFixtures.spot("paid", null, null, null);
+        when(directory.polygonSpotsOf("empty")).thenReturn(List.of(drawn));
+        now.set(now.get().plusSeconds(2));
+
+        assertThat(cache.spotsOf("empty")).containsExactly(drawn);
+        // a zone with spots keeps the long TTL
+        now.set(now.get().plus(TestFixtures.properties().spotCacheNegativeTtl()).plusSeconds(1));
+        assertThat(cache.spotsOf("empty")).containsExactly(drawn);
+        verify(directory, times(2)).polygonSpotsOf("empty");
+    }
+
+    @Test
+    void aLoadThatWasRunningWhileTheZoneWasEvictedIsNotCached() {
+        ParkingSpot stale = TestFixtures.spot("paid", null, null, null);
+        ParkingSpot fresh = TestFixtures.spot("permit", "resident", null, null);
+        when(directory.polygonSpotsOf("racy")).thenAnswer(inv -> {
+            cache.evict("racy");               // map.updated arrives while the old rows are being read
+            return List.of(stale);
+        }).thenReturn(List.of(fresh));
+
+        assertThat(cache.spotsOf("racy")).containsExactly(stale);
+        assertThat(cache.spotsOf("racy")).as("the stale read was not kept").containsExactly(fresh);
+    }
 }

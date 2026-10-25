@@ -275,4 +275,39 @@ class ViolationRepositoryTest {
 
         assertThat(violations.findActiveByPlateAndZone("ZONE01", "z1")).extracting(Violation::getId).containsExactly(mine.getId());
     }
+
+
+    private static final Instant FRESH_SINCE = NOW.minus(Duration.ofSeconds(120));
+
+    @Test
+    void aCarThatLeftDuringTheGraceIsNotDueEvenThoughItsGraceHasPassed() {
+        // last confirmed 4 min before the grace ended, now 1 min after it: 5 min ago, older than the 120 s freshness window
+        Instant graceUntil = NOW.minusSeconds(60);
+        Violation gone = open("GONE11", spot, ViolationType.WRONG_PERMIT, graceUntil.minus(Duration.ofMinutes(30)), graceUntil);
+        jdbc.update("update spot_violations set last_seen_at = ? where id = ?",
+                java.sql.Timestamp.from(graceUntil.minus(Duration.ofMinutes(4))), gone.getId());
+        Violation there = open("THERE1", spot, ViolationType.NO_PARKING, graceUntil.minus(Duration.ofMinutes(30)), graceUntil);
+        jdbc.update("update spot_violations set last_seen_at = ? where id = ?",
+                java.sql.Timestamp.from(NOW.minusSeconds(30)), there.getId());
+
+        assertThat(violations.findDueForFine(NOW, FRESH_SINCE, PageRequest.of(0, 10))).containsExactly(there.getId());
+        assertThat(tx.<Optional<Violation>>execute(s -> violations.claimDue(gone.getId(), NOW, FRESH_SINCE))).isEmpty();
+        assertThat(tx.<Optional<Violation>>execute(s -> violations.claimDue(there.getId(), NOW, FRESH_SINCE))).isPresent();
+        // the stale sweep still keeps it open (15 min window) until the car is known to be gone
+        assertThat(violations.findStale(SEEN_SINCE, PageRequest.of(0, 10))).isEmpty();
+    }
+
+    @Test
+    void plateListInZonesNeverContainsViolationsOfOtherZones() {
+        Violation mine = open("SCOPE1", spot, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600));
+        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z2", "SCOPE1", null, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600)));
+        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z3", "SCOPE1", null, ViolationType.OVERSTAY, NOW, NOW.plusSeconds(600)));
+        Sort newestFirst = Sort.by(Sort.Direction.DESC, "detectedAt");
+
+        assertThat(violations.findByPlateAndZoneIdIn("SCOPE1", List.of("z1"), PageRequest.of(0, 10, newestFirst)).getContent())
+                .extracting(Violation::getId).containsExactly(mine.getId());
+        assertThat(violations.findByPlateAndZoneIdIn("SCOPE1", List.of("z4"), PageRequest.of(0, 10, newestFirst)).getContent()).isEmpty();
+        assertThat(violations.findByPlateAndZoneIdIn("SCOPE1", List.of("z1", "z2"), PageRequest.of(0, 10, newestFirst)).getTotalElements())
+                .isEqualTo(2);
+    }
 }

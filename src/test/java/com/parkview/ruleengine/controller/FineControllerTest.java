@@ -101,7 +101,7 @@ class FineControllerTest {
                 .andExpect(jsonPath("$[0].amountSek").value(700.0))
                 .andExpect(jsonPath("$[0].issuedAt").value("2026-10-09T10:00:00Z"))
                 .andExpect(jsonPath("$[0].paid").value(false))
-                .andExpect(jsonPath("$[0].imagePath").value("fines/1.jpg"))
+                .andExpect(jsonPath("$[0].imagePath").value(nullValue()))
                 .andExpect(jsonPath("$[0].paidAt").value(nullValue()))
                 .andExpect(jsonPath("$[0].voided").value(false))
                 .andExpect(jsonPath("$[0].voidedAt").value(nullValue()))
@@ -171,14 +171,54 @@ class FineControllerTest {
     }
 
     @Test
-    void staffWithViolationReadMayReadAnyPlate() throws Exception {
+    void staffWithViolationReadMayAskForAnyPlateButOperatorsOnlySeeTheirZones() throws Exception {
         when(fineService.byPlate(eq("XYZ999"), eq(false), any())).thenReturn(page());
+        when(fineService.byPlateInZones(eq("XYZ999"), eq(false), eq(List.of("z1")), any())).thenReturn(page());
 
-        for (var allowed : List.of(user("operator", List.of(), List.of("z1")), user("admin", List.of(), List.of()),
-                userWith("operator", List.of("violation:read"), List.of(), List.of("z1")),
-                token(false, "admin", List.of("violation:read"), List.of(), List.of()))) {
+        for (var allowed : List.of(user("admin", List.of(), List.of()), token(false, "admin", List.of("violation:read"), List.of(), List.of()))) {
             mvc.perform(get("/api/v1/fines/plate/XYZ999").with(allowed)).andExpect(status().isOk());
         }
+        for (var allowed : List.of(user("operator", List.of(), List.of("z1")),
+                userWith("operator", List.of("violation:read"), List.of(), List.of("z1")))) {
+            mvc.perform(get("/api/v1/fines/plate/XYZ999").with(allowed)).andExpect(status().isOk());
+        }
+        verify(fineService, times(2)).byPlate(eq("XYZ999"), eq(false), any());
+        verify(fineService, times(2)).byPlateInZones(eq("XYZ999"), eq(false), eq(List.of("z1")), any());
+    }
+
+    @Test
+    void anOperatorOfAnotherZoneAsksForAPlateWithAFineElsewhereAndGetsNothing() throws Exception {
+        // the service is asked for the zones of the caller only; the fine of zone z1 is not among the answer
+        when(fineService.byPlateInZones(eq("ABC123"), eq(false), eq(List.of("z2")), any())).thenReturn(page());
+        when(fineService.byPlate(eq("ABC123"), eq(false), any())).thenReturn(page(fine));
+
+        mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("operator", List.of(), List.of("z2"))))
+                .andExpect(status().isOk())
+                .andExpect(header().string("X-Total-Count", "0"))
+                .andExpect(content().json("[]"));
+        verify(fineService, never()).byPlate(any(), anyBoolean(), any());
+        // an operator without zones is limited to none
+        when(fineService.byPlateInZones(eq("ABC123"), eq(false), eq(List.of()), any())).thenReturn(page());
+        mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("operator", List.of(), List.of())))
+                .andExpect(status().isOk());
+        verify(fineService).byPlateInZones(eq("ABC123"), eq(false), eq(List.of()), any());
+    }
+
+    @Test
+    void theSnapshotKeyIsForCallersWithViolationReadAndNeverForDrivers() throws Exception {
+        when(fineService.byPlateInZones(eq("ABC123"), eq(false), eq(List.of("z1")), any())).thenReturn(page(fine));
+        when(fineService.byPlate(eq("ABC123"), eq(false), any())).thenReturn(page(fine));
+        when(fineService.get(fine.getId())).thenReturn(fine);
+
+        mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("operator", List.of(), List.of("z1"))))
+                .andExpect(jsonPath("$[0].imagePath").value("fines/1.jpg"));
+        mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("driver", List.of("ABC123"), List.of())))
+                .andExpect(jsonPath("$[0].imagePath").value(nullValue()));
+        mvc.perform(get("/api/v1/fines/{id}", fine.getId()).with(user("operator", List.of(), List.of("z1"))))
+                .andExpect(jsonPath("$.imagePath").value("fines/1.jpg"));
+        mvc.perform(get("/api/v1/fines/{id}", fine.getId()).with(user("driver", List.of("ABC123"), List.of())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imagePath").value(nullValue()));
     }
 
     @Test
@@ -189,6 +229,7 @@ class FineControllerTest {
             mvc.perform(get("/api/v1/fines/plate/ABC123").with(denied)).andExpect(status().isForbidden());
         }
         verify(fineService, never()).byPlate(any(), anyBoolean(), any());
+        verify(fineService, never()).byPlateInZones(any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -216,7 +257,7 @@ class FineControllerTest {
         Fine voided = Fine.issue(Violation.open(UUID.randomUUID(), "z1", "ABC123", OWNER, ViolationType.NO_PARKING, T, T),
                 new BigDecimal("900"), OWNER, T);
         voided.voidFine(T.plusSeconds(120), "misread plate", null);
-        when(fineService.byPlate(eq("ABC123"), eq(true), any())).thenReturn(page(paid, voided));
+        when(fineService.byPlateInZones(eq("ABC123"), eq(true), eq(List.of("z1")), any())).thenReturn(page(paid, voided));
 
         mvc.perform(get("/api/v1/fines/plate/ABC123?includeVoided=true").with(user("operator", List.of(), List.of("z1"))))
                 .andExpect(status().isOk())
@@ -234,6 +275,7 @@ class FineControllerTest {
     @Test
     void plateListLeavesOutVoidedFinesUnlessStaffAsksForThem() throws Exception {
         when(fineService.byPlate(any(), anyBoolean(), any())).thenReturn(page());
+        when(fineService.byPlateInZones(any(), anyBoolean(), any(), any())).thenReturn(page());
 
         mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("operator", List.of(), List.of("z1")))).andExpect(status().isOk());
         mvc.perform(get("/api/v1/fines/plate/ABC123?includeVoided=true").with(user("operator", List.of(), List.of("z1"))))
@@ -247,8 +289,10 @@ class FineControllerTest {
                 .andExpect(status().isBadRequest());
 
         // default listing and the driver (flag ignored) leave voided fines out; both staff calls include them
-        verify(fineService, times(2)).byPlate(eq("ABC123"), eq(false), any());
-        verify(fineService, times(2)).byPlate(eq("ABC123"), eq(true), any());
+        verify(fineService).byPlate(eq("ABC123"), eq(false), any());                    // the driver
+        verify(fineService).byPlate(eq("ABC123"), eq(true), any());                     // the admin
+        verify(fineService).byPlateInZones(eq("ABC123"), eq(false), any(), any());      // operator, default listing
+        verify(fineService).byPlateInZones(eq("ABC123"), eq(true), any(), any());       // operator, asked for voided
     }
 
     @Test

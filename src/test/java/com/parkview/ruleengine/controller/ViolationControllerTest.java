@@ -133,13 +133,38 @@ class ViolationControllerTest {
     }
 
     @Test
-    void operatorsAndAdminsMayReadAnyPlate() throws Exception {
-        when(violationService.byPlate(eq("XYZ999"), any())).thenReturn(new PageImpl<>(List.of()));
+    void anAdminSeesEveryZoneOfAPlateButAnOperatorOnlyTheirOwn() throws Exception {
+        when(violationService.byPlate(eq("XYZ999"), any())).thenReturn(new PageImpl<>(List.of(violation)));
+        // the violation of the plate is in z1; an operator of z2 is asked for z2 only and gets nothing
+        when(violationService.byPlateInZones(eq("XYZ999"), eq(List.of("z2")), any())).thenReturn(new PageImpl<>(List.of()));
+        when(violationService.byPlateInZones(eq("XYZ999"), eq(List.of("z1")), any())).thenReturn(new PageImpl<>(List.of(violation)));
 
-        mvc.perform(get("/api/v1/violations/plate/XYZ999").with(user("operator", List.of(), List.of("z1"))))
-                .andExpect(status().isOk());
         mvc.perform(get("/api/v1/violations/plate/XYZ999").with(user("admin", List.of(), List.of())))
-                .andExpect(status().isOk());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].zoneId").value("z1"));
+        mvc.perform(get("/api/v1/violations/plate/XYZ999").with(user("operator", List.of(), List.of("z2"))))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+        mvc.perform(get("/api/v1/violations/plate/XYZ999").with(user("operator", List.of(), List.of("z1"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].zoneId").value("z1"));
+        verify(violationService, org.mockito.Mockito.times(1)).byPlate(eq("XYZ999"), any());
+    }
+
+    @Test
+    void theSnapshotKeyOfAViolationIsForStaffWithViolationReadOnly() throws Exception {
+        ReflectionTestUtils.setField(violation, "imagePath", "snapshots/1.jpg");
+        when(violationService.byPlate(eq("ABC123"), any())).thenReturn(new PageImpl<>(List.of(violation)));
+        when(violationService.byPlateInZones(eq("ABC123"), eq(List.of("z1")), any())).thenReturn(new PageImpl<>(List.of(violation)));
+        when(violationService.activeByZone(eq("z1"), any())).thenReturn(new PageImpl<>(List.of(violation)));
+
+        mvc.perform(get("/api/v1/violations/plate/ABC123").with(user("driver", List.of("ABC123"), List.of())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].imagePath").value(org.hamcrest.Matchers.nullValue()));
+        mvc.perform(get("/api/v1/violations/plate/ABC123").with(user("operator", List.of(), List.of("z1"))))
+                .andExpect(jsonPath("$[0].imagePath").value("snapshots/1.jpg"));
+        mvc.perform(get("/api/v1/violations/zone/z1").with(user("operator", List.of(), List.of("z1"))))
+                .andExpect(jsonPath("$[0].imagePath").value("snapshots/1.jpg"));
     }
 
     @Test
@@ -170,6 +195,7 @@ class ViolationControllerTest {
     void plateListAcceptsDriversAndHoldersOfViolationReadOnly() throws Exception {
         when(violationService.byPlate(eq("XYZ999"), any())).thenReturn(new PageImpl<>(List.of()));
         when(violationService.byPlate(eq("ABC123"), any())).thenReturn(new PageImpl<>(List.of()));
+        when(violationService.byPlateInZones(eq("XYZ999"), any(), any())).thenReturn(new PageImpl<>(List.of()));
 
         mvc.perform(get("/api/v1/violations/plate/XYZ999").with(userWith("operator", List.of("violation:read"), List.of(), List.of("z1"))))
                 .andExpect(status().isOk());

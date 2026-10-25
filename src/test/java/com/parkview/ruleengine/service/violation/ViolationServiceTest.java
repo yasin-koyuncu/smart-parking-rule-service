@@ -10,7 +10,9 @@ import com.parkview.ruleengine.domain.value.ParkingSpot;
 import com.parkview.ruleengine.dto.event.ViolationCreatedEvent;
 import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.engine.EngineMetrics;
+import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
+import com.parkview.ruleengine.service.cache.SpotCacheService;
 import com.parkview.ruleengine.service.TestFixtures;
 import com.parkview.ruleengine.service.TestTransactions;
 import com.parkview.ruleengine.service.outbox.OutboxService;
@@ -51,6 +53,8 @@ class ViolationServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-09T10:00:00Z");
 
     private final ViolationRepository violations = mock(ViolationRepository.class);
+    private final FineRepository fines = mock(FineRepository.class);
+    private final SpotCacheService spotCache = mock(SpotCacheService.class);
     private final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
     private final OutboxService events = mock(OutboxService.class);
@@ -59,8 +63,8 @@ class ViolationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new ViolationService(violations, owners, zones, events, TestFixtures.properties(),
-                new EngineMetrics(registry), Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
+        service = new ViolationService(violations, fines, owners, zones, events, TestFixtures.properties(),
+                new EngineMetrics(registry), spotCache, Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
         when(owners.ownerOf(anyString())).thenReturn(Optional.empty());
         when(zones.addressOf(anyString())).thenReturn(Optional.empty());
         when(violations.saveAndFlush(any(Violation.class))).thenAnswer(inv -> {
@@ -105,7 +109,7 @@ class ViolationServiceTest {
 
     @Test
     void graceFallsBackToTheConfiguredDefaultsPerType() {
-        ParkingSpot spot = TestFixtures.spot("paid", null, 0, 0);
+        ParkingSpot spot = TestFixtures.spot("paid", null, null, null);
         when(violations.findActive(anyString(), any(), any())).thenReturn(Optional.empty());
 
         for (ViolationType type : ViolationType.values()) {
@@ -338,5 +342,135 @@ class ViolationServiceTest {
         Violation v = TestFixtures.violation(type, NOW.minusSeconds(300), NOW.plusSeconds(300));
         ReflectionTestUtils.setField(v, "spotId", spotId);
         return v;
+    }
+
+
+    @Test
+    void anOldObservationStartsItsGraceAtThePointItWasMadeNotAtProcessingTime() {
+        ParkingSpot spot = TestFixtures.spot("permit", "resident", null, 45);
+        Instant seen = NOW.minus(Duration.ofMinutes(8));
+        when(violations.findActive(PLATE, spot.id(), ViolationType.WRONG_PERMIT)).thenReturn(Optional.empty());
+
+        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", null, seen);
+
+        ArgumentCaptor<Violation> saved = ArgumentCaptor.forClass(Violation.class);
+        verify(violations).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getDetectedAt()).isEqualTo(seen);
+        assertThat(saved.getValue().getLastSeenAt()).isEqualTo(seen);
+        assertThat(saved.getValue().getGraceUntil()).isEqualTo(seen.plus(Duration.ofMinutes(45)));
+    }
+
+    @Test
+    void aReConfirmationWithAnOldTimeNeverMovesLastSeenForwardToNow() {
+        ParkingSpot spot = TestFixtures.spot("permit", "resident", null, null);
+        Violation active = TestFixtures.violation(ViolationType.WRONG_PERMIT, NOW.minusSeconds(900), NOW.plusSeconds(600));
+        when(violations.findActive(PLATE, spot.id(), ViolationType.WRONG_PERMIT)).thenReturn(Optional.of(active));
+        Instant seen = NOW.minus(Duration.ofMinutes(5));
+
+        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", null, seen);
+
+        verify(violations).touch(active.getId(), seen);
+        verify(violations, never()).touch(active.getId(), NOW);
+    }
+
+    @Test
+    void aForeignKeyFailureMeansTheSpotIsGoneAndIsAcknowledgedWithTheZoneCacheEvicted() {
+        ParkingSpot spot = TestFixtures.spot("permit", "resident", null, null);
+        when(violations.findActive(PLATE, spot.id(), ViolationType.WRONG_PERMIT)).thenReturn(Optional.empty());
+        when(violations.saveAndFlush(any(Violation.class))).thenThrow(new DataIntegrityViolationException("insert or update violates fk",
+                new java.sql.SQLException("violates foreign key constraint", "23503")));
+
+        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", null, NOW);
+
+        verify(spotCache).evict(ZONE);
+        verifyNoInteractions(events);
+    }
+
+    @Test
+    void aFineOfTheSamePlateZoneAndReasonWithinTheBlockWindowBlocksANewViolationWhateverTheSpot() {
+        ParkingSpot spot = TestFixtures.spot("permit", "resident", null, null);
+        when(violations.findActive(PLATE, spot.id(), ViolationType.WRONG_PERMIT)).thenReturn(Optional.empty());
+        when(fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual(PLATE, ZONE, ViolationType.WRONG_PERMIT,
+                NOW.minus(Duration.ofHours(6)))).thenReturn(true);
+
+        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", null, NOW);
+
+        verify(violations, never()).saveAndFlush(any());
+        verifyNoInteractions(events);
+    }
+
+    @Test
+    void withoutARecentFineANewViolationIsOpenedAsBefore() {
+        ParkingSpot spot = TestFixtures.spot("permit", "resident", null, null);
+        when(violations.findActive(PLATE, spot.id(), ViolationType.WRONG_PERMIT)).thenReturn(Optional.empty());
+
+        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", null, NOW);
+
+        verify(violations).saveAndFlush(any(Violation.class));
+    }
+
+    @Test
+    void aSessionEndResolvesTheOpenViolationsOfThePlateInTheZoneAsLeft() {
+        Violation open = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
+        ReflectionTestUtils.setField(open, "lastSeenAt", NOW.minusSeconds(240));
+        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(open));
+        when(violations.resolveIfActive(open.getId(), ResolutionReason.LEFT, NOW)).thenReturn(1);
+
+        assertThat(service.resolveEnded(PLATE, ZONE, NOW.minusSeconds(60))).isEqualTo(1);
+
+        ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+        verify(events).enqueue(eq(OutboxService.AGGREGATE_VIOLATION), eq(open.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE),
+                eq("violation.resolved"), payload.capture());
+        assertThat(((ViolationResolvedEvent) payload.getValue()).reason()).isEqualTo(ResolutionReason.LEFT);
+    }
+
+    @Test
+    void aRedeliveredSessionEndResolvesNothingAndPublishesNothing() {
+        // the first delivery resolved it: the repository no longer lists it as active, and a race loses the atomic update
+        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of());
+        assertThat(service.resolveEnded(PLATE, ZONE, NOW)).isZero();
+
+        Violation raced = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
+        ReflectionTestUtils.setField(raced, "lastSeenAt", NOW.minusSeconds(240));
+        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(raced));
+        when(violations.resolveIfActive(any(), any(), any())).thenReturn(0);
+        assertThat(service.resolveEnded(PLATE, ZONE, NOW)).isZero();
+
+        verifyNoInteractions(events);
+    }
+
+    @Test
+    void aViolationConfirmedAfterTheSessionEndedMeansTheVehicleIsStillThereAndStaysOpen() {
+        Violation stillThere = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
+        ReflectionTestUtils.setField(stillThere, "lastSeenAt", NOW.minusSeconds(10));
+        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(stillThere));
+
+        assertThat(service.resolveEnded(PLATE, ZONE, NOW.minusSeconds(120))).isZero();
+
+        verify(violations, never()).resolveIfActive(any(), any(), any());
+    }
+
+    @Test
+    void aSessionEndWithoutATimeResolvesEveryOpenViolation() {
+        Violation open = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
+        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(open));
+        when(violations.resolveIfActive(any(), any(), any())).thenReturn(1);
+
+        assertThat(service.resolveEnded(PLATE, ZONE, null)).isEqualTo(1);
+    }
+
+    @Test
+    void aFineIssuedBetweenTheCheckAndTheUpdateIsAConflictNotASuccess() {
+        Violation open = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
+        Violation fined = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
+        ReflectionTestUtils.setField(fined, "id", open.getId());
+        fined.markFined(UUID.randomUUID(), NOW.minusSeconds(1));
+        // first read: still open; the atomic update changes nothing; second read: the sweep fined it meanwhile
+        when(violations.findById(open.getId())).thenReturn(Optional.of(open)).thenReturn(Optional.of(fined));
+        when(violations.resolveIfActive(open.getId(), ResolutionReason.MANUAL, NOW)).thenReturn(0);
+
+        assertThatThrownBy(() -> service.resolveManually(open.getId())).isInstanceOf(ConflictException.class);
+
+        verifyNoInteractions(events);
     }
 }

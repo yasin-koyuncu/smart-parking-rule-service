@@ -25,6 +25,8 @@ Part of the Park & View platform (engineering contract: `smart-parking-e2e/docs/
 ```
 ingestion --vehicle.detected--> [ rule-service ] --violation.created / violation.resolved / fine.issued / fine.paid / fine.voided / fine.disputed / fine.dispute.decided--> notification, event-streaming
 payment-service --payment.completed.fine--> [ rule-service ]
+session-service --session.ended--> [ rule-service ]
+parking-mapping-service --map.updated--> [ rule-service ]
 payment-service --GET /internal/v1/fines/{id}--> [ rule-service ]
 frontend --JWT via api-gateway--> [ rule-service ]  (violations, fines, permits)
 rule-service reads parking_spots, zones, zone_rules, sessions, user_plates, detections (owned by other services, behind the ports in client/)
@@ -45,9 +47,15 @@ Flow for one observation (`DetectionService`):
    vehicle is parked correctly:** ai-detection only reports which vehicle stands in which spot (and no longer sends
    `violation`/`violations`), and ingestion-service sends no threshold. Change the thresholds here.
 3. The rule engine (`ViolationEvaluator`) returns the violation, if any (see "Rule engine").
+   The time of an observation is the `timestamp` of the event (never later than now), not the time it is processed: after an
+   outage or a backlog an old sighting neither refreshes `last_seen_at` nor starts a fresh grace period. An observation older than
+   `observation-max-age-seconds` (default 10 minutes) is dropped (acknowledged, logged at debug without the plate).
 4. Violation found: opened once per plate+spot+type (database partial unique index), otherwise re-confirmed
    (`last_seen_at` is refreshed at most every `touch-interval-seconds`). A vehicle that was already fined and is
-   still there does not get a second violation. Every other open violation of the plate in the zone (another type on
+   still there does not get a second violation, and neither does one that was fined for the same reason in the same zone
+   within `refine-block-hours`, even when its spot was deleted and drawn again meanwhile (re-scan, "Töm ytan", rollback: the
+   violation is gone with the spot and the new spot has a new id, so the fine itself is what remembers the stay; a voided
+   fine counts too). Every other open violation of the plate in the zone (another type on
    the same spot, or another spot) is resolved as `CORRECTED`.
 5. No violation: the plate's open violations in the zone are resolved as `CORRECTED`; the vehicle is in no spot:
    resolved as `LEFT`.
@@ -55,9 +63,28 @@ Flow for one observation (`DetectionService`):
 Jobs (safe on several instances):
 
 * fine sweep (`expire-sweep-ms`): claims due violations one by one with `FOR UPDATE SKIP LOCKED`, one
-  transaction per violation. Violations not re-confirmed for `stale-minutes` are not fined.
+  transaction per violation. A violation is fined only if a detection confirmed it within the last
+  `fine-freshness-seconds` (default 120) when it is claimed: rule-service is not told directly that a car drove away during
+  the grace period, so "grace over" alone must not fine it. Set `fine-freshness-seconds` well above the interval at which
+  ingestion re-publishes a persisting violation (about 30 s) plus `touch-interval-seconds`; too low and a car that is still
+  there is not fined, too high and a car that left shortly before the grace ended is. A violation that is not fresh stays open
+  until `session.ended` or the stale sweep resolves it.
 * stale sweep (`stale-sweep-ms`): resolves violations not re-confirmed for `stale-minutes` as `LEFT`.
   Set `stale-minutes` well above the interval at which ingestion re-publishes a persisting violation.
+* `session.ended` (session-service): the open, not yet fined violations of that plate in that zone are resolved as `LEFT`
+  at once (the same resolve path as the stale sweep, `violation.resolved` is published). A violation that already has a fine
+  stays, one that a detection confirmed after the session ended is left alone (the vehicle is still there), a redelivered
+  event finds nothing open.
+* `map.updated` (parking-mapping-service): the spots of that zone (legacy and every view) are evicted from the cache, so a
+  re-scan, rollback or "empty the area" applies to the next observation. Every instance has its own queue for this event
+  (`map.updated.rule-engine.instance-<uuid>`: not durable, exclusive, deleted with its connection, dead-lettered like the others), so every
+  instance evicts its own cache; with one shared queue only the instance that got the message would, and the others kept the old spots
+  for the whole TTL. An event published while an instance is down is not needed: its cache starts empty. The durable shared queue
+  `map.updated.rule-engine` of earlier releases is no longer declared; at start each instance deletes it if it has no consumer (a queue that is
+  gone from the code is not gone from a broker, and it would otherwise collect every event for ever). During a rolling deployment an older instance may
+  still read it: the delete is then refused, logged at INFO, and the next start removes it. A zone without spots is cached for
+  `spot-cache-negative-ttl-seconds` only. An observation for a spot that was deleted meanwhile (foreign key failure on
+  `spot_id`) is dropped and acknowledged, the zone evicted, instead of being retried into the dead-letter queue.
 
 ## Structure
 
@@ -185,13 +212,13 @@ a present claim, even an empty list, is never overridden. By default an operator
 | Endpoint | Access | Notes |
 |---|---|---|
 | `GET /api/v1/violations/zone/{zoneId}` | `violation:read` + zone in `zones` claim (admin: any zone) | active (not resolved, not fined) violations, newest first |
-| `GET /api/v1/violations/plate/{plate}` | driver (own plate), or `violation:read` (any plate) | all violations of the plate, newest first |
+| `GET /api/v1/violations/plate/{plate}` | driver (own plate), or `violation:read` | all violations of the plate, newest first; an operator sees only those in their `zones`, an administrator all; `imagePath` only with `violation:read` |
 | `PATCH /api/v1/violations/{id}/resolve` | `violation:resolve` + zone of the violation (admin: any zone) | 204; 404 unknown; 409 when already fined; publishes `violation.resolved` (`MANUAL`) |
 | `POST /api/v1/permits` | `permit:manage` + zone (global permit: admin) | 201 + `Location`; a permit without `zoneId` is valid everywhere and needs an admin |
 | `GET /api/v1/permits?plate=&zoneId=` | `permit:manage` | operators see their zones and global permits |
 | `GET /api/v1/permits/{id}` | `permit:manage` + zone of the permit | |
 | `DELETE /api/v1/permits/{id}` | `permit:manage` + zone of the permit (global: admin) | 204 |
-| `GET /api/v1/fines/plate/{plate}?includeVoided=` | driver (own plate in `plates` claim), or `violation:read` (any plate) | fines of the plate, newest first; another driver's plate is 403; voided fines only for staff with `includeVoided=true` (drivers never see them) |
+| `GET /api/v1/fines/plate/{plate}?includeVoided=` | driver (own plate in `plates` claim), or `violation:read` | fines of the plate, newest first; another driver's plate is 403; an operator sees only the fines in their `zones` (a plate with fines elsewhere gives an empty list), an administrator all; voided fines only for staff with `includeVoided=true` (drivers never see them); `imagePath` only with `violation:read` |
 | `GET /api/v1/fines/zone/{zoneId}?paid=&includeVoided=` | `violation:read` + zone in `zones` claim (admin: any zone) | fines of the zone, newest first; optional `paid=true\|false` filter; voided fines left out unless `includeVoided=true` |
 | `GET /api/v1/fines/{id}` | driver (plate of the fine in `plates` claim), or `violation:read` + zone of the fine (admin: any zone) | 404 unknown, 403 for someone else's fine; a driver gets 404 for a voided fine |
 | `GET /api/v1/fines/{id}/history` | `violation:read` + zone of the fine (admin: any zone) | audit trail, newest first, paged; 404 unknown |
@@ -225,7 +252,7 @@ Void and mark-paid (permission `fine:manage`, an admin default; an operator need
 * The `reason` is operator free text: it is stored and shown to staff, never logged and never part of an event.
 
 Audit trail `GET /api/v1/fines/{id}/history`: `[{id, at, actorId, action, reason, details}]`, newest first (`?page=0&size=100`, total in `X-Total-Count`).
-`action` is `void | mark_paid | paid_online | dispute_opened | dispute_upheld | dispute_voided | dispute_withdrawn`; `actorId` is the operator or driver (null for `paid_online` and
+`action` is `void | mark_paid | paid_online | dispute_opened | dispute_upheld | dispute_voided | dispute_withdrawn | payment_needs_review`; `actorId` is the operator or driver (null for `paid_online` and
 for a dispute the system upheld); `reason` is null for `paid_online` and a withdrawal (for a dispute it is the message or the decision note); `details` is `{}` for void,
 `{"method": "cash"}` for mark-paid, `{"method": "online", "paymentId": "..."}` for the online payment, `{"disputeId", "channel"}` for `dispute_opened` and `{"disputeId"}` for the other
 dispute actions. Each command writes its row in the same transaction as the change.
@@ -265,6 +292,8 @@ resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `viol
 |---|---|---|---|
 | consumed | `parkview.vehicle` / `vehicle.detected` | `vehicle.detected` | `cameraId, zoneId, plate?, vehiclePolygon[[x,y]], spotId?, spotNumber?, iou, confidence, timestamp(ms), vehicleClass?, viewId?` |
 | consumed | `parkview.payment` / `payment.completed.fine` | `payment.completed.rule-engine` | `paymentId, referenceId (fine id), referenceType, userId?, amountSek, timestamp(ms)` |
+| consumed | `parkview.session` / `session.ended` | `session.ended.rule-engine` | `plate, zoneId, endedAt, occurredAt` (read; the other fields of session-service are ignored) |
+| consumed | `parkview.mapping` / `map.updated` | `map.updated.rule-engine.instance-<uuid>` (one per instance) | `zoneId` (read; `versionNumber, spotCount, changeReason, timestamp(ms)` are ignored). Also published after zone-rule changes: harmless, the zone's spots are reloaded once |
 | published | `parkview.violation` / `violation.created` | | `violationId, plate, zoneId, zoneAddress?, cameraId?, userId?, spotId, spotNumber?, violationType, graceMinutes, timestamp(ms)` |
 | published | `parkview.violation` / `violation.resolved` | | `violationId, plate, zoneId, reason (CORRECTED\|LEFT\|MANUAL), occurredAt` |
 | published | `parkview.violation` / `fine.issued` | | `fineId, violationId, plate, userId?, zoneId, zoneAddress?, amountSek, timestamp(ms), violationType` |
@@ -281,8 +310,14 @@ vehicle is matched against (see flow step 2) and is absent for observations of a
 (`BOUNDARY_EXCEEDED | WRONG_PERMIT | OVERSTAY | NO_PARKING | WRONG_VEHICLE_TYPE`); `fine.issued.violationType` is the
 type of the violation the fine was issued for.
 
-Payloads are validated; invalid ones go to `parkview.dlq` without retry, transient failures are retried 4 times
-(exponential) before dead-lettering. Handlers are idempotent. Events are written to the outbox in the transaction of the state change and published after it committed (see "Transactional outbox").
+Payloads are validated; invalid ones go to `parkview.dlq` without retry, transient failures are retried 6 times
+(exponential: 2 s, 6 s, 18 s, 54 s, 60 s, about 2.5 minutes in all) before dead-lettering. The window is that long on purpose: a
+database restart or failover must not dead-letter `payment.completed.fine`, because then the money is taken and the fine stays
+unpaid. It is the Spring Boot listener retry (`spring.rabbitmq.listener.simple.retry.*`, same property names as before),
+set by `RABBIT_RETRY_MAX_ATTEMPTS` (6), `RABBIT_RETRY_INITIAL_INTERVAL` (2s), `RABBIT_RETRY_MULTIPLIER` (3.0) and
+`RABBIT_RETRY_MAX_INTERVAL` (60s). It applies to every listener of the service, and a retrying message blocks its listener thread, so
+a message that keeps failing for a transient-looking reason holds up the queue behind it for that long. Messages that can never succeed (unparseable, failing validation, or rejected on purpose:
+`MessageConversionException`, `MethodArgumentNotValidException`, `AmqpRejectAndDontRequeueException`, also when wrapped by the listener, see `ListenerRetryConfig`) are not retried at all and go to `parkview.dlq` at once. Handlers are idempotent. Events are written to the outbox in the transaction of the state change and published after it committed (see "Transactional outbox").
 `fine.issued` replaces the former key `violation.expired` (same payload).
 
 `fine.paid` is published once, on the actual transition from unpaid to paid: by the first `payment.completed.fine` of a fine (`method` `online`) or by an operator's
@@ -317,7 +352,7 @@ Supabase migrations created older shapes of the first two). Read only: `parking_
   Changeset 006 widens `spot_violations_violation_type_check` and `fines_reason_check` idempotently.
 * `fines` also carries `paid_at`, `paid_method` (`online | cash | transfer | other`), `paid_by`, `voided_at`, `void_reason`, `voided_by` (changeset 008, add-if-missing;
   constraints `fines_paid_method_check` and `fines_not_paid_and_voided_check`). Fines paid before 008 have `paid_at` / `paid_method` null.
-* `fine_actions(id, fine_id -> fines on delete cascade, at, actor_id null, action void|mark_paid|paid_online|dispute_opened|dispute_upheld|dispute_voided|dispute_withdrawn, reason null, details jsonb)` with the index
+* `fine_actions(id, fine_id -> fines on delete cascade, at, actor_id null, action void|mark_paid|paid_online|dispute_opened|dispute_upheld|dispute_voided|dispute_withdrawn|payment_needs_review, reason null, details jsonb)` with the index
   `fine_actions_fine_at_idx (fine_id, at desc)`; row level security is on without policies (as for `plate_permits`): not reachable through PostgREST.
 * `fine_evidence(fine_id pk -> fines, plate, zone_id, zone_address, spot_id, spot_number, violation_type, violation_id, rule_summary, grace_minutes, violation_detected_at, grace_expired_at, issued_at,
   detection_ids jsonb, image_paths jsonb, min_confidence numeric(5,4), decision_basis 'automatic', created_at)` (changeset 009; no cascade; trigger `fine_evidence_immutable` rejects UPDATE and DELETE),
@@ -343,7 +378,7 @@ the mapped ones. Liquibase never creates or alters these tables and this service
 |---|---|---|---|
 | `zones` | Supabase schema / parking-mapping-service | `id`, `address`, `max_minutes`, `country`, `timezone` (null: `0` / `SE` / `Europe/Stockholm`) | `ZoneView` |
 | `zone_rules` | Supabase schema / parking-mapping-service | `id`, `zone_id`, `label`, `priority`, `enabled`, `vehicle_types` (`text[]`), `permit_required`, `weekdays` (`int[]`), `start_time`, `end_time` (`time`, read as text and parsed), `applies_holidays`, `max_minutes`, `no_parking` | `ZoneRuleView` |
-| `sessions` | session-service | `id`, `plate`, `zone_id`, `started_at`, `ended_at` | `SessionView` |
+| `sessions` | session-service | `id`, `plate`, `zone_id`, `started_at`, `ended_at`; `voided_at` (not mapped: a voided session is not active, so it never causes an `OVERSTAY`; read through a native query when the column exists, probed at most once a minute while it does not, so rule-service may start before session-service migrated) | `SessionView` |
 | `user_plates` | Supabase schema (driver plates) | `id`, `user_id`, `plate` | `PlateOwnerView` |
 | `parking_spots` | parking-mapping-service | `id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read for legacy spots), `permit_type`, `coordinates` (jsonb, null for a spot that only has a geo polygon: skipped), `boundary_grace_min`, `permit_grace_min`, `max_minutes` | `ParkingSpotView` |
 | `parking_spots` (camera views) | parking-mapping-service | `view_id` (uuid, null = legacy spot), `image_polygon` (jsonb, polygon in the view's corrected image) | `SpotPlacementView` (a `@Subselect`, see below) |
@@ -352,7 +387,7 @@ the mapped ones. Liquibase never creates or alters these tables and this service
 **Camera views.** A spot is either a legacy spot (`view_id` null, polygon in `coordinates`) or drawn on a camera view
 (`view_id` set, polygon in `image_polygon`). `SpotDirectory` has `polygonSpotsOf(zone)` for the first kind and
 `polygonSpotsOfView(zone, viewId)` for the second; `SpotCacheService` caches each separately (key: zone and view id,
-the same TTL; there is no `map.updated` invalidation, the TTL is the only way a change in mapping becomes visible).
+the same TTL; `map.updated` evicts a zone at once, the TTL is the safety net).
 The two columns are read through `SpotPlacementView`, a `@Subselect` entity and not a `@Table` one, because
 `ddl-auto: validate` would refuse to start against a database that has not got the migration yet; `SpotViewSchema`
 asks `information_schema` whether both columns exist each time a zone is loaded. In a database without them every
@@ -397,15 +432,19 @@ Business settings, Spring property `parkview.rule-engine.*` (set with `SPRING_AP
 |---|---|---|
 | `iou-threshold` / `containment-threshold` | `0.85` / `0.90` | vehicle counts as inside the lines when either is reached |
 | `min-overlap` | `0.5` | share of the vehicle that must lie in a spot for it to be parked there |
-| `default-boundary-grace-minutes` / `default-permit-grace-minutes` | `10` / `30` | grace of `BOUNDARY_EXCEEDED` / `WRONG_PERMIT` when the spot defines none (`boundary_grace_min` / `permit_grace_min`) |
+| `default-boundary-grace-minutes` / `default-permit-grace-minutes` | `10` / `30` | grace of `BOUNDARY_EXCEEDED` / `WRONG_PERMIT` when the spot defines none (`boundary_grace_min` / `permit_grace_min` is null or negative); an explicit `0` on the spot is a grace of 0 |
 | `no-parking-grace-minutes` | `5` | grace of `NO_PARKING` |
 | `overstay-grace-minutes` | `5` | grace of `OVERSTAY` |
 | `wrong-vehicle-type-grace-minutes` | `10` | grace of `WRONG_VEHICLE_TYPE` |
 | `fine-amount-{no-parking,overstay,wrong-permit,boundary-exceeded,wrong-vehicle-type}-sek` | `900` / `450` / `700` / `900` / `700` | fine amounts |
 | `expire-sweep-ms` / `expire-batch-size` | `60000` / `20` | fine sweep delay and batch size |
-| `stale-minutes` / `stale-sweep-ms` | `15` / `60000` | re-confirmation window and sweep delay |
+| `stale-minutes` / `stale-sweep-ms` | `15` / `60000` | re-confirmation window (resolve as `LEFT`) and sweep delay |
+| `fine-freshness-seconds` | `120` | a violation is fined only if a detection confirmed it within this time when the fine sweep claims it (the vehicle must demonstrably still be there) |
+| `observation-max-age-seconds` | `600` | an observation older than this (event time) is dropped |
+| `refine-block-hours` | `6` | a plate fined for a reason in a zone gets no new violation of that reason there within this time, whatever happens to the spot; `0` turns it off. Product decision: a car that comes back within the window and offends again is not fined again |
 | `touch-interval-seconds` | `10` | minimum time between `last_seen_at` writes per violation |
-| `spot-cache-ttl-minutes` | `5` | how long zone polygons are cached (per zone and view) |
+| `spot-cache-ttl-minutes` | `5` | how long zone polygons are cached (per zone and view); `map.updated` evicts a zone at once |
+| `spot-cache-negative-ttl-seconds` | `15` | how long a zone or view WITHOUT spots is cached |
 | `rule-cache-ttl-seconds` | `60` | how long a zone's rules and master data (`zones`) are cached; operator edits take effect within this time |
 | `vehicle-lookup-enabled` | `true` | whether vehicle registry data may be fetched; off means every decision that needs it is "cannot judge" |
 
@@ -478,7 +517,13 @@ idempotency, voided fines hidden from lists and drivers, audit rows and event pa
 * Snapshots in the evidence are storage keys: deleting a snapshot in storage does not change the evidence row, the key then simply resolves to nothing.
 * Without detections (camera or ingestion down) open violations are resolved as `LEFT` after `stale-minutes`
   instead of being fined.
-* Observations without a plate and polygons that cannot be parsed are ignored.
+* Observations without a plate, polygons that cannot be parsed and observations older than `observation-max-age-seconds` are ignored.
+* A payment that completes for a fine that is already paid (by hand, or by another payment), voided, or for another amount than the fine
+  writes an audit row `payment_needs_review` (`actorId` null, `reason` the plain-language cause, `details`
+  `{paymentId, causes: [voided|already_paid|amount_mismatch], paidAmountSek, fineAmountSek}`; one row per payment, a redelivery adds none)
+  and increments `ruleengine_payments_needs_review_total{cause}` (`unknown_fine` counts a payment for a fine that does not exist, which
+  has no row to write to). Nothing is published and nothing is refunded: a person looks at the fine history and refunds or corrects. A
+  first payment of another amount still settles an unpaid fine, it is only flagged. Alert on the counter.
 * lookup-service down: decisions that need vehicle data are skipped (fail open) and `ruleengine_vehicle_lookups_failed_total`
   rises; after `negative-cache-ttl-seconds` the next observation asks again.
 * Rules are read through a cache: after an operator edit in the UI allow `rule-cache-ttl-seconds` before it is enforced.

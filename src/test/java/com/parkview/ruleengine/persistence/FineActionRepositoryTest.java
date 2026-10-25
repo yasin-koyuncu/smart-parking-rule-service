@@ -112,4 +112,19 @@ class FineActionRepositoryTest {
 
         assertThat(actions.findByFineId(fineId, PageRequest.of(0, 10)).getTotalElements()).isZero();
     }
+
+
+    @Test
+    void thePaymentReviewActionIsAcceptedByTheConstraintAndFoundPerPayment() {
+        actions.save(FineAction.of(fineId, NOW, null, FineActionType.PAYMENT_NEEDS_REVIEW, "Payment completed but needs review: voided",
+                Map.of("paymentId", "pay-1", "causes", java.util.List.of("voided"), "fineAmountSek", "450.00")));
+        actions.save(FineAction.of(fineId, NOW, null, FineActionType.PAID_ONLINE, null, Map.of("method", "online")));
+
+        assertThat(actions.existsForPayment(fineId, "payment_needs_review", "pay-1")).isTrue();
+        assertThat(actions.existsForPayment(fineId, "payment_needs_review", "pay-2")).isFalse();
+        assertThat(actions.existsForPayment(fineId, "paid_online", "pay-1")).isFalse();
+        // a payment without an id matches rows without one only
+        assertThat(actions.existsForPayment(fineId, "paid_online", null)).isTrue();
+        assertThat(actions.existsForPayment(fineId, "payment_needs_review", null)).isFalse();
+    }
 }

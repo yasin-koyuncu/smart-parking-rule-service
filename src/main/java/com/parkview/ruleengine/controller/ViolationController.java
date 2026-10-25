@@ -33,6 +33,8 @@ import java.util.UUID;
 public class ViolationController {
 
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "detectedAt").and(Sort.by("id"));
+    /** The permission that makes the camera snapshot key of a violation visible; drivers never have it (ADR 0008). */
+    private static final String EVIDENCE_PERMISSION = "violation:read";
 
     private final ViolationService violationService;
     private final CurrentUser currentUser;
@@ -51,14 +53,14 @@ public class ViolationController {
         accessPolicy.requireZone(currentUser.require(), zoneId);
         return PagedResponses.of(violationService
                 .activeByZone(zoneId, PagedResponses.pageable(page, size, NEWEST_FIRST))
-                .map(ViolationMapper::toResponse));
+                .map(v -> ViolationMapper.toResponse(v, true)));
     }
 
     @GetMapping("/plate/{plate}")
     @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read')")
     @Operation(summary = "All violations of a plate",
             description = "Newest first. Drivers may only query plates in their plates claim; operators and administrators holding "
-                    + "violation:read any plate.")
+                    + "violation:read any plate, an operator seeing only the violations in their zones. Only callers with violation:read get imagePath.")
     @ApiResponse(responseCode = "200", description = "A page of violations; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "A driver asked for a plate that is not theirs")
     public ResponseEntity<List<ViolationResponse>> getByPlate(
@@ -68,9 +70,13 @@ public class ViolationController {
         AuthenticatedUser user = currentUser.require();
         accessPolicy.requirePlate(user, plate);
         String normalized = Plates.normalize(plate);
-        return PagedResponses.of(violationService
-                .byPlate(normalized, PagedResponses.pageable(page, size, NEWEST_FIRST))
-                .map(ViolationMapper::toResponse));
+        var pageable = PagedResponses.pageable(page, size, NEWEST_FIRST);
+        boolean withImagePath = currentUser.hasAuthority(EVIDENCE_PERMISSION);
+        List<String> zones = accessPolicy.zoneScopeOf(user).orElse(null);
+        return PagedResponses.of((zones != null
+                ? violationService.byPlateInZones(normalized, zones, pageable)
+                : violationService.byPlate(normalized, pageable))
+                .map(v -> ViolationMapper.toResponse(v, withImagePath)));
     }
 
     @PatchMapping("/{id}/resolve")
