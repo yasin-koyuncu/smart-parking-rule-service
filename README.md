@@ -86,6 +86,32 @@ Jobs (safe on several instances):
   `spot-cache-negative-ttl-seconds` only. An observation for a spot that was deleted meanwhile (foreign key failure on
   `spot_id`) is dropped and acknowledged, the zone evicted, instead of being retried into the dead-letter queue.
 
+## Sites (ADR 0009)
+
+The place is the **site**; a zone is an optional part of it with its own rules. Spots, sessions, detections, violations, fines
+and disputes belong to a site (`site_id`) and only optionally to a zone (`zone_id` may be null).
+
+* **Effective rules of a spot**: in a zone the zone's parameters (`zones.max_minutes`, `zones.allows_parking`, country,
+  timezone), its zone rules and the site rules of its site; without a zone the site's parameters (`sites.max_minutes`,
+  `sites.allows_parking`, ...) and its site rules (`zone_rules` rows without a zone). At equal priority a zone rule is evaluated
+  before a site rule. `allows_parking = false` is a `NO_PARKING`. A spot without a zone is controlled exactly like one in a
+  zone: violations and fines are raised and carry `site_id`.
+* Spots are read and cached per site (and view); `map.updated` evicts the spots and rules of its `siteId` (an event with only a
+  `zoneId` evicts the zone's site). Sessions match on plate + site (+ zone when the spot has one); evidence is read per site.
+* Permits: `site_id` null = every site, `zone_id` null = the whole site. A permit for a zone also stores the zone's site
+  (`zone.otherSite`, 422, when `siteId` names another site).
+* Scope: `app_metadata.sites` (else `app_metadata.zones`, read as site ids). A record is reachable when its `site_id` is in the
+  scope; a zone-keyed endpoint checks the zone's site (an unknown zone counts as its own site, true for every zone from before
+  sites).
+* Consumed events accept `siteId` next to `zoneId` and need at least one of them (else invalid, dead-lettered); without `siteId`
+  the zone's site is used. Published violation, fine and dispute events carry `siteId` (and `siteAddress` where `zoneAddress`
+  exists); `zoneId`/`zoneAddress` are null without a zone.
+* Schema (changeset 013): `site_id NOT NULL` on `spot_violations`, `fines`, `fine_disputes`, `fine_evidence` (+ `site_address`),
+  nullable on `plate_permits`; `zone_id` nullable; a fill trigger sets `site_id` from the zone for writers that do not (removed in
+  phase 5). The read models map `site_id` of `parking_spots`, `sessions`, `detections`, `zones`, `zone_rules` and the `sites`
+  table directly: deploy rule-service after parking-mapping-service, session-service and the Supabase migration of phase 2
+  (startup schema validation fails on a database without those columns).
+
 ## Structure
 
 Package-by-layer under `com.parkview.ruleengine`; a call goes `controller`/`messaging` -> `service` -> `repository` and the ports in `client`. Classes stay under about 200 lines, methods under about 40.
@@ -211,6 +237,7 @@ a present claim, even an empty list, is never overridden. By default an operator
 
 | Endpoint | Access | Notes |
 |---|---|---|
+| `GET /api/v1/violations/site/{siteId}` | `violation:read` + site in the scope (admin: any) | active violations of the site, in its zones and outside them, newest first |
 | `GET /api/v1/violations/zone/{zoneId}` | `violation:read` + zone in `zones` claim (admin: any zone) | active (not resolved, not fined) violations, newest first |
 | `GET /api/v1/violations/plate/{plate}` | driver (own plate), or `violation:read` | all violations of the plate, newest first; an operator sees only those in their `zones`, an administrator all; `imagePath` only with `violation:read` |
 | `PATCH /api/v1/violations/{id}/resolve` | `violation:resolve` + zone of the violation (admin: any zone) | 204; 404 unknown; 409 when already fined; publishes `violation.resolved` (`MANUAL`) |
@@ -219,6 +246,7 @@ a present claim, even an empty list, is never overridden. By default an operator
 | `GET /api/v1/permits/{id}` | `permit:manage` + zone of the permit | |
 | `DELETE /api/v1/permits/{id}` | `permit:manage` + zone of the permit (global: admin) | 204 |
 | `GET /api/v1/fines/plate/{plate}?includeVoided=` | driver (own plate in `plates` claim), or `violation:read` | fines of the plate, newest first; another driver's plate is 403; an operator sees only the fines in their `zones` (a plate with fines elsewhere gives an empty list), an administrator all; voided fines only for staff with `includeVoided=true` (drivers never see them); `imagePath` only with `violation:read` |
+| `GET /api/v1/fines/site/{siteId}?paid=&includeVoided=` | `violation:read` + site in the scope (admin: any) | fines of the site, in its zones and outside them; filters as for a zone |
 | `GET /api/v1/fines/zone/{zoneId}?paid=&includeVoided=` | `violation:read` + zone in `zones` claim (admin: any zone) | fines of the zone, newest first; optional `paid=true\|false` filter; voided fines left out unless `includeVoided=true` |
 | `GET /api/v1/fines/{id}` | driver (plate of the fine in `plates` claim), or `violation:read` + zone of the fine (admin: any zone) | 404 unknown, 403 for someone else's fine; a driver gets 404 for a voided fine |
 | `GET /api/v1/fines/{id}/history` | `violation:read` + zone of the fine (admin: any zone) | audit trail, newest first, paged; 404 unknown |
