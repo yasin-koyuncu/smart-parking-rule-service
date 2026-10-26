@@ -38,7 +38,11 @@ public class Fine {
     @Column(nullable = false)
     private String plate;
 
-    @Column(name = "zone_id", nullable = false)
+    @Column(name = "site_id", nullable = false)
+    private String siteId;
+
+    /** Null for a fine at a spot without a zone (ADR 0009). */
+    @Column(name = "zone_id")
     private String zoneId;
 
     /** Read only: the sweep does not know the camera; rows created elsewhere (older shapes of the table) may carry one. */
@@ -100,6 +104,7 @@ public class Fine {
     public static Fine issue(Violation violation, BigDecimal amountSek, UUID userId, Instant issuedAt) {
         Fine fine = new Fine();
         fine.plate = violation.getPlate();
+        fine.siteId = violation.getSiteId();
         fine.zoneId = violation.getZoneId();
         fine.reason = violation.getViolationType();
         fine.amountSek = amountSek.setScale(2, RoundingMode.HALF_UP);

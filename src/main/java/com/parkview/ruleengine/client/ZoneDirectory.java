@@ -9,6 +9,9 @@ public interface ZoneDirectory {
 
     Optional<String> addressOf(String zoneId);
 
-    /** Address, stay limit, country and timezone of the zone (defaults applied for missing values); empty when the zone is unknown. */
+    /** Address, stay limit, parking allowed, country and timezone of the zone (defaults applied for missing values); empty when the zone is unknown. */
     Optional<ZoneInfo> infoOf(String zoneId);
+
+    /** The site the zone belongs to (ADR 0009); empty when the zone is unknown. */
+    Optional<String> siteOf(String zoneId);
 }

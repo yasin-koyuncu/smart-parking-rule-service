@@ -15,7 +15,8 @@ import java.util.UUID;
 
 /**
  * Read-only view of {@code parking_spots}, which is owned by parking-mapping-service.
- * rule-service reads the spot geometry and grace settings to decide which spot a detected vehicle occupies.
+ * rule-service reads the spot geometry and grace settings to decide which spot a detected vehicle occupies, and the site
+ * and (optional) zone whose rules apply in it.
  * Maps just the columns used; never written by this service and never created by its Liquibase changelog.
  * {@code coordinates} is kept as the raw JSON text so that unusable geometry is rejected per spot by the
  * adapter instead of failing the whole query; it is null for a spot that only has a geo polygon. The camera-view columns
@@ -31,6 +32,11 @@ public class ParkingSpotView {
     @Id
     private UUID id;
 
+    /** The site the spot belongs to (ADR 0009); never null. */
+    @Column(name = "site_id")
+    private String siteId;
+
+    /** The zone inside the site, null for a spot that belongs to no zone (it is controlled with the rules of its site). */
     @Column(name = "zone_id")
     private String zoneId;
 

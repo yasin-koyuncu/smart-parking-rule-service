@@ -25,11 +25,14 @@ public interface DisputeRepository extends JpaRepository<Dispute, UUID> {
     @Query("select d.fineId from Dispute d where d.id = :id")
     Optional<UUID> findFineIdById(UUID id);
 
-    /** All zones (administrators); the caller sorts by {@code openedAt} descending. */
+    /** All sites (administrators); the caller sorts by {@code openedAt} descending. */
     Page<Dispute> findByStatusIn(Collection<DisputeStatus> statuses, Pageable pageable);
 
     /** The given zones only (served by {@code fine_disputes_zone_opened_idx}). */
     Page<Dispute> findByStatusInAndZoneIdIn(Collection<DisputeStatus> statuses, Collection<String> zoneIds, Pageable pageable);
+
+    /** The given sites only, in their zones and outside them (served by {@code fine_disputes_site_opened_idx}). */
+    Page<Dispute> findByStatusInAndSiteIdIn(Collection<DisputeStatus> statuses, Collection<String> siteIds, Pageable pageable);
 
     /** The status of the latest dispute of each fine, for the fines that have one. */
     @Query(value = """

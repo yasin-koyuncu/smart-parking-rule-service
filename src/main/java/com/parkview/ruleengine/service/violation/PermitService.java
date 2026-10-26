@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.PlatePermit;
 import com.parkview.ruleengine.dto.request.CreatePermitRequest;
 import com.parkview.ruleengine.repository.PlatePermitRepository;
@@ -26,23 +27,56 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-/** Permit data: the question the rule engine asks ("may this plate park here?") and operator CRUD. */
+/**
+ * Permit data: the question the rule engine asks ("may this plate park here?") and operator CRUD. A permit is valid at every
+ * site (no site, no zone), in the whole of a site (no zone) or in one zone of a site (ADR 0009).
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PermitService {
 
     private final PlatePermitRepository repository;
+    private final ZoneDirectory zones;
     private final Clock clock;
 
     /**
-     * True when the plate holds a valid permit of every given type (case-insensitive) that covers the zone
-     * (or all zones) at {@code at}. One query however many types are required.
+     * True when the plate holds a valid permit of every given type (case-insensitive) that covers the spot at {@code at}: a
+     * permit for every site, for the site, or (a spot in a zone) for the zone. One query however many types are required.
+     *
+     * @param zoneId the zone of the spot, null for a spot outside the zones of the site (a permit for a zone does not cover it)
      */
     @Transactional(readOnly = true)
-    public boolean holdsAll(String normalizedPlate, String zoneId, Collection<String> permitTypes, Instant at) {
+    public boolean holdsAll(String normalizedPlate, String siteId, String zoneId, Collection<String> permitTypes, Instant at) {
         Set<String> required = permitTypes.stream().map(t -> t.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
-        return required.isEmpty() || repository.countHeldTypes(normalizedPlate, required, zoneId, at) == required.size();
+        if (required.isEmpty()) {
+            return true;
+        }
+        long held = zoneId != null
+                ? repository.countHeldTypes(normalizedPlate, required, siteId, zoneId, at)
+                : repository.countHeldTypesAtSite(normalizedPlate, required, siteId, at);
+        return held == required.size();
+    }
+
+    /**
+     * The site a new permit is for: the site of its zone when it names one (a zone of another site than {@code siteId} is
+     * refused), else {@code siteId}; null for a permit valid at every site. A zone that is not known is taken to be its own
+     * site, which is true of every zone that existed before sites did.
+     *
+     * @throws BusinessRuleException {@code zone.otherSite} when the zone does not belong to the given site
+     */
+    @Transactional(readOnly = true)
+    public String siteOf(CreatePermitRequest request) {
+        String siteId = ZoneIds.normalize(request.siteId());
+        String zoneId = ZoneIds.normalize(request.zoneId());
+        if (zoneId == null) {
+            return siteId;
+        }
+        String siteOfZone = zones.siteOf(zoneId).orElse(zoneId);
+        if (siteId != null && !siteId.equals(siteOfZone)) {
+            throw BusinessRuleException.coded("zone.otherSite", "The zone belongs to another site");
+        }
+        return siteOfZone;
     }
 
     @Transactional
@@ -56,32 +90,37 @@ public class PermitService {
             throw BusinessRuleException.coded("permit.validToNotAfterValidFrom", "validTo must be after validFrom");
         }
         String zoneId = ZoneIds.normalize(request.zoneId());
+        String siteId = siteOf(request);
         PlatePermit permit = repository.save(PlatePermit.grant(
-                plate, request.permitType(), zoneId, validFrom, request.validTo(), createdBy));
-        log.info("Permit {} granted ({} for plate {}, zone {})", permit.getId(), permit.getPermitType(),
-                Plates.mask(plate), zoneId == null ? "all" : zoneId);
+                plate, request.permitType(), siteId, zoneId, validFrom, request.validTo(), createdBy));
+        log.info("Permit {} granted ({} for plate {}, site {}, zone {})", permit.getId(), permit.getPermitType(),
+                Plates.mask(plate), siteId == null ? "all" : siteId, zoneId == null ? "all" : zoneId);
         return permit;
     }
 
     /**
      * @param plate        optional filter (normalised here)
+     * @param siteId       optional filter
      * @param zoneId       optional filter
-     * @param visibleZones zones the caller may see besides global permits; null means no restriction (administrators)
+     * @param visibleSites sites the caller may see besides permits valid at every site; null means no restriction (administrators)
      */
     @Transactional(readOnly = true)
-    public Page<PlatePermit> search(String plate, String zoneId, Collection<String> visibleZones, Pageable pageable) {
+    public Page<PlatePermit> search(String plate, String siteId, String zoneId, Collection<String> visibleSites, Pageable pageable) {
         Specification<PlatePermit> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
             String normalized = Plates.normalize(plate);
             if (normalized != null) {
                 predicates.add(cb.equal(root.get("plate"), normalized));
             }
+            if (siteId != null && !siteId.isBlank()) {
+                predicates.add(cb.equal(root.get("siteId"), siteId));
+            }
             if (zoneId != null && !zoneId.isBlank()) {
                 predicates.add(cb.equal(root.get("zoneId"), zoneId));
             }
-            if (visibleZones != null) {
-                Predicate global = cb.isNull(root.get("zoneId"));
-                predicates.add(visibleZones.isEmpty() ? global : cb.or(global, root.get("zoneId").in(visibleZones)));
+            if (visibleSites != null) {
+                Predicate global = cb.isNull(root.get("siteId"));
+                predicates.add(visibleSites.isEmpty() ? global : cb.or(global, root.get("siteId").in(visibleSites)));
             }
             return cb.and(predicates.toArray(Predicate[]::new));
         };

@@ -39,9 +39,17 @@ public class FineEvidence {
     @Column(nullable = false)
     private String plate;
 
-    @Column(name = "zone_id", nullable = false)
+    @Column(name = "site_id", nullable = false)
+    private String siteId;
+
+    @Column(name = "site_address")
+    private String siteAddress;
+
+    /** Null for a fine at a spot without a zone. */
+    @Column(name = "zone_id")
     private String zoneId;
 
+    /** Null without a zone, and when the zone has no address. */
     @Column(name = "zone_address")
     private String zoneAddress;
 
@@ -87,12 +95,19 @@ public class FineEvidence {
     @Column(name = "decision_basis", nullable = false)
     private String decisionBasis;
 
+    /** The address of the place: the zone's when the fine has a zone with an address, otherwise the site's; null when neither has one. */
+    public String placeAddress() {
+        return zoneAddress != null ? zoneAddress : siteAddress;
+    }
+
     /** The evidence of {@code fine}, built from the violation it was issued for and the snapshots of the detections involved. */
-    public static FineEvidence of(Fine fine, Violation violation, String zoneAddress, String spotNumber, String ruleSummary,
-                                  List<String> detectionIds, List<String> imagePaths, BigDecimal minConfidence) {
+    public static FineEvidence of(Fine fine, Violation violation, String zoneAddress, String siteAddress, String spotNumber,
+                                  String ruleSummary, List<String> detectionIds, List<String> imagePaths, BigDecimal minConfidence) {
         FineEvidence evidence = new FineEvidence();
         evidence.fineId = fine.getId();
         evidence.plate = fine.getPlate();
+        evidence.siteId = fine.getSiteId();
+        evidence.siteAddress = siteAddress;
         evidence.zoneId = fine.getZoneId();
         evidence.zoneAddress = zoneAddress;
         evidence.spotId = violation.getSpotId();

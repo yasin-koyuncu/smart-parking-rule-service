@@ -19,7 +19,8 @@ public final class EvidenceMapper {
         if (e == null) {
             return new EvidenceResponse.NotRecorded(false, fineId);
         }
-        return new EvidenceResponse.Recorded(true, e.getFineId(), e.getPlate(), e.getZoneId(), e.getZoneAddress(), e.getSpotId(),
+        return new EvidenceResponse.Recorded(true, e.getFineId(), e.getPlate(), e.getZoneId(), e.getZoneAddress(), e.getSiteId(),
+                e.getSiteAddress(), e.getSpotId(),
                 e.getSpotNumber(), e.getViolationType(), e.getRuleSummary(), e.getGraceMinutes(), e.getViolationDetectedAt(),
                 e.getGraceExpiredAt(), e.getIssuedAt(), e.getMinConfidence(), e.getDecisionBasis(), e.getDetectionIds(),
                 e.getImagePaths());
@@ -29,7 +30,7 @@ public final class EvidenceMapper {
     public static ExplanationResponse toExplanation(FineExplanation x) {
         Fine fine = x.fine();
         FineEvidence e = x.evidence();
-        return new ExplanationResponse(fine.getId(), fine.getIssuedAt(), fine.getAmountSek(), x.zoneAddress(),
+        return new ExplanationResponse(fine.getId(), fine.getIssuedAt(), fine.getAmountSek(), x.zoneAddress(), x.siteAddress(),
                 e == null ? null : e.getSpotNumber(), fine.getReason().name().toLowerCase(Locale.ROOT),
                 DisputeMapper.reasonText(fine), e == null ? null : e.getRuleSummary(),
                 e == null ? null : e.getViolationDetectedAt(), e == null ? null : e.getGraceMinutes(),

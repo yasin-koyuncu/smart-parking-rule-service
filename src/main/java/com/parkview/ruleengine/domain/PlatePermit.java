@@ -15,8 +15,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Grants a plate the right to park in spots that require a given permit type, either in one zone
- * or (zone id null) in every zone. The plate is stored in its normalised form.
+ * Grants a plate the right to park in spots that require a given permit type (ADR 0009): in one zone, in the whole of a site
+ * (zone id null), or at every site (site id and zone id null). A permit for a zone also names the zone's site. The plate is
+ * stored in its normalised form.
  */
 @Entity
 @Table(name = "plate_permits")
@@ -34,6 +35,11 @@ public class PlatePermit {
     @Column(name = "permit_type", nullable = false)
     private String permitType;
 
+    /** Null: valid at every site. */
+    @Column(name = "site_id")
+    private String siteId;
+
+    /** Null: valid in the whole site (or at every site when {@code siteId} is null too). */
     @Column(name = "zone_id")
     private String zoneId;
 
@@ -50,14 +56,22 @@ public class PlatePermit {
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
-    public static PlatePermit grant(String plate, String permitType, String zoneId,
+    /**
+     * @param siteId null for a permit valid at every site
+     * @param zoneId null for a permit valid in the whole site; a zone needs its site
+     */
+    public static PlatePermit grant(String plate, String permitType, String siteId, String zoneId,
                                     Instant validFrom, Instant validTo, String createdBy) {
         if (validTo != null && !validTo.isAfter(validFrom)) {
             throw new IllegalArgumentException("validTo must be after validFrom");
         }
+        if (zoneId != null && siteId == null) {
+            throw new IllegalArgumentException("A permit for a zone names the site of the zone");
+        }
         PlatePermit permit = new PlatePermit();
         permit.plate = plate;
         permit.permitType = permitType.trim();
+        permit.siteId = siteId;
         permit.zoneId = zoneId;
         permit.validFrom = validFrom;
         permit.validTo = validTo;
@@ -65,8 +79,9 @@ public class PlatePermit {
         return permit;
     }
 
+    /** Valid at every site: only an administrator grants, sees to and revokes it as such. */
     public boolean isGlobal() {
-        return zoneId == null;
+        return siteId == null && zoneId == null;
     }
 
     @Override

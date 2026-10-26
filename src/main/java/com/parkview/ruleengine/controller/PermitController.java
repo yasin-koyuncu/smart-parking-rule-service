@@ -48,14 +48,15 @@ public class PermitController {
 
     @PostMapping
     @Operation(summary = "Grant a permit",
-            description = "Operators may grant permits for zones in their zones claim; a permit without zoneId is valid in every zone and needs an administrator.")
+            description = "Valid in a zone (zoneId; its site is taken), in the whole of a site (siteId without zoneId) or, with neither, at "
+                    + "every site. Operators may grant permits for the sites in their sites claim; a permit for every site needs an administrator.")
     @ApiResponse(responseCode = "201", description = "Created; Location points to the new permit")
     @ApiResponse(responseCode = "400", description = "Invalid body")
-    @ApiResponse(responseCode = "403", description = "Not allowed for this zone")
-    @ApiResponse(responseCode = "422", description = "validTo is not after validFrom")
+    @ApiResponse(responseCode = "403", description = "Not allowed for this site")
+    @ApiResponse(responseCode = "422", description = "validTo is not after validFrom, or the zone belongs to another site than siteId")
     public ResponseEntity<PermitResponse> create(@Valid @RequestBody CreatePermitRequest request) {
         AuthenticatedUser user = currentUser.require();
-        accessPolicy.requireZone(user, ZoneIds.normalize(request.zoneId()));
+        accessPolicy.requireSite(user, permitService.siteOf(request));
         PlatePermit permit = permitService.grant(request, user.userId());
         URI location = ServletUriComponentsBuilder.fromCurrentRequest().path("/{id}").build(permit.getId());
         return ResponseEntity.created(location).body(PermitMapper.toResponse(permit));
@@ -63,44 +64,49 @@ public class PermitController {
 
     @GetMapping
     @Operation(summary = "List permits",
-            description = "Newest first. Operators see the permits of their zones and global permits; administrators see all.")
+            description = "Newest first. Operators see the permits of their sites and the permits valid at every site; administrators see all.")
     @ApiResponse(responseCode = "200", description = "A page of permits; the total is in the X-Total-Count header")
     public ResponseEntity<List<PermitResponse>> list(
             @Parameter(description = "Only this plate") @RequestParam(required = false) String plate,
+            @Parameter(description = "Only this site") @RequestParam(required = false) String siteId,
             @Parameter(description = "Only this zone") @RequestParam(required = false) String zoneId,
             @Parameter(description = "Zero-based page") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size, at most 500") @RequestParam(defaultValue = "100") int size) {
         AuthenticatedUser user = currentUser.require();
+        String site = ZoneIds.normalize(siteId);
         String zone = ZoneIds.normalize(zoneId);
+        if (site != null) {
+            accessPolicy.requireSite(user, site);
+        }
         if (zone != null) {
             accessPolicy.requireZone(user, zone);
         }
-        List<String> visibleZones = user.isAdmin() ? null : user.zones();
+        List<String> visibleSites = user.isAdmin() ? null : user.sites();
         return PagedResponses.of(permitService
-                .search(plate, zone, visibleZones, PagedResponses.pageable(page, size, NEWEST_FIRST))
+                .search(plate, site, zone, visibleSites, PagedResponses.pageable(page, size, NEWEST_FIRST))
                 .map(PermitMapper::toResponse));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Get a permit")
     @ApiResponse(responseCode = "200", description = "The permit")
-    @ApiResponse(responseCode = "403", description = "The permit belongs to a zone the operator does not manage")
+    @ApiResponse(responseCode = "403", description = "The permit belongs to a site the operator does not manage")
     @ApiResponse(responseCode = "404", description = "Unknown permit")
     public PermitResponse get(@PathVariable UUID id) {
         PlatePermit permit = permitService.get(id);
-        if (!permit.isGlobal()) {
-            accessPolicy.requireZone(currentUser.require(), permit.getZoneId());
+        if (permit.getSiteId() != null) {
+            accessPolicy.requireSite(currentUser.require(), permit.getSiteId());
         }
         return PermitMapper.toResponse(permit);
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Revoke a permit", description = "Global permits can only be revoked by an administrator.")
+    @Operation(summary = "Revoke a permit", description = "Permits valid at every site can only be revoked by an administrator.")
     @ApiResponse(responseCode = "204", description = "Revoked")
-    @ApiResponse(responseCode = "403", description = "Not allowed for this zone")
+    @ApiResponse(responseCode = "403", description = "Not allowed for this site")
     @ApiResponse(responseCode = "404", description = "Unknown permit")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
-        accessPolicy.requireZone(currentUser.require(), permitService.get(id).getZoneId());
+        accessPolicy.requireSite(currentUser.require(), permitService.get(id).getSiteId());
         permitService.revoke(id);
         return ResponseEntity.noContent().build();
     }

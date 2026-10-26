@@ -6,8 +6,10 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * One operator-defined rule of a zone ({@code zone_rules}, edited in the operator UI).
+ * One operator-defined rule of a zone, or of a site ({@code zone_rules}, edited in the operator UI). A site rule has no zone
+ * and applies in the whole site, inside its zones too; at equal priority a zone rule is evaluated before a site rule.
  *
+ * @param zoneId          the zone of a zone rule, null for a site rule
  * @param priority        lower number is evaluated first
  * @param vehicleTypes    codes {@code car|mc|truck|bus|ev}; empty means all vehicles
  * @param permitRequired  {@code resident|disabled|ev|loading} or null
@@ -44,5 +46,10 @@ public record ZoneRule(
 
     public boolean definesMaxMinutes() {
         return definedMaxMinutes() > 0;
+    }
+
+    /** A rule of the site (no zone), as opposed to a rule of a zone. */
+    public boolean isSiteRule() {
+        return zoneId == null;
     }
 }

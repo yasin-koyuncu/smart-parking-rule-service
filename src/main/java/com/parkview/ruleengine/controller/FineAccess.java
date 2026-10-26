@@ -21,16 +21,16 @@ class FineAccess {
     private final FineQueryService fines;
     private final AccessPolicy accessPolicy;
 
-    /** A fine in a zone of the staff member (administrators: any zone). */
+    /** A fine at a site of the staff member (administrators: any site), in a zone or not. */
     Fine forStaff(UUID fineId, AuthenticatedUser user) {
         Fine fine = fines.get(fineId);
-        if (!accessPolicy.canAccessZone(user, fine.getZoneId())) {
+        if (!accessPolicy.canAccessSite(user, fine.getSiteId())) {
             throw new ResourceNotFoundException("Fine", fineId);
         }
         return fine;
     }
 
-    /** Staff: a fine of their zones. Driver: a fine of a plate in their {@code plates} claim, voided or not (it may be the outcome of their dispute). */
+    /** Staff: a fine of their sites. Driver: a fine of a plate in their {@code plates} claim, voided or not (it may be the outcome of their dispute). */
     Fine forOwnerOrStaff(UUID fineId, AuthenticatedUser user) {
         if (user.isOperatorOrAdmin()) {
             return forStaff(fineId, user);

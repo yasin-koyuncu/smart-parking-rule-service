@@ -65,15 +65,15 @@ public class FineQueryService {
     }
 
     /**
-     * Same, limited to the given zones (an operator): a plate with fines in other zones shows none of them. No zones, no fines.
+     * Same, limited to the given sites (an operator): a plate with fines at other sites shows none of them. No sites, no fines.
      */
-    public Page<Fine> byPlateInZones(String plate, boolean includeVoided, List<String> zoneIds, Pageable pageable) {
-        if (zoneIds.isEmpty()) {
+    public Page<Fine> byPlateInSites(String plate, boolean includeVoided, List<String> siteIds, Pageable pageable) {
+        if (siteIds.isEmpty()) {
             return Page.empty(pageable);
         }
         return includeVoided
-                ? fines.findByPlateAndZoneIdIn(plate, zoneIds, pageable)
-                : fines.findByPlateAndZoneIdInAndVoidedAtIsNull(plate, zoneIds, pageable);
+                ? fines.findByPlateAndSiteIdIn(plate, siteIds, pageable)
+                : fines.findByPlateAndSiteIdInAndVoidedAtIsNull(plate, siteIds, pageable);
     }
 
     /**
@@ -87,5 +87,15 @@ public class FineQueryService {
         return includeVoided
                 ? fines.findByZoneIdAndPaid(zoneId, paid, pageable)
                 : fines.findByZoneIdAndPaidAndVoidedAtIsNull(zoneId, paid, pageable);
+    }
+
+    /** The fines of a site, in its zones and outside them; the filters as for {@link #byZone}. */
+    public Page<Fine> bySite(String siteId, Boolean paid, boolean includeVoided, Pageable pageable) {
+        if (paid == null) {
+            return includeVoided ? fines.findBySiteId(siteId, pageable) : fines.findBySiteIdAndVoidedAtIsNull(siteId, pageable);
+        }
+        return includeVoided
+                ? fines.findBySiteIdAndPaid(siteId, paid, pageable)
+                : fines.findBySiteIdAndPaidAndVoidedAtIsNull(siteId, paid, pageable);
     }
 }

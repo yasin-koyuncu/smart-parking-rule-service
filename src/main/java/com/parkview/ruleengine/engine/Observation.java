@@ -7,9 +7,9 @@ import com.parkview.ruleengine.domain.value.ZoneInfo;
 import java.time.Instant;
 
 /**
- * One vehicle observed in one spot.
+ * One vehicle observed in one spot. The spot names its site and, when it has one, its zone (ADR 0009).
  *
- * @param zone          master data of the spot's zone
+ * @param zone          master data of the place whose parameters apply: the spot's zone, or its site when it has no zone
  * @param spot          the spot the vehicle occupies
  * @param insideLines   whether the vehicle sits inside the spot's lines
  * @param plate         normalised plate, null when unknown

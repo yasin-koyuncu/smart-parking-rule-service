@@ -12,8 +12,8 @@ import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Component;
 
 /**
- * Consumes {@code session.ended} from session-service: the vehicle has left, so its open violations in that zone are
- * resolved as LEFT instead of waiting for the stale sweep (and, above all, are not fined meanwhile). Redelivery is harmless.
+ * Consumes {@code session.ended} from session-service: the vehicle has left, so its open violations at that site (in that zone,
+ * when the session had one) are resolved as LEFT instead of waiting for the stale sweep (and, above all, are not fined meanwhile). Redelivery is harmless.
  */
 @Slf4j
 @Component
@@ -28,9 +28,15 @@ public class SessionEventListener {
         if (plate == null) {
             return;
         }
-        int resolved = violationService.resolveEnded(plate, event.zoneId(), event.endTime());
+        String zoneId = blankToNull(event.zoneId());
+        String siteId = blankToNull(event.siteId());
+        int resolved = violationService.resolveEnded(plate, siteId, zoneId, event.endTime());
         if (resolved > 0) {
-            log.debug("Session ended in zone {}: {} violations resolved as LEFT", event.zoneId(), resolved);
+            log.debug("Session ended at site {} zone {}: {} violations resolved as LEFT", siteId, zoneId, resolved);
         }
+    }
+
+    private static String blankToNull(String id) {
+        return id == null || id.isBlank() ? null : id.trim();
     }
 }

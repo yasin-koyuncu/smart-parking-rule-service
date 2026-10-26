@@ -17,11 +17,19 @@ class JpaZoneDirectory implements ZoneDirectory {
 
     @Override
     public Optional<String> addressOf(String zoneId) {
-        return zones.findById(zoneId).map(ZoneView::getAddress).filter(a -> !a.isBlank());
+        return zoneId == null ? Optional.empty()
+                : zones.findById(zoneId).map(ZoneView::getAddress).filter(a -> !a.isBlank());
     }
 
     @Override
     public Optional<ZoneInfo> infoOf(String zoneId) {
-        return zones.findById(zoneId).map(z -> ZoneInfo.of(z.getAddress(), z.getMaxMinutes(), z.getCountry(), z.getTimezone()));
+        return zoneId == null ? Optional.empty()
+                : zones.findById(zoneId).map(z -> ZoneInfo.of(z.getAddress(), z.getMaxMinutes(), z.getCountry(), z.getTimezone(),
+                        z.isAllowsParking()));
+    }
+
+    @Override
+    public Optional<String> siteOf(String zoneId) {
+        return zoneId == null ? Optional.empty() : zones.findById(zoneId).map(ZoneView::getSiteId);
     }
 }

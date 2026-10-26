@@ -10,9 +10,16 @@ import java.util.UUID;
  * @param userId the {@code sub} claim
  * @param role   single effective role (admin &gt; operator &gt; driver)
  * @param plates normalised plates the user owns (drivers)
- * @param zones  zone ids the user may operate (operators)
+ * @param sites  site ids the user may operate (operators): the {@code sites} claim, else the {@code zones} claim read as site
+ *               ids (ADR 0009: a site created for a zone has the zone's id)
  */
-public record AuthenticatedUser(String userId, Role role, List<String> plates, List<String> zones) {
+public record AuthenticatedUser(String userId, Role role, List<String> plates, List<String> sites) {
+
+    /** @deprecated the scope is a list of sites now (ADR 0009); same list as {@link #sites()} */
+    @Deprecated
+    public List<String> zones() {
+        return sites;
+    }
 
     public boolean isAdmin() {
         return role == Role.ADMIN;

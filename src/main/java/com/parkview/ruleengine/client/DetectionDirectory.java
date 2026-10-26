@@ -9,10 +9,10 @@ import java.util.UUID;
 public interface DetectionDirectory {
 
     /**
-     * The detections of the plate in the zone between {@code from} and {@code to} that count as evidence (rejected
+     * The detections of the plate at the site between {@code from} and {@code to} that count as evidence (rejected
      * ones do not), newest first, at most {@code limit}.
      */
-    List<Detection> involvedIn(String normalizedPlate, String zoneId, Instant from, Instant to, int limit);
+    List<Detection> involvedIn(String normalizedPlate, String siteId, Instant from, Instant to, int limit);
 
     /**
      * @param imagePath storage key of the camera snapshot, null when none was stored

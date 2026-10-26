@@ -43,7 +43,16 @@ public class CurrentUser {
                 jwt.getSubject(),
                 role,
                 stringList(appMetadata.get("plates")).stream().map(AuthenticatedUser::normalizePlate).toList(),
-                stringList(appMetadata.get("zones"))));
+                sitesOf(appMetadata)));
+    }
+
+    /**
+     * The sites of an operator (ADR 0009): the {@code sites} claim when the token has one, else the {@code zones} claim, whose
+     * ids are site ids during the transition.
+     */
+    private static List<String> sitesOf(Map<String, Object> appMetadata) {
+        Object sites = appMetadata.get("sites");
+        return sites instanceof List<?> ? stringList(sites) : stringList(appMetadata.get("zones"));
     }
 
     private static List<String> stringList(Object value) {

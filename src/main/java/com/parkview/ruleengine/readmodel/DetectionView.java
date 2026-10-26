@@ -15,7 +15,7 @@ import java.util.UUID;
 
 /**
  * Read-only view of {@code detections}, which is owned by ingestion-service (ADR 0001). rule-service reads which camera
- * snapshots belong to a fine when it freezes the evidence: the plate (or the reviewer's correction), the zone, the time,
+ * snapshots belong to a fine when it freezes the evidence: the plate (or the reviewer's correction), the site and zone, the time,
  * the snapshot key, the detector confidence and the review state. Maps just the columns used; never written by this
  * service and never created by its Liquibase changelog.
  */
@@ -35,6 +35,10 @@ public class DetectionView {
     @Column(name = "corrected_plate")
     private String correctedPlate;
 
+    @Column(name = "site_id")
+    private String siteId;
+
+    /** Null for a detection of a camera that belongs to no zone. */
     @Column(name = "zone_id")
     private String zoneId;
 

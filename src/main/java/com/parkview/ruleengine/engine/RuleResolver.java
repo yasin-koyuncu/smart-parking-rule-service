@@ -15,7 +15,8 @@ import java.util.List;
 /**
  * Selects the rules that apply to an observation and derives the outcome.
  *
- * <p>Rules are tried by priority ascending (lower number first), then by id. A rule applies when it is enabled
+ * <p>Rules are tried by priority ascending (lower number first), at equal priority a zone rule before a site rule (ADR 0009:
+ * the zone overrides its site), then by id. A rule applies when it is enabled
  * (the directory only returns enabled ones), its time window matches (see {@link RuleSchedule}) and its vehicle
  * filter matches. <strong>First match wins per outcome category</strong>: the first applicable rule that sets
  * {@code no_parking}, the first that sets {@code permit_required} and the first that sets {@code max_minutes} decide
@@ -31,7 +32,7 @@ class RuleResolver {
 
     private static final String EV_CODE = "ev";
     private static final Comparator<ZoneRule> EVALUATION_ORDER =
-            Comparator.comparingInt(ZoneRule::priority).thenComparing(ZoneRule::id);
+            Comparator.comparingInt(ZoneRule::priority).thenComparing(ZoneRule::isSiteRule).thenComparing(ZoneRule::id);
 
     private final HolidayCalendar holidays;
     private final EngineMetrics metrics;

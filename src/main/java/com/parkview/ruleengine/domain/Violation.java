@@ -20,7 +20,8 @@ import com.parkview.ruleengine.domain.type.ResolutionReason;
 import com.parkview.ruleengine.domain.type.ViolationType;
 /**
  * An open or closed breach of a parking rule by one plate in one spot. At most one <em>open</em>
- * violation exists per plate, spot and type (partial unique index {@code spot_violations_open_uq}).
+ * violation exists per plate, spot and type (partial unique index {@code spot_violations_open_uq}). It belongs to the site of
+ * the spot, and to its zone only when the spot has one (ADR 0009).
  *
  * <p>Detections never update this entity through dirty checking (that could overwrite a concurrent
  * fine); touching and resolving are atomic statements in {@code ViolationRepository}.
@@ -38,7 +39,11 @@ public class Violation {
     @Column(name = "spot_id", nullable = false)
     private UUID spotId;
 
-    @Column(name = "zone_id", nullable = false)
+    @Column(name = "site_id", nullable = false)
+    private String siteId;
+
+    /** Null for a spot without a zone. */
+    @Column(name = "zone_id")
     private String zoneId;
 
     @Column(nullable = false)
@@ -88,17 +93,21 @@ public class Violation {
     private Instant createdAt;
 
     /** Opens a new violation that is first seen {@code detectedAt} and fined once {@code graceUntil} has passed. */
-    public static Violation open(UUID spotId, String zoneId, String plate, UUID userId,
+    public static Violation open(UUID spotId, String siteId, String zoneId, String plate, UUID userId,
                                  ViolationType type, Instant detectedAt, Instant graceUntil) {
-        return open(spotId, zoneId, plate, userId, type, detectedAt, graceUntil, null);
+        return open(spotId, siteId, zoneId, plate, userId, type, detectedAt, graceUntil, null);
     }
 
     /** Same, remembering the text of the rule that decided it (frozen into the evidence when the fine is issued). */
-    public static Violation open(UUID spotId, String zoneId, String plate, UUID userId,
+    public static Violation open(UUID spotId, String siteId, String zoneId, String plate, UUID userId,
                                  ViolationType type, Instant detectedAt, Instant graceUntil, String ruleSummary) {
+        if (siteId == null) {
+            throw new IllegalArgumentException("A violation belongs to a site");
+        }
         Violation v = new Violation();
         v.ruleSummary = ruleSummary;
         v.spotId = spotId;
+        v.siteId = siteId;
         v.zoneId = zoneId;
         v.plate = plate;
         v.userId = userId;

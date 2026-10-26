@@ -37,10 +37,10 @@ class JpaSpotDirectory implements SpotDirectory {
     private final SpotViewSchema schema;
 
     @Override
-    public List<ParkingSpot> polygonSpotsOf(String zoneId) {
+    public List<ParkingSpot> polygonSpotsOf(String siteId) {
         List<ParkingSpotView> found = schema.present()
-                ? spots.findPolygonSpotsOutsideViews(zoneId)
-                : spots.findPolygonSpotsByZoneId(zoneId);
+                ? spots.findPolygonSpotsOutsideViews(siteId)
+                : spots.findPolygonSpotsBySiteId(siteId);
         return found.stream()
                 .map(view -> toSpot(view, view.getCoordinates()))
                 .filter(Objects::nonNull)
@@ -48,12 +48,12 @@ class JpaSpotDirectory implements SpotDirectory {
     }
 
     @Override
-    public List<ParkingSpot> polygonSpotsOfView(String zoneId, UUID viewId) {
+    public List<ParkingSpot> polygonSpotsOfView(String siteId, UUID viewId) {
         if (!schema.present()) {
             log.debug("View {} asked for before parking_spots has camera-view columns: no spots", viewId);
             return List.of();
         }
-        return spots.findSpotsOnView(viewId, zoneId).stream()
+        return spots.findSpotsOnView(viewId, siteId).stream()
                 .map((PlacedSpot placed) -> toSpot(placed.spot(), placed.imagePolygon()))
                 .filter(Objects::nonNull)
                 .toList();
@@ -81,7 +81,7 @@ class JpaSpotDirectory implements SpotDirectory {
             log.warn("Skipping spot {}: invalid polygon coordinates ({})", view.getId(), e.getMessage());
             return null;
         }
-        return new ParkingSpot(view.getId(), view.getZoneId(), view.getSpotNumber(),
+        return new ParkingSpot(view.getId(), view.getSiteId(), view.getZoneId(), view.getSpotNumber(),
                 view.getType(), view.getPermitType(), polygon,
                 view.getBoundaryGraceMin(), view.getPermitGraceMin(), orZero(view.getMaxMinutes()));
     }

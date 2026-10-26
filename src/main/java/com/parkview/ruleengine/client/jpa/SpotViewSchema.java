@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 /**
  * Whether {@code parking_spots} already has the camera-view columns ({@code view_id}, {@code image_polygon}) that
  * parking-mapping-service adds. A database without them is a legacy database: it has no views, and queries that name
- * the columns would fail. Asked each time the spot cache reloads a zone, so a migration is noticed without a restart.
+ * the columns would fail. Asked each time the spot cache reloads a site, so a migration is noticed without a restart.
  */
 @Component
 @RequiredArgsConstructor

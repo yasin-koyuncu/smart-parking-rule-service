@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.service.fine;
 
 import com.parkview.ruleengine.client.DetectionDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineEvidence;
@@ -37,20 +38,21 @@ public class FineEvidenceService {
     private final FineEvidenceRepository evidence;
     private final DetectionDirectory detections;
     private final ZoneDirectory zones;
+    private final SiteDirectory sites;
     private final SpotCacheService spots;
     private final DisputeRepository disputes;
 
     /** Writes the evidence of a fine that is being issued for {@code violation}. */
     @Transactional(propagation = Propagation.MANDATORY)
     public FineEvidence record(Fine fine, Violation violation) {
-        List<DetectionDirectory.Detection> involved = detections.involvedIn(fine.getPlate(), fine.getZoneId(),
+        List<DetectionDirectory.Detection> involved = detections.involvedIn(fine.getPlate(), fine.getSiteId(),
                 violation.getDetectedAt().minus(LOOKBACK), fine.getIssuedAt(), MAX_DETECTIONS);
         List<String> images = involved.stream().map(DetectionDirectory.Detection::imagePath).filter(p -> p != null).toList();
         BigDecimal minConfidence = involved.stream().map(DetectionDirectory.Detection::confidence)
                 .filter(c -> c != null).min(BigDecimal::compareTo).orElse(null);
         String summary = violation.getRuleSummary() != null ? violation.getRuleSummary() : ReasonTexts.of(violation.getViolationType());
 
-        return evidence.save(FineEvidence.of(fine, violation, zones.addressOf(fine.getZoneId()).orElse(null),
+        return evidence.save(FineEvidence.of(fine, violation, zoneAddressOf(fine), sites.addressOf(fine.getSiteId()).orElse(null),
                 spotNumberOf(violation), summary, involved.stream().map(d -> d.id().toString()).toList(), images, minConfidence));
     }
 
@@ -60,13 +62,23 @@ public class FineEvidenceService {
         return evidence.findById(fineId);
     }
 
-    /** What the driver may see of a fine: the evidence without snapshots and ids, plus the state of the latest dispute. */
+    /**
+     * What the driver may see of a fine: the evidence without snapshots and ids, plus the state of the latest dispute. The
+     * addresses are those frozen with the evidence, else the zone and site as they are now.
+     */
     @Transactional(readOnly = true)
     public FineExplanation explain(Fine fine) {
         Optional<FineEvidence> frozen = evidence.findById(fine.getId());
-        String address = frozen.map(FineEvidence::getZoneAddress).orElseGet(() -> zones.addressOf(fine.getZoneId()).orElse(null));
+        String zoneAddress = frozen.isPresent() ? frozen.get().getZoneAddress() : zoneAddressOf(fine);
+        String siteAddress = frozen.map(FineEvidence::getSiteAddress)
+                .orElseGet(() -> sites.addressOf(fine.getSiteId()).orElse(null));
         DisputeStatus status = disputes.findFirstByFineIdOrderByOpenedAtDescIdDesc(fine.getId()).map(d -> d.getStatus()).orElse(null);
-        return new FineExplanation(fine, frozen.orElse(null), address, status);
+        return new FineExplanation(fine, frozen.orElse(null), zoneAddress, siteAddress, status);
+    }
+
+    /** Null for a fine without a zone. */
+    private String zoneAddressOf(Fine fine) {
+        return fine.getZoneId() == null ? null : zones.addressOf(fine.getZoneId()).orElse(null);
     }
 
     /** The spot's label, whether it is a legacy spot or drawn on a camera view; null when the spot no longer exists. */

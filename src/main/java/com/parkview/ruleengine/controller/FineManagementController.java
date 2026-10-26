@@ -43,32 +43,32 @@ public class FineManagementController {
     @PostMapping("/{id}/void")
     @PreAuthorize("hasAuthority('fine:manage')")
     @Operation(summary = "Void an unpaid fine",
-            description = "Needs permission fine:manage and the zone of the fine (administrators: any zone). Idempotent: an already voided "
+            description = "Needs permission fine:manage and the site of the fine (administrators: any site). Idempotent: an already voided "
                     + "fine is returned unchanged. A voided fine can no longer be paid. Publishes fine.voided on the first call.")
     @ApiResponse(responseCode = "200", description = "The voided fine")
     @ApiResponse(responseCode = "400", description = "Invalid body (reason is required, 3 to 300 characters)")
-    @ApiResponse(responseCode = "403", description = "Missing permission, or not an operator of the fine's zone")
+    @ApiResponse(responseCode = "403", description = "Missing permission, or not an operator of the fine's site")
     @ApiResponse(responseCode = "404", description = "Unknown fine")
     @ApiResponse(responseCode = "409", description = "The fine is already paid; a refund is a separate flow")
     public FineResponse voidFine(@PathVariable UUID id, @Valid @RequestBody VoidFineRequest request) {
         AuthenticatedUser user = currentUser.require();
-        accessPolicy.requireZone(user, fineQuery.get(id).getZoneId());
+        accessPolicy.requireSite(user, fineQuery.get(id).getSiteId());
         return FineMapper.toResponse(fineManagement.voidFine(id, request.reason(), actorOf(user)), fineQuery.disputeStatusOf(id), true);
     }
 
     @PostMapping("/{id}/mark-paid")
     @PreAuthorize("hasAuthority('fine:manage')")
     @Operation(summary = "Mark an unpaid fine as paid",
-            description = "For payments outside the online flow (cash, transfer, other). Needs permission fine:manage and the zone of the "
-                    + "fine (administrators: any zone). Idempotent: an already paid fine is returned unchanged. Publishes fine.paid on the first call.")
+            description = "For payments outside the online flow (cash, transfer, other). Needs permission fine:manage and the site of the "
+                    + "fine (administrators: any site). Idempotent: an already paid fine is returned unchanged. Publishes fine.paid on the first call.")
     @ApiResponse(responseCode = "200", description = "The paid fine")
     @ApiResponse(responseCode = "400", description = "Invalid body (reason 3 to 300 characters, method cash, transfer or other)")
-    @ApiResponse(responseCode = "403", description = "Missing permission, or not an operator of the fine's zone")
+    @ApiResponse(responseCode = "403", description = "Missing permission, or not an operator of the fine's site")
     @ApiResponse(responseCode = "404", description = "Unknown fine")
     @ApiResponse(responseCode = "409", description = "The fine is voided, or a dispute about it is still open")
     public FineResponse markPaid(@PathVariable UUID id, @Valid @RequestBody MarkFinePaidRequest request) {
         AuthenticatedUser user = currentUser.require();
-        accessPolicy.requireZone(user, fineQuery.get(id).getZoneId());
+        accessPolicy.requireSite(user, fineQuery.get(id).getSiteId());
         PaidMethod method = PaidMethod.parse(request.method())
                 .orElseThrow(() -> new IllegalStateException("method is validated by the request"));
         return FineMapper.toResponse(fineManagement.markPaidManually(id, request.reason(), method, actorOf(user)),

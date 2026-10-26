@@ -16,7 +16,7 @@ public final class FineMapper {
 
     /** @param disputed whether a dispute is open: payment-service must not start a payment for the fine */
     public static InternalFineResponse toInternalResponse(Fine f, boolean disputed) {
-        return new InternalFineResponse(f.getId(), f.getPlate(), f.getUserId(), f.getZoneId(),
+        return new InternalFineResponse(f.getId(), f.getPlate(), f.getUserId(), f.getZoneId(), f.getSiteId(),
                 f.getAmountSek(), CURRENCY, f.isPaid(), f.isVoided(), disputed);
     }
 
@@ -28,7 +28,7 @@ public final class FineMapper {
      *                      for staff, drivers get it through the evidence endpoint only (ADR 0008)
      */
     public static FineResponse toResponse(Fine f, DisputeStatus disputeStatus, boolean withImagePath) {
-        return new FineResponse(f.getId(), f.getPlate(), f.getZoneId(), f.getCameraId(),
+        return new FineResponse(f.getId(), f.getPlate(), f.getZoneId(), f.getSiteId(), f.getCameraId(),
                 f.getReason().name().toLowerCase(Locale.ROOT), f.getReasonCode(), f.getReasonText(),
                 f.getAmountSek(), f.getIssuedAt(), f.isPaid(), withImagePath ? f.getImagePath() : null, f.getPaidAt(), f.isVoided(), f.getVoidedAt(),
                 disputeStatus == DisputeStatus.OPEN, disputeStatus == null ? null : disputeStatus.wire());

@@ -16,7 +16,8 @@ public final class DisputeMapper {
     public static DisputeResponse toResponse(DisputeDetails details) {
         Dispute d = details.dispute();
         Fine fine = details.fine();
-        return new DisputeResponse(d.getId(), d.getFineId(), d.getPlate(), d.getZoneId(), details.zoneAddress(),
+        return new DisputeResponse(d.getId(), d.getFineId(), d.getPlate(), d.getZoneId(), details.zoneAddress(), d.getSiteId(),
+                details.siteAddress(),
                 d.getChannel().wire(), d.getMessage(), d.getStatus().wire(), fine.getAmountSek(),
                 fine.getReason().name().toLowerCase(Locale.ROOT), reasonText(fine), d.getOpenedAt(), d.getDecidedAt(),
                 d.getDecisionNote());

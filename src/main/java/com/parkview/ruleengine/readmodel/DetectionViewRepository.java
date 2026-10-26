@@ -13,12 +13,16 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public interface DetectionViewRepository extends Repository<DetectionView, UUID> {
 
-    /** Detections of the plate (as read, or as corrected by a reviewer) in the zone within the window, newest first; rejected ones are left out. */
+    /**
+     * Detections of the plate (as read, or as corrected by a reviewer) at the site within the window, newest first; rejected
+     * ones are left out. The site and not the zone: a spot without a zone is watched by cameras that may have no zone either,
+     * and a camera of a zone may watch spots of the site outside it.
+     */
     @Query("""
             select d from DetectionView d
-            where d.zoneId = :zoneId and (d.plate = :plate or d.correctedPlate = :plate)
+            where d.siteId = :siteId and (d.plate = :plate or d.correctedPlate = :plate)
               and d.at >= :from and d.at <= :to and d.reviewStatus <> 'rejected'
             order by d.at desc
             """)
-    List<DetectionView> findInvolved(String plate, String zoneId, Instant from, Instant to, Pageable limit);
+    List<DetectionView> findInvolved(String plate, String siteId, Instant from, Instant to, Pageable limit);
 }

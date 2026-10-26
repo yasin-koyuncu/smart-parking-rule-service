@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.service.violation;
 
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.config.RuleEngineProperties;
@@ -41,6 +42,9 @@ import java.util.UUID;
  *
  * <p>Every state change runs in its own short transaction (a failing row never blocks the others)
  * and its event is written to the outbox in that same transaction.
+ *
+ * <p>A violation belongs to the site of its spot and, when the spot has one, to its zone (ADR 0009): a spot without a zone is
+ * controlled like one in a zone, with the rules of its site.
  */
 @Slf4j
 @Service
@@ -56,6 +60,7 @@ public class ViolationService {
     private final FineRepository fines;
     private final PlateOwnerDirectory plateOwners;
     private final ZoneDirectory zones;
+    private final SiteDirectory sites;
     private final OutboxService outbox;
     private final RuleEngineProperties properties;
     private final EngineMetrics metrics;
@@ -84,10 +89,10 @@ public class ViolationService {
             tx.executeWithoutResult(status -> confirmOrOpen(spot, type, plate, cameraId, ruleSummary, observedAt));
         } catch (DataIntegrityViolationException e) {
             if (isForeignKeyViolation(e)) {
-                // The spot (or its zone) was deleted after the cache loaded it, e.g. by a re-scan: not an error, and a retry
-                // would only dead-letter the message. Plates are personal data and stay out of the log.
-                spotCache.evict(spot.zoneId());
-                log.debug("Spot {} of zone {} no longer exists: observation dropped, spot cache evicted", spot.id(), spot.zoneId());
+                // The spot was deleted after the cache loaded it, e.g. by a re-scan: not an error, and a retry would only
+                // dead-letter the message. Plates are personal data and stay out of the log.
+                spotCache.evict(spot.siteId());
+                log.debug("Spot {} of site {} no longer exists: observation dropped, spot cache evicted", spot.id(), spot.siteId());
                 return;
             }
             if (violations.findActive(plate, spot.id(), type).isEmpty()) {
@@ -123,13 +128,19 @@ public class ViolationService {
         // The same stay must not be fined twice when the spot was replaced meanwhile (re-scan, "empty the area", rollback): the
         // new spot has a new id and the cascade took the old violation with it, so only the fine itself remembers it. A voided
         // fine counts too: an operator decided about this stay already.
-        if (properties.refineBlockHours() > 0 && fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual(
-                plate, spot.zoneId(), type, observedAt.minus(properties.refineBlock()))) {
-            log.debug("A fine for {} in zone {} was issued within {} h: no new violation", type, spot.zoneId(),
+        if (properties.refineBlockHours() > 0 && finedRecently(spot, type, plate, observedAt.minus(properties.refineBlock()))) {
+            log.debug("A fine for {} at site {} zone {} was issued within {} h: no new violation", type, spot.siteId(), spot.zoneId(),
                     properties.refineBlockHours());
             return;
         }
         open(spot, type, plate, cameraId, ruleSummary, observedAt);
+    }
+
+    /** A fine for the reason in the zone of the spot, or, for a spot without a zone, at its site outside the zones. */
+    private boolean finedRecently(ParkingSpot spot, ViolationType type, String plate, Instant since) {
+        return spot.zoneId() != null
+                ? fines.existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual(plate, spot.zoneId(), type, since)
+                : fines.existsByPlateAndSiteIdAndZoneIdIsNullAndReasonAndIssuedAtGreaterThanEqual(plate, spot.siteId(), type, since);
     }
 
     private void touchIfDue(Violation violation, Instant now) {
@@ -142,25 +153,29 @@ public class ViolationService {
     private void open(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary, Instant now) {
         UUID owner = plateOwners.ownerOf(plate).orElse(null);
         int graceMinutes = properties.graceMinutesFor(spot, type);
-        Violation violation = violations.saveAndFlush(Violation.open(
-                spot.id(), spot.zoneId(), plate, owner, type, now, now.plus(Duration.ofMinutes(graceMinutes)), ruleSummary));
+        Violation violation = violations.saveAndFlush(Violation.open(spot.id(), spot.siteId(), spot.zoneId(), plate, owner, type, now,
+                now.plus(Duration.ofMinutes(graceMinutes)), ruleSummary));
 
+        String zoneAddress = spot.zoneId() == null ? null : zones.addressOf(spot.zoneId()).orElse(null);
         outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
-                RabbitConfig.VIOLATION_CREATED_KEY, new ViolationCreatedEvent(violation.getId(), plate, spot.zoneId(),
-                        zones.addressOf(spot.zoneId()).orElse(null), cameraId, owner, spot.id(),
+                RabbitConfig.VIOLATION_CREATED_KEY, new ViolationCreatedEvent(violation.getId(), plate, spot.zoneId(), zoneAddress,
+                        spot.siteId(), sites.addressOf(spot.siteId()).orElse(null), cameraId, owner, spot.id(),
                         spot.spotNumber(), type, graceMinutes, now.toEpochMilli()));
         metrics.violationCreated(type);
-        log.info("Violation {} opened: {} for plate {} in zone {}, grace {} min",
-                violation.getId(), type, Plates.mask(plate), spot.zoneId(), graceMinutes);
+        log.info("Violation {} opened: {} for plate {} at site {} zone {}, grace {} min",
+                violation.getId(), type, Plates.mask(plate), spot.siteId(), spot.zoneId(), graceMinutes);
     }
 
     /**
-     * The plate was just observed in zone {@code zoneId}; every open violation of it other than
-     * {@code keepSpotId}/{@code keepType} no longer describes where it is and is resolved.
+     * The plate was just observed at site {@code siteId} (in zone {@code zoneId} when the camera has one); every open violation
+     * of it there other than {@code keepSpotId}/{@code keepType} no longer describes where it is and is resolved.
      * Pass null for both to resolve all of them.
+     *
+     * @param zoneId the zone of the observation, null to look at the whole site
      */
-    public void resolveOthers(String plate, String zoneId, UUID keepSpotId, ViolationType keepType, ResolutionReason reason) {
-        for (Violation open : violations.findActiveByPlateAndZone(plate, zoneId)) {
+    public void resolveOthers(String plate, String siteId, String zoneId, UUID keepSpotId, ViolationType keepType,
+                              ResolutionReason reason) {
+        for (Violation open : activeOf(plate, siteId, zoneId)) {
             boolean keep = open.getSpotId().equals(keepSpotId) && open.getViolationType() == keepType;
             if (!keep) {
                 resolve(open, reason);
@@ -176,21 +191,34 @@ public class ViolationService {
         return stale.size();
     }
 
+    /** The open violations of the plate at the site, only those in the zone when {@code zoneId} is set. */
+    private List<Violation> activeOf(String plate, String siteId, String zoneId) {
+        return zoneId != null
+                ? violations.findActiveByPlateAndSiteAndZone(plate, siteId, zoneId)
+                : violations.findActiveByPlateAndSite(plate, siteId);
+    }
+
     /**
-     * The session of the plate in the zone ended (session-service): the vehicle has left, so its open violations there are
-     * resolved as LEFT, and none of them is fined. Idempotent: a redelivered event finds nothing open. A violation that already
+     * The session of the plate at the site (in the zone, when it had one) ended (session-service): the vehicle has left, so its
+     * open violations there are resolved as LEFT, and none of them is fined. Idempotent: a redelivered event finds nothing open. A violation that already
      * has a fine stays as it is.
      *
      * <p>A violation that a detection confirmed after {@code endedAt} is left alone: the vehicle is still there (the driver
      * ended the session without leaving, or the event arrived late). Should a clock difference between the services make
      * this skip a violation that should have been resolved, the fine sweep still refuses it as not recently seen.
      *
-     * @param endedAt when the session ended, null when unknown (then every open violation of the plate in the zone is resolved)
+     * @param siteId  the site of the session; null from a producer that predates sites, then the zone's site is used
+     * @param zoneId  the zone of the session, null for a session outside the zones of the site
+     * @param endedAt when the session ended, null when unknown (then every open violation of the plate there is resolved)
      * @return how many violations this call resolved
      */
-    public int resolveEnded(String plate, String zoneId, Instant endedAt) {
+    public int resolveEnded(String plate, String siteId, String zoneId, Instant endedAt) {
+        String site = siteId != null ? siteId : zoneId == null ? null : zones.siteOf(zoneId).orElse(zoneId);
+        if (site == null) {
+            return 0;
+        }
         int resolved = 0;
-        for (Violation open : violations.findActiveByPlateAndZone(plate, zoneId)) {
+        for (Violation open : activeOf(plate, site, zoneId)) {
             if (endedAt != null && open.getLastSeenAt().isAfter(endedAt)) {
                 continue;
             }
@@ -226,7 +254,7 @@ public class ViolationService {
             if (violations.resolveIfActive(violation.getId(), reason, now) == 1) {
                 outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
                         RabbitConfig.VIOLATION_RESOLVED_KEY, new ViolationResolvedEvent(violation.getId(),
-                                violation.getPlate(), violation.getZoneId(), reason, now));
+                                violation.getPlate(), violation.getZoneId(), violation.getSiteId(), reason, now));
                 log.info("Violation {} resolved ({})", violation.getId(), reason);
                 return true;
             }
@@ -244,17 +272,23 @@ public class ViolationService {
         return violations.findActiveByZone(zoneId, pageable);
     }
 
+    /** The active violations of the site, in its zones and outside them. */
+    @Transactional(readOnly = true)
+    public Page<Violation> activeBySite(String siteId, Pageable pageable) {
+        return violations.findActiveBySite(siteId, pageable);
+    }
+
     @Transactional(readOnly = true)
     public Page<Violation> byPlate(String plate, Pageable pageable) {
         return violations.findByPlate(plate, pageable);
     }
 
-    /** Same, limited to the given zones (an operator). No zones, no violations. */
+    /** Same, limited to the given sites (an operator). No sites, no violations. */
     @Transactional(readOnly = true)
-    public Page<Violation> byPlateInZones(String plate, List<String> zoneIds, Pageable pageable) {
-        if (zoneIds.isEmpty()) {
+    public Page<Violation> byPlateInSites(String plate, List<String> siteIds, Pageable pageable) {
+        if (siteIds.isEmpty()) {
             return Page.empty(pageable);
         }
-        return violations.findByPlateAndZoneIdIn(plate, zoneIds, pageable);
+        return violations.findByPlateAndSiteIdIn(plate, siteIds, pageable);
     }
 }

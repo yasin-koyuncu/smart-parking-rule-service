@@ -30,7 +30,9 @@ import java.util.Optional;
  * plate are confirmed, opened or resolved accordingly.
  *
  * <p>An observation carrying a {@code viewId} is matched against the spots of that camera view, one without against the
- * legacy spots of the zone (see {@link SpotCacheService}).
+ * legacy spots of the site (see {@link SpotCacheService}). The spots are those of the site, in a zone or not (ADR 0009); an
+ * observation from a producer that predates sites names only the zone, and the zone's site is used. The parameters and
+ * rules that apply are those of the spot found: its zone's, or its site's when it has no zone.
  *
  * <p>An observation without a plate cannot be attributed to anyone and is ignored. The time of an observation is the time
  * of the event (clamped to now), not the time it is processed: after an outage or a backlog an old sighting must neither
@@ -54,21 +56,28 @@ public class DetectionService {
         Instant now = clock.instant();
         Instant observedAt = observedAt(event, now);
         Duration age = Duration.between(observedAt, now);
+        String zoneId = blankToNull(event.zoneId());
         if (age.compareTo(properties.observationMaxAge()) > 0) {
             // no plate in the log: it is personal data
-            log.debug("Observation in zone {} from camera {} is {} s old: dropped", event.zoneId(), event.cameraId(), age.toSeconds());
+            log.debug("Observation at site {} zone {} from camera {} is {} s old: dropped", event.siteId(), zoneId, event.cameraId(),
+                    age.toSeconds());
+            return;
+        }
+        String siteId = blankToNull(event.siteId()) != null ? event.siteId().trim() : ruleCache.siteIdOf(zoneId);
+        if (siteId == null) {
+            log.warn("Observation from camera {} names neither a site nor a zone: ignored", event.cameraId());
             return;
         }
         String plate = Plates.normalize(event.plate());
         if (plate == null) {
-            log.debug("Observation in zone {} without a plate: ignored", event.zoneId());
+            log.debug("Observation at site {} without a plate: ignored", siteId);
             return;
         }
         // An observation made on a camera view is matched against the spots of that view (their image polygons), a legacy one
-        // against the zone's spots that are on no view; the two kinds are never mixed.
-        List<ParkingSpot> spots = spotCache.spotsOf(event.zoneId(), event.viewId());
+        // against the site's spots that are on no view; the two kinds are never mixed.
+        List<ParkingSpot> spots = spotCache.spotsOf(siteId, event.viewId());
         if (spots.isEmpty()) {
-            log.debug("Zone {} view {} has no polygon spots: nothing to check", event.zoneId(), event.viewId());
+            log.debug("Site {} view {} has no polygon spots: nothing to check", siteId, event.viewId());
             return;
         }
         Polygon vehicle;
@@ -81,21 +90,25 @@ public class DetectionService {
 
         Optional<BoundaryCheckResult> fit = boundaryService.check(vehicle, spots);
         if (fit.isEmpty()) {
-            violationService.resolveOthers(plate, event.zoneId(), null, null, ResolutionReason.LEFT);
+            violationService.resolveOthers(plate, siteId, zoneId, null, null, ResolutionReason.LEFT);
             return;
         }
         ParkingSpot spot = fit.get().spot();
-        Observation observation = new Observation(ruleCache.zoneOf(event.zoneId()), spot, fit.get().insideLines(), plate,
+        Observation observation = new Observation(ruleCache.placeOf(spot.siteId(), spot.zoneId()), spot, fit.get().insideLines(), plate,
                 VehicleClass.fromDetector(event.vehicleClass()).orElse(null), observedAt);
 
         Optional<Finding> finding = evaluator.assess(observation);
         if (finding.isEmpty()) {
-            violationService.resolveOthers(plate, event.zoneId(), null, null, ResolutionReason.CORRECTED);
+            violationService.resolveOthers(plate, siteId, zoneId, null, null, ResolutionReason.CORRECTED);
         } else {
             ViolationType type = finding.get().type();
             violationService.confirm(spot, type, plate, event.cameraId(), finding.get().ruleSummary(), observedAt);
-            violationService.resolveOthers(plate, event.zoneId(), spot.id(), type, ResolutionReason.CORRECTED);
+            violationService.resolveOthers(plate, siteId, zoneId, spot.id(), type, ResolutionReason.CORRECTED);
         }
+    }
+
+    private static String blankToNull(String id) {
+        return id == null || id.isBlank() ? null : id.trim();
     }
 
     /** The event time, never later than {@code now} (a camera clock that runs ahead); an event without a time counts as seen now. */

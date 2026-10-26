@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.fine;
 
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.Dispute;
 import com.parkview.ruleengine.domain.type.DisputeStatus;
@@ -51,6 +52,7 @@ public class DisputeQueryService {
     private final DisputeRepository disputes;
     private final FineRepository fines;
     private final ZoneDirectory zones;
+    private final SiteDirectory sites;
 
     public Dispute get(UUID disputeId) {
         return disputes.findById(disputeId).orElseThrow(() -> new ResourceNotFoundException("Dispute", disputeId));
@@ -63,32 +65,44 @@ public class DisputeQueryService {
 
     public DisputeDetails detailsOf(Dispute dispute) {
         Fine fine = fines.findById(dispute.getFineId()).orElseThrow(() -> new ResourceNotFoundException("Fine", dispute.getFineId()));
-        return new DisputeDetails(dispute, fine, zones.addressOf(dispute.getZoneId()).orElse(null));
+        return new DisputeDetails(dispute, fine, zoneAddressOf(dispute.getZoneId()), sites.addressOf(dispute.getSiteId()).orElse(null));
     }
 
     /**
      * The operator list.
      *
-     * @param zoneIds the zones the caller may see; {@code null} means every zone (administrators)
+     * @param siteIds the sites the caller may see; {@code null} means every site (administrators)
+     * @param zoneId  only the disputes of this zone, null for all of the sites
      */
-    public Page<DisputeDetails> list(Filter filter, Collection<String> zoneIds, Pageable pageable) {
-        if (zoneIds != null && zoneIds.isEmpty()) {
+    public Page<DisputeDetails> list(Filter filter, Collection<String> siteIds, String zoneId, Pageable pageable) {
+        if (siteIds != null && siteIds.isEmpty()) {
             return Page.empty(pageable);
         }
-        Page<Dispute> page = zoneIds == null
-                ? disputes.findByStatusIn(filter.statuses(), pageable)
-                : disputes.findByStatusInAndZoneIdIn(filter.statuses(), zoneIds, pageable);
+        Page<Dispute> page;
+        if (zoneId != null) {
+            page = disputes.findByStatusInAndZoneIdIn(filter.statuses(), List.of(zoneId), pageable);
+        } else if (siteIds != null) {
+            page = disputes.findByStatusInAndSiteIdIn(filter.statuses(), siteIds, pageable);
+        } else {
+            page = disputes.findByStatusIn(filter.statuses(), pageable);
+        }
         return new PageImpl<>(detailsOf(page.getContent()), pageable, page.getTotalElements());
     }
 
-    /** One query for the fines and one per zone for the addresses, however long the page is. */
+    /** One query for the fines and one per zone and site for the addresses, however long the page is. */
     private List<DisputeDetails> detailsOf(List<Dispute> page) {
         Map<UUID, Fine> byId = fines.findAllById(page.stream().map(Dispute::getFineId).distinct().toList()).stream()
                 .collect(Collectors.toMap(Fine::getId, Function.identity()));
-        Map<String, Optional<String>> addresses = new HashMap<>();
+        Map<String, Optional<String>> zoneAddresses = new HashMap<>();
+        Map<String, Optional<String>> siteAddresses = new HashMap<>();
         return page.stream()
                 .map(d -> new DisputeDetails(d, byId.get(d.getFineId()),
-                        addresses.computeIfAbsent(d.getZoneId(), zones::addressOf).orElse(null)))
+                        d.getZoneId() == null ? null : zoneAddresses.computeIfAbsent(d.getZoneId(), zones::addressOf).orElse(null),
+                        siteAddresses.computeIfAbsent(d.getSiteId(), sites::addressOf).orElse(null)))
                 .toList();
+    }
+
+    private String zoneAddressOf(String zoneId) {
+        return zoneId == null ? null : zones.addressOf(zoneId).orElse(null);
     }
 }

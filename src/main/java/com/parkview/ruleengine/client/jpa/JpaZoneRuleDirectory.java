@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/** Reads the enabled rules of a zone. Rules that cannot be evaluated (no window) are skipped with a warning. */
+/** Reads the enabled rules of a zone or of a site. Rules that cannot be evaluated (no window) are skipped with a warning. */
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -27,7 +27,16 @@ class JpaZoneRuleDirectory implements ZoneRuleDirectory {
 
     @Override
     public List<ZoneRule> enabledRulesOf(String zoneId) {
-        return rules.findByZoneIdAndEnabledTrue(zoneId).stream()
+        return toRules(rules.findByZoneIdAndEnabledTrue(zoneId));
+    }
+
+    @Override
+    public List<ZoneRule> enabledSiteRulesOf(String siteId) {
+        return toRules(rules.findBySiteIdAndZoneIdIsNullAndEnabledTrue(siteId));
+    }
+
+    private List<ZoneRule> toRules(List<ZoneRuleView> views) {
+        return views.stream()
                 .map(this::toRule)
                 .filter(Objects::nonNull)
                 .toList();
@@ -38,7 +47,7 @@ class JpaZoneRuleDirectory implements ZoneRuleDirectory {
         LocalTime start = parseTime(view.getStartTime());
         LocalTime end = parseTime(view.getEndTime());
         if (start == null || end == null) {
-            log.warn("Skipping rule {} of zone {}: no usable time window", view.getId(), view.getZoneId());
+            log.warn("Skipping rule {} of site {} zone {}: no usable time window", view.getId(), view.getSiteId(), view.getZoneId());
             return null;
         }
         return new ZoneRule(view.getId(), view.getZoneId(), view.getLabel(), view.getPriority(),

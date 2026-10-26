@@ -36,11 +36,11 @@ public class FineEvidenceController {
     @PreAuthorize("hasAuthority('violation:read')")
     @Operation(summary = "Frozen evidence of a fine",
             description = "What the fine was based on when it was issued, including the camera snapshots (imagePath keys). Needs permission "
-                    + "violation:read and the zone of the fine (administrators: any zone). Fines issued before evidence was recorded "
+                    + "violation:read and the site of the fine (administrators: any site). Fines issued before evidence was recorded "
                     + "answer {recorded:false}.")
     @ApiResponse(responseCode = "200", description = "The evidence, or {recorded:false}")
     @ApiResponse(responseCode = "403", description = "Missing permission violation:read")
-    @ApiResponse(responseCode = "404", description = "Unknown fine, or a fine outside the caller's zones")
+    @ApiResponse(responseCode = "404", description = "Unknown fine, or a fine outside the caller's sites")
     public EvidenceResponse evidence(@PathVariable UUID id) {
         access.forStaff(id, currentUser.require());
         return EvidenceMapper.toResponse(id, evidence.find(id).orElse(null));
@@ -49,10 +49,10 @@ public class FineEvidenceController {
     @GetMapping("/{id}/explanation")
     @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read')")
     @Operation(summary = "Plain-language explanation of a fine",
-            description = "Why the fine was issued, for the driver who owns the plate and for operators of the zone. Never contains snapshots "
+            description = "Why the fine was issued, for the driver who owns the plate and for operators of the site. Never contains snapshots "
                     + "or detection ids. Works for voided fines too (the driver can see the outcome of a dispute).")
     @ApiResponse(responseCode = "200", description = "The explanation")
-    @ApiResponse(responseCode = "404", description = "Unknown fine, another driver's fine, or a fine outside the caller's zones")
+    @ApiResponse(responseCode = "404", description = "Unknown fine, another driver's fine, or a fine outside the caller's sites")
     public ExplanationResponse explanation(@PathVariable UUID id) {
         Fine fine = access.forOwnerOrStaff(id, currentUser.require());
         return EvidenceMapper.toExplanation(evidence.explain(fine));

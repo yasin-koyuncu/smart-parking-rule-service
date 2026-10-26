@@ -9,7 +9,7 @@ public final class PermitMapper {
     }
 
     public static PermitResponse toResponse(PlatePermit p) {
-        return new PermitResponse(p.getId(), p.getPlate(), p.getPermitType(), p.getZoneId(),
+        return new PermitResponse(p.getId(), p.getPlate(), p.getPermitType(), p.getSiteId(), p.getZoneId(),
                 p.getValidFrom(), p.getValidTo(), p.getCreatedBy(), p.getCreatedAt());
     }
 }

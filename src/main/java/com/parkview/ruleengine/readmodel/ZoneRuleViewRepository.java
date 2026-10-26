@@ -11,4 +11,7 @@ import java.util.UUID;
 public interface ZoneRuleViewRepository extends Repository<ZoneRuleView, UUID> {
 
     List<ZoneRuleView> findByZoneIdAndEnabledTrue(String zoneId);
+
+    /** The enabled site rules of the site: its rules without a zone. */
+    List<ZoneRuleView> findBySiteIdAndZoneIdIsNullAndEnabledTrue(String siteId);
 }

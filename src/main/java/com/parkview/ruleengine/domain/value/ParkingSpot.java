@@ -7,6 +7,8 @@ import java.util.UUID;
 /**
  * A polygon spot as read from {@code parking_spots} (owned by parking-mapping-service).
  *
+ * @param siteId           the site the spot belongs to; never null (ADR 0009)
+ * @param zoneId           the zone inside the site, null for a spot without a zone (the site's own rules apply there)
  * @param type             lower-case spot type, e.g. {@code permit}, {@code no_parking}, {@code paid}
  * @param permitType       permit required in a {@code permit} spot, otherwise null
  * @param boundaryGraceMin grace before a boundary fine in minutes; null means "use the default", 0 means no grace
@@ -15,6 +17,7 @@ import java.util.UUID;
  */
 public record ParkingSpot(
         UUID id,
+        String siteId,
         String zoneId,
         String spotNumber,
         String type,

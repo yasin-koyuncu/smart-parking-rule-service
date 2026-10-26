@@ -17,7 +17,7 @@ public record CreatePermitRequest(
         @NotBlank @Size(max = 64)
         String permitType,
 
-        @Schema(description = "Zone the permit is valid in; omit for every zone (administrators only)")
+        @Schema(description = "Zone the permit is valid in; omit for the whole site. The zone's site is used when siteId is omitted")
         @Size(max = 64)
         String zoneId,
 
@@ -25,6 +25,15 @@ public record CreatePermitRequest(
         Instant validFrom,
 
         @Schema(description = "End of validity (exclusive); omit for unlimited")
-        Instant validTo
+        Instant validTo,
+
+        @Schema(description = "Site the permit is valid at; omit (and omit zoneId) for every site, administrators only")
+        @Size(max = 64)
+        String siteId
 ) {
+
+    /** Same without a site, as sent before ADR 0009: the site is that of the zone, or every site without a zone. */
+    public CreatePermitRequest(String plate, String permitType, String zoneId, Instant validFrom, Instant validTo) {
+        this(plate, permitType, zoneId, validFrom, validTo, null);
+    }
 }

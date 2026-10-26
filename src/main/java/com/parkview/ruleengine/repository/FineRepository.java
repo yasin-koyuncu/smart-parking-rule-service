@@ -33,11 +33,29 @@ public interface FineRepository extends JpaRepository<Fine, UUID> {
 
     Page<Fine> findByZoneIdAndPaidAndVoidedAtIsNull(String zoneId, boolean paid, Pageable pageable);
 
+    /** The fines of a plate at the given sites only (an operator sees nothing outside their sites); the collection must not be empty. */
+    Page<Fine> findByPlateAndSiteIdIn(String plate, Collection<String> siteIds, Pageable pageable);
+
+    Page<Fine> findByPlateAndSiteIdInAndVoidedAtIsNull(String plate, Collection<String> siteIds, Pageable pageable);
+
+    /** The fines of a site, in its zones and outside them. */
+    Page<Fine> findBySiteId(String siteId, Pageable pageable);
+
+    Page<Fine> findBySiteIdAndVoidedAtIsNull(String siteId, Pageable pageable);
+
+    Page<Fine> findBySiteIdAndPaid(String siteId, boolean paid, Pageable pageable);
+
+    Page<Fine> findBySiteIdAndPaidAndVoidedAtIsNull(String siteId, boolean paid, Pageable pageable);
+
     /**
      * Whether the plate was fined for this reason in this zone since {@code since}, voided or not. Independent of the spot:
      * a spot that was deleted and drawn again no longer carries the violation (cascade) and has a new id.
      */
     boolean existsByPlateAndZoneIdAndReasonAndIssuedAtGreaterThanEqual(String plate, String zoneId, ViolationType reason, Instant since);
+
+    /** Same, for a spot without a zone: the fines of the site that have no zone either. */
+    boolean existsByPlateAndSiteIdAndZoneIdIsNullAndReasonAndIssuedAtGreaterThanEqual(String plate, String siteId, ViolationType reason,
+                                                                                    Instant since);
 
     /**
      * Locks the row until the end of the transaction. Void, manual payment and the online payment event all decide on

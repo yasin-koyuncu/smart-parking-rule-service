@@ -16,7 +16,8 @@ import java.util.UUID;
 
 /**
  * Read-only view of {@code zone_rules}, the rules operators edit in the operator UI. The table is owned by the
- * Supabase schema / parking-mapping-service. {@code start_time} and {@code end_time} are {@code time} columns,
+ * Supabase schema / parking-mapping-service. A row with a zone is a zone rule, a row without one a site rule (ADR 0009).
+ * {@code start_time} and {@code end_time} are {@code time} columns,
  * {@code vehicle_types} is {@code text[]} and {@code weekdays} {@code int[]}.
  *
  * <p>The two time columns are read as text ({@code HH:mm:ss}, or {@code HH:mm} while a database still has text
@@ -35,6 +36,11 @@ public class ZoneRuleView {
     @Id
     private UUID id;
 
+    /** The site the rule belongs to (ADR 0009); never null. */
+    @Column(name = "site_id")
+    private String siteId;
+
+    /** The zone of a zone rule; null for a site rule, which applies in the whole site, inside its zones too. */
     @Column(name = "zone_id")
     private String zoneId;
 

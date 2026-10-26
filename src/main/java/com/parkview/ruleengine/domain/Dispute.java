@@ -40,7 +40,11 @@ public class Dispute {
     @Column(nullable = false, updatable = false)
     private String plate;
 
-    @Column(name = "zone_id", nullable = false, updatable = false)
+    @Column(name = "site_id", nullable = false, updatable = false)
+    private String siteId;
+
+    /** Null for a fine at a spot without a zone. */
+    @Column(name = "zone_id", updatable = false)
     private String zoneId;
 
     @Column(name = "opened_by_user_id", updatable = false)
@@ -74,6 +78,7 @@ public class Dispute {
         Dispute dispute = new Dispute();
         dispute.fineId = fine.getId();
         dispute.plate = fine.getPlate();
+        dispute.siteId = fine.getSiteId();
         dispute.zoneId = fine.getZoneId();
         dispute.openedByUserId = openedBy;
         dispute.channel = channel;

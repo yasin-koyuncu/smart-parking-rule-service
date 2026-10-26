@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.service.fine;
 
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.domain.Dispute;
@@ -31,29 +32,32 @@ class FineEvents {
 
     private final OutboxService outbox;
     private final ZoneDirectory zones;
+    private final SiteDirectory sites;
     private final PlateOwnerDirectory plateOwners;
 
+    /** {@code zoneAddress} is null for a fine without a zone; {@code siteAddress} is the address of the site (ADR 0009). */
     void issued(Fine fine, Violation violation, UUID owner, Instant at) {
+        String zoneAddress = fine.getZoneId() == null ? null : zones.addressOf(fine.getZoneId()).orElse(null);
         publish(fine.getId(), RabbitConfig.FINE_ISSUED_KEY,
-                new FineIssuedEvent(fine.getId(), violation.getId(), fine.getPlate(), owner, fine.getZoneId(),
-                        zones.addressOf(fine.getZoneId()).orElse(null), fine.getAmountSek(), at.toEpochMilli(),
+                new FineIssuedEvent(fine.getId(), violation.getId(), fine.getPlate(), owner, fine.getZoneId(), zoneAddress,
+                        fine.getSiteId(), sites.addressOf(fine.getSiteId()).orElse(null), fine.getAmountSek(), at.toEpochMilli(),
                         violation.getViolationType()));
     }
 
     void paid(Fine fine, PaidMethod method, Instant at) {
         publish(fine.getId(), RabbitConfig.FINE_PAID_KEY,
-                new FinePaidEvent(fine.getId(), fine.getPlate(), fine.getZoneId(), fine.getAmountSek(), method.wire(), at));
+                new FinePaidEvent(fine.getId(), fine.getPlate(), fine.getZoneId(), fine.getSiteId(), fine.getAmountSek(), method.wire(), at));
     }
 
     void voided(Fine fine, Instant at) {
         publish(fine.getId(), RabbitConfig.FINE_VOIDED_KEY,
-                new FineVoidedEvent(fine.getId(), fine.getPlate(), fine.getZoneId(), at));
+                new FineVoidedEvent(fine.getId(), fine.getPlate(), fine.getZoneId(), fine.getSiteId(), at));
     }
 
     void disputed(Dispute dispute, Instant at) {
         publish(dispute.getFineId(), RabbitConfig.FINE_DISPUTED_KEY,
                 new FineDisputedEvent(dispute.getId(), dispute.getFineId(), dispute.getPlate(), dispute.getZoneId(),
-                        dispute.getChannel().wire(), at));
+                        dispute.getSiteId(), dispute.getChannel().wire(), at));
     }
 
     /** {@code userId} is the owner of the plate when known: the fine's own owner, else whoever has registered the plate now. */
@@ -61,7 +65,7 @@ class FineEvents {
         UUID owner = fine.getUserId() != null ? fine.getUserId() : plateOwners.ownerOf(fine.getPlate()).orElse(null);
         publish(dispute.getFineId(), RabbitConfig.FINE_DISPUTE_DECIDED_KEY,
                 new FineDisputeDecidedEvent(dispute.getId(), dispute.getFineId(), dispute.getPlate(), dispute.getZoneId(),
-                        owner, dispute.getStatus().wire(), at, dispute.getDecisionNote()));
+                        dispute.getSiteId(), owner, dispute.getStatus().wire(), at, dispute.getDecisionNote()));
     }
 
     private void publish(UUID fineId, String routingKey, Object payload) {

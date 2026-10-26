@@ -16,8 +16,8 @@ class JpaDetectionDirectory implements DetectionDirectory {
     private final DetectionViewRepository detections;
 
     @Override
-    public List<Detection> involvedIn(String normalizedPlate, String zoneId, Instant from, Instant to, int limit) {
-        return detections.findInvolved(normalizedPlate, zoneId, from, to, PageRequest.of(0, limit)).stream()
+    public List<Detection> involvedIn(String normalizedPlate, String siteId, Instant from, Instant to, int limit) {
+        return detections.findInvolved(normalizedPlate, siteId, from, to, PageRequest.of(0, limit)).stream()
                 .map(d -> new Detection(d.getId(), d.getImagePath() == null || d.getImagePath().isBlank() ? null : d.getImagePath(),
                         d.getConfidence(), d.getAt()))
                 .toList();

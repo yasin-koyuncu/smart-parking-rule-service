@@ -11,7 +11,8 @@ import java.util.UUID;
 public record ViolationResponse(
         UUID id,
         @Schema(description = "Spot the vehicle occupies") UUID spotId,
-        String zoneId,
+        @Schema(description = "Zone of the spot; null for a spot without a zone") String zoneId,
+        @Schema(description = "Site of the spot") String siteId,
         @Schema(description = "Normalised plate", example = "ABC123") String plate,
         @Schema(description = "Owner of the plate when it is registered to a user") UUID userId,
         ViolationType violationType,

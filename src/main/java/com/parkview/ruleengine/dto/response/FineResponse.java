@@ -10,7 +10,8 @@ import java.util.UUID;
 public record FineResponse(
         UUID id,
         @Schema(description = "Normalised plate", example = "ABC123") String plate,
-        String zoneId,
+        @Schema(description = "Zone of the fine; null for a fine at a spot without a zone") String zoneId,
+        @Schema(description = "Site of the fine") String siteId,
         @Schema(description = "Camera that produced the evidence, when known") String cameraId,
         @Schema(description = "Why the fine was issued, as stored (lower case)", example = "wrong_permit") String reason,
         @Schema(description = "Optional machine readable detail written by other producers of the table") String reasonCode,

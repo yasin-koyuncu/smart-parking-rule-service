@@ -36,6 +36,22 @@ public interface ViolationRepository extends JpaRepository<Violation, UUID> {
             """)
     List<Violation> findActiveByPlateAndZone(String plate, String zoneId);
 
+    /** The active violations of the plate anywhere at the site, in a zone or not. */
+    @Query("""
+            select v from Violation v
+            where v.plate = :plate and v.siteId = :siteId
+              and v.resolvedAt is null and v.fineIssuedAt is null
+            """)
+    List<Violation> findActiveByPlateAndSite(String plate, String siteId);
+
+    /** The active violations of the plate in the zone of the site. */
+    @Query("""
+            select v from Violation v
+            where v.plate = :plate and v.siteId = :siteId and v.zoneId = :zoneId
+              and v.resolvedAt is null and v.fineIssuedAt is null
+            """)
+    List<Violation> findActiveByPlateAndSiteAndZone(String plate, String siteId, String zoneId);
+
     /**
      * Ids of fined, unresolved violations of this plate/spot/type that were confirmed recently:
      * the vehicle that was fined is still there, so no second violation must be opened for it.
@@ -54,10 +70,20 @@ public interface ViolationRepository extends JpaRepository<Violation, UUID> {
             """)
     Page<Violation> findActiveByZone(String zoneId, Pageable pageable);
 
+    /** The active violations of the site, in its zones and outside them. */
+    @Query("""
+            select v from Violation v
+            where v.siteId = :siteId and v.resolvedAt is null and v.fineIssuedAt is null
+            """)
+    Page<Violation> findActiveBySite(String siteId, Pageable pageable);
+
     Page<Violation> findByPlate(String plate, Pageable pageable);
 
     /** The violations of a plate in the given zones only; the collection must not be empty. */
     Page<Violation> findByPlateAndZoneIdIn(String plate, Collection<String> zoneIds, Pageable pageable);
+
+    /** The violations of a plate at the given sites only (an operator's scope); the collection must not be empty. */
+    Page<Violation> findByPlateAndSiteIdIn(String plate, Collection<String> siteIds, Pageable pageable);
 
     /**
      * Active violations whose grace has passed and that were confirmed by a detection since {@code seenSince} (the fine

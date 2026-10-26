@@ -31,22 +31,25 @@ final class RuleSummaries {
     static String of(ViolationType type, Observation observation, RuleOutcome outcome, int limitMinutes) {
         ParkingSpot spot = observation.spot();
         return switch (type) {
-            case NO_PARKING -> noParking(outcome);
+            case NO_PARKING -> noParking(observation, outcome);
             case WRONG_VEHICLE_TYPE ->
                     "The spot is reserved for electric vehicles and the vehicle registry shows that the vehicle is not electric.";
             case WRONG_PERMIT -> wrongPermit(spot, outcome);
-            case OVERSTAY -> overstay(spot, outcome, limitMinutes);
+            case OVERSTAY -> overstay(observation, outcome, limitMinutes);
             case BOUNDARY_EXCEEDED -> "The vehicle was not inside the lines of the parking spot"
                     + (spot.spotNumber() == null ? "." : " (spot " + spot.spotNumber() + ").");
         };
     }
 
-    private static String noParking(RuleOutcome outcome) {
+    private static String noParking(Observation observation, RuleOutcome outcome) {
         ZoneRule rule = outcome.noParkingRule();
         if (rule != null) {
             return "Parking is not allowed while this applies: " + describe(rule) + ".";
         }
-        return "Parking is not allowed in this spot (spot type: no parking).";
+        if (observation.spot().isNoParking()) {
+            return "Parking is not allowed in this spot (spot type: no parking).";
+        }
+        return "Parking is not allowed anywhere in this " + (observation.zone().siteLevel() ? "site" : "zone") + ".";
     }
 
     private static String wrongPermit(ParkingSpot spot, RuleOutcome outcome) {
@@ -61,21 +64,24 @@ final class RuleSummaries {
         return "No valid permit was registered for the plate: " + String.join("; ", sources) + ".";
     }
 
-    private static String overstay(ParkingSpot spot, RuleOutcome outcome, int limitMinutes) {
+    private static String overstay(Observation observation, RuleOutcome outcome, int limitMinutes) {
         String source;
         if (outcome.maxMinutes() > 0 && outcome.maxMinutesRule() != null) {
             source = describe(outcome.maxMinutesRule());
-        } else if (spot.ownMaxMinutes() > 0) {
+        } else if (observation.spot().ownMaxMinutes() > 0) {
             source = "the limit of this spot";
         } else {
-            source = "the limit of the zone";
+            source = observation.zone().siteLevel() ? "the limit of the site" : "the limit of the zone";
         }
         return "The stay limit is " + limitMinutes + " minutes (" + source + ") and the parking session had lasted longer.";
     }
 
-    /** {@code zone rule "Weekday limit" (Mon-Fri 08:00-18:00, public holidays excluded, vehicles: car, truck)}. */
+    /**
+     * {@code zone rule "Weekday limit" (Mon-Fri 08:00-18:00, public holidays excluded, vehicles: car, truck)}; a rule without a
+     * zone is a {@code site rule}.
+     */
     static String describe(ZoneRule rule) {
-        StringBuilder text = new StringBuilder("zone rule");
+        StringBuilder text = new StringBuilder(rule.isSiteRule() ? "site rule" : "zone rule");
         if (rule.label() != null && !rule.label().isBlank()) {
             text.append(" \"").append(rule.label().trim()).append('"');
         }

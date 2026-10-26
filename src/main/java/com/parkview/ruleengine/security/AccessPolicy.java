@@ -1,5 +1,7 @@
 package com.parkview.ruleengine.security;
 
+import com.parkview.ruleengine.client.ZoneDirectory;
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
@@ -9,17 +11,35 @@ import java.util.Optional;
 
 /**
  * Object-level authorisation rules (the role check says "may use this endpoint",
- * the policy says "may touch this zone / plate / record").
+ * the policy says "may touch this site / zone / plate / record").
  *
  * <ul>
  *   <li>admin: everything</li>
- *   <li>operator: only the zones in their {@code zones} claim</li>
+ *   <li>operator: only the sites in their {@code sites} claim (ADR 0009); a zone is reachable when its site is, and a record
+ *       when its {@code site_id} is. A record without a site is for administrators only.</li>
  *   <li>driver: only the plates in their {@code plates} claim, only their own user id</li>
  * </ul>
  */
 @Component
+@RequiredArgsConstructor
 public class AccessPolicy {
 
+    private final ZoneDirectory zones;
+
+    public void requireSite(AuthenticatedUser user, String siteId) {
+        if (!canAccessSite(user, siteId)) {
+            throw new AccessDeniedException("No access to site");
+        }
+    }
+
+    public boolean canAccessSite(AuthenticatedUser user, String siteId) {
+        if (user.isAdmin()) {
+            return true;
+        }
+        return user.role() == Role.OPERATOR && siteId != null && user.sites().contains(siteId);
+    }
+
+    /** A zone-keyed endpoint: the caller must have the site of the zone (see {@link #siteOfZone}). */
     public void requireZone(AuthenticatedUser user, String zoneId) {
         if (!canAccessZone(user, zoneId)) {
             throw new AccessDeniedException("No access to zone");
@@ -30,7 +50,15 @@ public class AccessPolicy {
         if (user.isAdmin()) {
             return true;
         }
-        return user.role() == Role.OPERATOR && zoneId != null && user.zones().contains(zoneId);
+        return zoneId != null && canAccessSite(user, siteOfZone(zoneId));
+    }
+
+    /**
+     * The site of a zone. A zone that is not known is taken to be its own site, which is true of every zone that existed
+     * before sites did (ADR 0009: a site created for a zone has the zone's id); it has no records at another site either.
+     */
+    public String siteOfZone(String zoneId) {
+        return zoneId == null ? null : zones.siteOf(zoneId).orElse(zoneId);
     }
 
     public void requirePlate(AuthenticatedUser user, String plate) {
@@ -40,17 +68,17 @@ public class AccessPolicy {
     }
 
     /**
-     * The zones a list of records of a plate must be limited to: the zones of an operator (possibly none), nothing (empty) for
-     * an administrator, who sees every zone. A driver is not limited by zone but by plate, see {@link #requirePlate}.
-     * Looking at a plate gives an operator no view into the zones of other operators.
+     * The sites a list of records of a plate must be limited to: the sites of an operator (possibly none), nothing (empty) for
+     * an administrator, who sees every site. A driver is not limited by site but by plate, see {@link #requirePlate}.
+     * Looking at a plate gives an operator no view into the sites of other operators.
      */
-    public Optional<List<String>> zoneScopeOf(AuthenticatedUser user) {
-        return user.role() == Role.OPERATOR ? Optional.of(List.copyOf(user.zones())) : Optional.empty();
+    public Optional<List<String>> siteScopeOf(AuthenticatedUser user) {
+        return user.role() == Role.OPERATOR ? Optional.of(List.copyOf(user.sites())) : Optional.empty();
     }
 
     /**
-     * May this caller address the plate at all: staff always (the lists of a plate are then limited to their zones, see
-     * {@link #zoneScopeOf}), drivers only their own.
+     * May this caller address the plate at all: staff always (the lists of a plate are then limited to their sites, see
+     * {@link #siteScopeOf}), drivers only their own.
      */
     public boolean canAccessPlate(AuthenticatedUser user, String plate) {
         if (user.isOperatorOrAdmin()) {

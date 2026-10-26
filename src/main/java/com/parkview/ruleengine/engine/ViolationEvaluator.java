@@ -26,14 +26,18 @@ import java.util.Set;
  * The rule engine: decides which violation, if any, an observed vehicle commits. First violation wins:
  *
  * <ol>
- *   <li>{@code NO_PARKING}: the spot type is {@code no_parking} or the deciding zone rule forbids parking.</li>
+ *   <li>{@code NO_PARKING}: the spot type is {@code no_parking}, the deciding rule forbids parking, or parking is not
+ *       allowed at all in the zone (or, for a spot without a zone, the site).</li>
  *   <li>{@code WRONG_VEHICLE_TYPE}: an {@code ev} spot and a vehicle known not to be electric.</li>
  *   <li>{@code WRONG_PERMIT}: the plate lacks a permit the spot ({@code disabled}, or {@code permit} with its type)
  *       or the deciding zone rule ({@code permit_required}) demands.</li>
- *   <li>{@code OVERSTAY}: the active session of the plate is older than the stay limit (zone rule, else the
- *       {@code timed}/{@code loading} spot's limit, else the zone's).</li>
+ *   <li>{@code OVERSTAY}: the active session of the plate is older than the stay limit (rule, else the
+ *       {@code timed}/{@code loading} spot's limit, else the zone's, or the site's for a spot without a zone).</li>
  *   <li>{@code BOUNDARY_EXCEEDED}: the vehicle is not inside the lines.</li>
  * </ol>
+ *
+ * <p>The rules are the effective rules of the spot (ADR 0009): the zone rules and the site rules for a spot in a zone, the
+ * site rules alone for a spot without one; a spot without a zone is controlled exactly like one in a zone.
  *
  * <p>Whatever cannot be judged (unknown plate, unknown vehicle, no session, failed lookup) is not a violation
  * (fail open). Registry data, the permit query and the session query are used only when a decision needs them.
@@ -60,13 +64,12 @@ public class ViolationEvaluator {
     public Optional<Finding> assess(Observation observation) {
         metrics.observationEvaluated();
         ParkingSpot spot = observation.spot();
-        String zoneId = spot.zoneId();
-        List<ZoneRule> rules = ruleCache.rulesOf(zoneId);
+        List<ZoneRule> rules = ruleCache.rulesOf(spot.siteId(), spot.zoneId());
         VehicleContext vehicle = new VehicleContext(observation.plate(), observation.detectedClass(),
                 observation.zone().country(), vehicles, properties.vehicleLookupEnabled());
         RuleOutcome outcome = ruleResolver.resolve(rules, observation.zone(), observation.at(), vehicle);
 
-        if (spot.isNoParking() || outcome.noParking()) {
+        if (spot.isNoParking() || outcome.noParking() || !observation.zone().allowsParking()) {
             return finding(ViolationType.NO_PARKING, observation, outcome, 0);
         }
         if (spot.isEv() && observation.plate() != null && vehicle.fuel() == Fuel.OTHER) {
@@ -98,7 +101,8 @@ public class ViolationEvaluator {
             log.debug("Spot {} requires permit {} but the plate is unknown: cannot decide", observation.spot().id(), required);
             return false;
         }
-        return !permitService.holdsAll(observation.plate(), observation.spot().zoneId(), required, observation.at());
+        return !permitService.holdsAll(observation.plate(), observation.spot().siteId(), observation.spot().zoneId(), required,
+                observation.at());
     }
 
     private static void addRequired(Set<String> required, String permitType) {
@@ -116,16 +120,17 @@ public class ViolationEvaluator {
             log.debug("Spot {} has a stay limit but the plate is unknown: cannot decide", observation.spot().id());
             return false;
         }
-        Optional<Instant> started = sessions.startOfActiveSession(observation.plate(), observation.spot().zoneId());
+        Optional<Instant> started = sessions.startOfActiveSession(observation.plate(), observation.spot().siteId(),
+                observation.spot().zoneId());
         if (started.isEmpty()) {
-            log.debug("No active session for {} in zone {}: cannot decide overstay",
-                    Plates.mask(observation.plate()), observation.spot().zoneId());
+            log.debug("No active session for {} at site {} zone {}: cannot decide overstay",
+                    Plates.mask(observation.plate()), observation.spot().siteId(), observation.spot().zoneId());
             return false;
         }
         return Duration.between(started.get(), observation.at()).compareTo(Duration.ofMinutes(limit)) > 0;
     }
 
-    /** Deciding rule's limit, else the spot's own (timed and loading spots), else the zone's; zero means unlimited. */
+    /** Deciding rule's limit, else the spot's own (timed and loading spots), else the zone's or site's; zero means unlimited. */
     private static int effectiveLimitMinutes(Observation observation, RuleOutcome outcome) {
         if (outcome.maxMinutes() > 0) {
             return outcome.maxMinutes();

@@ -46,8 +46,8 @@ public class FineIssuingService {
 
         evidence.record(fine, violation);
         events.issued(fine, violation, owner, now);
-        log.info("Fine {} issued: {} SEK ({}) for plate {} in zone {}", fine.getId(), fine.getAmountSek(),
-                fine.getReason(), Plates.mask(fine.getPlate()), fine.getZoneId());
+        log.info("Fine {} issued: {} SEK ({}) for plate {} at site {} zone {}", fine.getId(), fine.getAmountSek(),
+                fine.getReason(), Plates.mask(fine.getPlate()), fine.getSiteId(), fine.getZoneId());
         return fine;
     }
 }
