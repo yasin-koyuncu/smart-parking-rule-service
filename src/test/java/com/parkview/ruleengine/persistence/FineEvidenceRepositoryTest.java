@@ -65,7 +65,7 @@ class FineEvidenceRepositoryTest {
         fineId = UUID.randomUUID();
         jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek, issued_at) values (?, 'ABC123', 'z1', 'overstay', 450, ?)",
                 fineId, java.sql.Timestamp.from(ISSUED));
-        violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", null, ViolationType.OVERSTAY, DETECTED,
+        violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.OVERSTAY, DETECTED,
                 DETECTED.plus(Duration.ofMinutes(5)));
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
         fine = Fine.issue(violation, new BigDecimal("450"), null, ISSUED);
@@ -73,7 +73,7 @@ class FineEvidenceRepositoryTest {
     }
 
     private FineEvidence save(List<String> detectionIds, List<String> images, BigDecimal confidence) {
-        return tx.execute(status -> evidence.save(FineEvidence.of(fine, violation, "Storgatan 1", "A1",
+        return tx.execute(status -> evidence.save(FineEvidence.of(fine, violation, "Storgatan 1", "Storgatan 1", "A1",
                 "The stay limit is 60 minutes (the limit of the zone) and the parking session had lasted longer.",
                 detectionIds, images, confidence)));
     }

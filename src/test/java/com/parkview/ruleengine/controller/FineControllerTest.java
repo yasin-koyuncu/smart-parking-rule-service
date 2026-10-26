@@ -5,6 +5,7 @@ import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.type.PaidMethod;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
@@ -56,6 +57,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class FineControllerTest {
 
+    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    @MockitoBean
+    ZoneDirectory zoneDirectory;
+
     private static final Instant T = Instant.parse("2026-10-09T10:00:00Z");
     private static final UUID OWNER = UUID.fromString("7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11");
 
@@ -69,7 +74,7 @@ class FineControllerTest {
 
     @BeforeEach
     void setUp() {
-        Violation violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
+        Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
         fine = Fine.issue(violation, new BigDecimal("700"), OWNER, T);
         ReflectionTestUtils.setField(fine, "id", UUID.fromString("11111111-2222-3333-4444-555555555555"));
         ReflectionTestUtils.setField(fine, "cameraId", "cam-1");
@@ -173,7 +178,7 @@ class FineControllerTest {
     @Test
     void staffWithViolationReadMayAskForAnyPlateButOperatorsOnlySeeTheirZones() throws Exception {
         when(fineService.byPlate(eq("XYZ999"), eq(false), any())).thenReturn(page());
-        when(fineService.byPlateInZones(eq("XYZ999"), eq(false), eq(List.of("z1")), any())).thenReturn(page());
+        when(fineService.byPlateInSites(eq("XYZ999"), eq(false), eq(List.of("z1")), any())).thenReturn(page());
 
         for (var allowed : List.of(user("admin", List.of(), List.of()), token(false, "admin", List.of("violation:read"), List.of(), List.of()))) {
             mvc.perform(get("/api/v1/fines/plate/XYZ999").with(allowed)).andExpect(status().isOk());
@@ -183,13 +188,13 @@ class FineControllerTest {
             mvc.perform(get("/api/v1/fines/plate/XYZ999").with(allowed)).andExpect(status().isOk());
         }
         verify(fineService, times(2)).byPlate(eq("XYZ999"), eq(false), any());
-        verify(fineService, times(2)).byPlateInZones(eq("XYZ999"), eq(false), eq(List.of("z1")), any());
+        verify(fineService, times(2)).byPlateInSites(eq("XYZ999"), eq(false), eq(List.of("z1")), any());
     }
 
     @Test
     void anOperatorOfAnotherZoneAsksForAPlateWithAFineElsewhereAndGetsNothing() throws Exception {
         // the service is asked for the zones of the caller only; the fine of zone z1 is not among the answer
-        when(fineService.byPlateInZones(eq("ABC123"), eq(false), eq(List.of("z2")), any())).thenReturn(page());
+        when(fineService.byPlateInSites(eq("ABC123"), eq(false), eq(List.of("z2")), any())).thenReturn(page());
         when(fineService.byPlate(eq("ABC123"), eq(false), any())).thenReturn(page(fine));
 
         mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("operator", List.of(), List.of("z2"))))
@@ -198,15 +203,15 @@ class FineControllerTest {
                 .andExpect(content().json("[]"));
         verify(fineService, never()).byPlate(any(), anyBoolean(), any());
         // an operator without zones is limited to none
-        when(fineService.byPlateInZones(eq("ABC123"), eq(false), eq(List.of()), any())).thenReturn(page());
+        when(fineService.byPlateInSites(eq("ABC123"), eq(false), eq(List.of()), any())).thenReturn(page());
         mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("operator", List.of(), List.of())))
                 .andExpect(status().isOk());
-        verify(fineService).byPlateInZones(eq("ABC123"), eq(false), eq(List.of()), any());
+        verify(fineService).byPlateInSites(eq("ABC123"), eq(false), eq(List.of()), any());
     }
 
     @Test
     void theSnapshotKeyIsForCallersWithViolationReadAndNeverForDrivers() throws Exception {
-        when(fineService.byPlateInZones(eq("ABC123"), eq(false), eq(List.of("z1")), any())).thenReturn(page(fine));
+        when(fineService.byPlateInSites(eq("ABC123"), eq(false), eq(List.of("z1")), any())).thenReturn(page(fine));
         when(fineService.byPlate(eq("ABC123"), eq(false), any())).thenReturn(page(fine));
         when(fineService.get(fine.getId())).thenReturn(fine);
 
@@ -229,7 +234,7 @@ class FineControllerTest {
             mvc.perform(get("/api/v1/fines/plate/ABC123").with(denied)).andExpect(status().isForbidden());
         }
         verify(fineService, never()).byPlate(any(), anyBoolean(), any());
-        verify(fineService, never()).byPlateInZones(any(), anyBoolean(), any(), any());
+        verify(fineService, never()).byPlateInSites(any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -251,13 +256,13 @@ class FineControllerTest {
 
     @Test
     void paidAndVoidedStateIsPartOfTheJson() throws Exception {
-        Fine paid = Fine.issue(Violation.open(UUID.randomUUID(), "z1", "ABC123", OWNER, ViolationType.NO_PARKING, T, T),
+        Fine paid = Fine.issue(Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.NO_PARKING, T, T),
                 new BigDecimal("900"), OWNER, T);
         paid.markPaid(T.plusSeconds(60), PaidMethod.CASH, null);
-        Fine voided = Fine.issue(Violation.open(UUID.randomUUID(), "z1", "ABC123", OWNER, ViolationType.NO_PARKING, T, T),
+        Fine voided = Fine.issue(Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.NO_PARKING, T, T),
                 new BigDecimal("900"), OWNER, T);
         voided.voidFine(T.plusSeconds(120), "misread plate", null);
-        when(fineService.byPlateInZones(eq("ABC123"), eq(true), eq(List.of("z1")), any())).thenReturn(page(paid, voided));
+        when(fineService.byPlateInSites(eq("ABC123"), eq(true), eq(List.of("z1")), any())).thenReturn(page(paid, voided));
 
         mvc.perform(get("/api/v1/fines/plate/ABC123?includeVoided=true").with(user("operator", List.of(), List.of("z1"))))
                 .andExpect(status().isOk())
@@ -275,7 +280,7 @@ class FineControllerTest {
     @Test
     void plateListLeavesOutVoidedFinesUnlessStaffAsksForThem() throws Exception {
         when(fineService.byPlate(any(), anyBoolean(), any())).thenReturn(page());
-        when(fineService.byPlateInZones(any(), anyBoolean(), any(), any())).thenReturn(page());
+        when(fineService.byPlateInSites(any(), anyBoolean(), any(), any())).thenReturn(page());
 
         mvc.perform(get("/api/v1/fines/plate/ABC123").with(user("operator", List.of(), List.of("z1")))).andExpect(status().isOk());
         mvc.perform(get("/api/v1/fines/plate/ABC123?includeVoided=true").with(user("operator", List.of(), List.of("z1"))))
@@ -291,8 +296,8 @@ class FineControllerTest {
         // default listing and the driver (flag ignored) leave voided fines out; both staff calls include them
         verify(fineService).byPlate(eq("ABC123"), eq(false), any());                    // the driver
         verify(fineService).byPlate(eq("ABC123"), eq(true), any());                     // the admin
-        verify(fineService).byPlateInZones(eq("ABC123"), eq(false), any(), any());      // operator, default listing
-        verify(fineService).byPlateInZones(eq("ABC123"), eq(true), any(), any());       // operator, asked for voided
+        verify(fineService).byPlateInSites(eq("ABC123"), eq(false), any(), any());      // operator, default listing
+        verify(fineService).byPlateInSites(eq("ABC123"), eq(true), any(), any());       // operator, asked for voided
     }
 
     @Test

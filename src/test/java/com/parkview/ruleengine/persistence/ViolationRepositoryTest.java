@@ -71,7 +71,7 @@ class ViolationRepositoryTest {
     }
 
     private Violation open(String plate, UUID spotId, ViolationType type, Instant detectedAt, Instant graceUntil) {
-        return violations.saveAndFlush(Violation.open(spotId, "z1", plate, null, type, detectedAt, graceUntil));
+        return violations.saveAndFlush(Violation.open(spotId, "z1", "z1", plate, null, type, detectedAt, graceUntil));
     }
 
     private Violation due(String plate) {
@@ -271,7 +271,7 @@ class ViolationRepositoryTest {
     @Test
     void activeByPlateAndZoneListsOpenViolationsOfThatZoneOnly() {
         Violation mine = open("ZONE01", spot, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600));
-        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z2", "ZONE01", null, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600)));
+        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z2", "z2", "ZONE01", null, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600)));
 
         assertThat(violations.findActiveByPlateAndZone("ZONE01", "z1")).extracting(Violation::getId).containsExactly(mine.getId());
     }
@@ -300,8 +300,8 @@ class ViolationRepositoryTest {
     @Test
     void plateListInZonesNeverContainsViolationsOfOtherZones() {
         Violation mine = open("SCOPE1", spot, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600));
-        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z2", "SCOPE1", null, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600)));
-        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z3", "SCOPE1", null, ViolationType.OVERSTAY, NOW, NOW.plusSeconds(600)));
+        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z2", "z2", "SCOPE1", null, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600)));
+        violations.saveAndFlush(Violation.open(UUID.randomUUID(), "z3", "z3", "SCOPE1", null, ViolationType.OVERSTAY, NOW, NOW.plusSeconds(600)));
         Sort newestFirst = Sort.by(Sort.Direction.DESC, "detectedAt");
 
         assertThat(violations.findByPlateAndZoneIdIn("SCOPE1", List.of("z1"), PageRequest.of(0, 10, newestFirst)).getContent())

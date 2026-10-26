@@ -230,10 +230,10 @@ class JpaDirectoriesTest {
         jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T09:00:00Z')");
         jdbc.update("insert into sessions (plate, zone_id, started_at, ended_at) values ('DEF456', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T10:00:00Z')");
 
-        assertThat(sessions.startOfActiveSession("ABC123", "z1")).contains(Instant.parse("2026-10-12T09:00:00Z"));
-        assertThat(sessions.startOfActiveSession("ABC123", "z2")).isEmpty();
-        assertThat(sessions.startOfActiveSession("DEF456", "z1")).isEmpty();
-        assertThat(sessions.startOfActiveSession("NOPE11", "z1")).isEmpty();
+        assertThat(sessions.startOfActiveSession("ABC123", "z1", "z1")).contains(Instant.parse("2026-10-12T09:00:00Z"));
+        assertThat(sessions.startOfActiveSession("ABC123", "z2", "z2")).isEmpty();
+        assertThat(sessions.startOfActiveSession("DEF456", "z1", "z1")).isEmpty();
+        assertThat(sessions.startOfActiveSession("NOPE11", "z1", "z1")).isEmpty();
     }
 
     @Test
@@ -242,9 +242,9 @@ class JpaDirectoriesTest {
         jdbc.update("insert into sessions (plate, zone_id, started_at, voided_at) values ('BOTH11', 'z1', '2026-10-12T10:00:00Z', '2026-10-12T10:30:00Z')");
         jdbc.update("insert into sessions (plate, zone_id, started_at) values ('BOTH11', 'z1', '2026-10-12T08:00:00Z')");
 
-        assertThat(sessions.startOfActiveSession("VOID11", "z1")).isEmpty();
+        assertThat(sessions.startOfActiveSession("VOID11", "z1", "z1")).isEmpty();
         // the newer session is voided, so the older active one counts
-        assertThat(sessions.startOfActiveSession("BOTH11", "z1")).contains(Instant.parse("2026-10-12T08:00:00Z"));
+        assertThat(sessions.startOfActiveSession("BOTH11", "z1", "z1")).contains(Instant.parse("2026-10-12T08:00:00Z"));
     }
 
     @Test
@@ -252,13 +252,13 @@ class JpaDirectoriesTest {
         jdbc.update("insert into sessions (plate, zone_id, started_at) values ('OLD111', 'z1', '2026-10-12T09:00:00Z')");
         jdbc.execute("alter table sessions drop column voided_at");
         try {
-            assertThat(sessions.startOfActiveSession("OLD111", "z1")).contains(Instant.parse("2026-10-12T09:00:00Z"));
+            assertThat(sessions.startOfActiveSession("OLD111", "z1", "z1")).contains(Instant.parse("2026-10-12T09:00:00Z"));
         } finally {
             jdbc.execute("alter table sessions add column voided_at timestamptz");
         }
         // the column came back (session-service migrated): a fresh probe sees it and filters
         jdbc.update("update sessions set voided_at = now() where plate = 'OLD111'");
         assertThat(new JpaActiveSessionDirectory(sessionViews, new SessionVoidSchema(jdbc, java.time.Clock.systemUTC()))
-                .startOfActiveSession("OLD111", "z1")).isEmpty();
+                .startOfActiveSession("OLD111", "z1", "z1")).isEmpty();
     }
 }

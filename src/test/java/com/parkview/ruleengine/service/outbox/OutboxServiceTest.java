@@ -52,7 +52,7 @@ class OutboxServiceTest {
 
     @Test
     void theRowCarriesAggregateRoutingTimeAndTheSerialisedPayload() {
-        FineVoidedEvent payload = new FineVoidedEvent(UUID.randomUUID(), "ABC123", "z1", NOW);
+        FineVoidedEvent payload = new FineVoidedEvent(UUID.randomUUID(), "ABC123", "z1", "z1", NOW);
 
         OutboxEvent row = enqueue(payload);
 
@@ -72,7 +72,7 @@ class OutboxServiceTest {
 
     @Test
     void thePayloadIsByteIdenticalToWhatTheAmqpJsonConverterProducedBefore() {
-        FineIssuedEvent payload = new FineIssuedEvent(UUID.randomUUID(), UUID.randomUUID(), "ABC123", null, "z1", "Storgatan 1",
+        FineIssuedEvent payload = new FineIssuedEvent(UUID.randomUUID(), UUID.randomUUID(), "ABC123", null, "z1", "Storgatan 1", "z1", "Storgatan 1",
                 new BigDecimal("700.00"), NOW.toEpochMilli(), ViolationType.WRONG_PERMIT);
         Message before = new Jackson2JsonMessageConverter(mapper).toMessage(payload, new MessageProperties());
 
@@ -86,11 +86,11 @@ class OutboxServiceTest {
     void theRequestIdOfTheCallerIsKept() {
         MDC.put(CorrelationIdFilter.MDC_KEY, "req-7");
 
-        assertThat(enqueue(new FineVoidedEvent(UUID.randomUUID(), "ABC123", "z1", NOW)).getRequestId()).isEqualTo("req-7");
+        assertThat(enqueue(new FineVoidedEvent(UUID.randomUUID(), "ABC123", "z1", "z1", NOW)).getRequestId()).isEqualTo("req-7");
     }
 
     @Test
     void noRequestMeansNoRequestId() {
-        assertThat(enqueue(new FineVoidedEvent(UUID.randomUUID(), "ABC123", "z1", NOW)).getRequestId()).isNull();
+        assertThat(enqueue(new FineVoidedEvent(UUID.randomUUID(), "ABC123", "z1", "z1", NOW)).getRequestId()).isNull();
     }
 }

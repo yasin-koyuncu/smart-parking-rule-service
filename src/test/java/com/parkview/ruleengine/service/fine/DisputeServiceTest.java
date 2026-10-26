@@ -98,7 +98,7 @@ class DisputeServiceTest extends FineServiceTestBase {
         assertThat(entry.getDetails()).isEqualTo(Map.of("disputeId", dispute.getId().toString(), "channel", "driver"));
 
         FineDisputedEvent event = (FineDisputedEvent) publishedPayload("fine.disputed");
-        assertThat(event).isEqualTo(new FineDisputedEvent(dispute.getId(), fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, "driver", NOW));
+        assertThat(event).isEqualTo(new FineDisputedEvent(dispute.getId(), fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, TestFixtures.ZONE, "driver", NOW));
     }
 
     @Test
@@ -290,7 +290,7 @@ class DisputeServiceTest extends FineServiceTestBase {
         assertThat(saved.getAllValues()).extracting(FineAction::getReason).containsExactly(NOTE, NOTE);
         assertThat(saved.getAllValues()).extracting(FineAction::getActorId).containsExactly(ACTOR, ACTOR);
 
-        assertThat(publishedPayload("fine.voided")).isEqualTo(new FineVoidedEvent(fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, NOW));
+        assertThat(publishedPayload("fine.voided")).isEqualTo(new FineVoidedEvent(fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, TestFixtures.ZONE, NOW));
         FineDisputeDecidedEvent decided = (FineDisputeDecidedEvent) publishedPayload("fine.dispute.decided");
         assertThat(decided.outcome()).isEqualTo("voided");
         assertThat(decided.decisionNote()).isEqualTo(NOTE);                       // the driver reads the motivation in the notification

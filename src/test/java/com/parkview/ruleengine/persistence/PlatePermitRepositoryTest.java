@@ -61,11 +61,11 @@ class PlatePermitRepositoryTest {
     }
 
     private PlatePermit grant(String plate, String type, String zone, Instant from, Instant to) {
-        return repository.saveAndFlush(PlatePermit.grant(plate, type, zone, from, to, "operator-1"));
+        return repository.saveAndFlush(PlatePermit.grant(plate, type, zone, zone, from, to, "operator-1"));
     }
 
     private boolean holds(String plate, String type, String zone, Instant at) {
-        return repository.countHeldTypes(plate, List.of(type.toLowerCase(Locale.ROOT)), zone, at) == 1;
+        return repository.countHeldTypes(plate, List.of(type.toLowerCase(Locale.ROOT)), zone, zone, at) == 1;
     }
 
     @Test
@@ -129,12 +129,12 @@ class PlatePermitRepositoryTest {
         service.grant(new CreatePermitRequest("XYZ789", "resident", "z1", null, null), "op");
         PageRequest page = PageRequest.of(0, 50);
 
-        assertThat(service.search(null, null, null, page).getTotalElements()).isEqualTo(4);
-        assertThat(service.search("abc-123", null, null, page).getTotalElements()).isEqualTo(3);
-        assertThat(service.search(null, "z1", null, page).getTotalElements()).isEqualTo(2);
-        assertThat(service.search(null, null, List.of("z1"), page).getContent())
+        assertThat(service.search(null, null, null, null, page).getTotalElements()).isEqualTo(4);
+        assertThat(service.search("abc-123", null, null, null, page).getTotalElements()).isEqualTo(3);
+        assertThat(service.search(null, null, "z1", null, page).getTotalElements()).isEqualTo(2);
+        assertThat(service.search(null, null, null, List.of("z1"), page).getContent())
                 .extracting(PlatePermit::getZoneId).containsExactlyInAnyOrder("z1", "z1", null);
-        assertThat(service.search(null, null, List.of(), page).getContent())
+        assertThat(service.search(null, null, null, List.of(), page).getContent())
                 .extracting(PlatePermit::getZoneId).containsOnlyNulls();
     }
 
@@ -142,8 +142,8 @@ class PlatePermitRepositoryTest {
     void permitServiceDecidesAtTheGivenInstant() {
         service.grant(new CreatePermitRequest("ABC123", "resident", "z1", NOW.plusSeconds(3600), null), "op");
 
-        assertThat(service.holdsAll("ABC123", "z1", List.of("resident"), NOW)).isFalse();
-        assertThat(service.holdsAll("ABC123", "z1", List.of("resident"), NOW.plusSeconds(3600))).isTrue();
+        assertThat(service.holdsAll("ABC123", "z1", "z1", List.of("resident"), NOW)).isFalse();
+        assertThat(service.holdsAll("ABC123", "z1", "z1", List.of("resident"), NOW.plusSeconds(3600))).isTrue();
     }
 
     @Test
@@ -152,10 +152,10 @@ class PlatePermitRepositoryTest {
         grant("ABC123", "resident", null, NOW.minusSeconds(60), null);
         grant("ABC123", "disabled", "z2", NOW.minusSeconds(60), null);
 
-        assertThat(repository.countHeldTypes("ABC123", List.of("resident", "disabled"), "z1", NOW)).isEqualTo(1);
-        assertThat(repository.countHeldTypes("ABC123", List.of("resident", "disabled"), "z2", NOW)).isEqualTo(2);
-        assertThat(service.holdsAll("ABC123", "z1", List.of("Resident", "disabled"), NOW)).isFalse();
-        assertThat(service.holdsAll("ABC123", "z2", List.of("Resident", "DISABLED"), NOW)).isTrue();
-        assertThat(service.holdsAll("ABC123", "z2", List.of("resident", "RESIDENT"), NOW)).isTrue();
+        assertThat(repository.countHeldTypes("ABC123", List.of("resident", "disabled"), "z1", "z1", NOW)).isEqualTo(1);
+        assertThat(repository.countHeldTypes("ABC123", List.of("resident", "disabled"), "z2", "z2", NOW)).isEqualTo(2);
+        assertThat(service.holdsAll("ABC123", "z1", "z1", List.of("Resident", "disabled"), NOW)).isFalse();
+        assertThat(service.holdsAll("ABC123", "z2", "z2", List.of("Resident", "DISABLED"), NOW)).isTrue();
+        assertThat(service.holdsAll("ABC123", "z2", "z2", List.of("resident", "RESIDENT"), NOW)).isTrue();
     }
 }

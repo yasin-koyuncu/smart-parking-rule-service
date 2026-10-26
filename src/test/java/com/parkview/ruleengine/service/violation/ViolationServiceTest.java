@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.service.violation;
 
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.domain.Violation;
@@ -57,13 +58,14 @@ class ViolationServiceTest {
     private final SpotCacheService spotCache = mock(SpotCacheService.class);
     private final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
+    private final SiteDirectory sites = mock(SiteDirectory.class);
     private final OutboxService events = mock(OutboxService.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private ViolationService service;
 
     @BeforeEach
     void setUp() {
-        service = new ViolationService(violations, fines, owners, zones, events, TestFixtures.properties(),
+        service = new ViolationService(violations, fines, owners, zones, sites, events, TestFixtures.properties(),
                 new EngineMetrics(registry), spotCache, Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
         when(owners.ownerOf(anyString())).thenReturn(Optional.empty());
         when(zones.addressOf(anyString())).thenReturn(Optional.empty());
@@ -232,10 +234,10 @@ class ViolationServiceTest {
         Violation keep = violationAt(keepSpot, ViolationType.WRONG_PERMIT);
         Violation otherType = violationAt(keepSpot, ViolationType.BOUNDARY_EXCEEDED);
         Violation otherSpot = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(keep, otherType, otherSpot));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(keep, otherType, otherSpot));
         when(violations.resolveIfActive(any(), any(), any())).thenReturn(1);
 
-        service.resolveOthers(PLATE, ZONE, keepSpot, ViolationType.WRONG_PERMIT, ResolutionReason.CORRECTED);
+        service.resolveOthers(PLATE, ZONE, ZONE, keepSpot, ViolationType.WRONG_PERMIT, ResolutionReason.CORRECTED);
 
         verify(violations, never()).resolveIfActive(eq(keep.getId()), any(), any());
         verify(violations).resolveIfActive(otherType.getId(), ResolutionReason.CORRECTED, NOW);
@@ -255,10 +257,10 @@ class ViolationServiceTest {
         UUID spotId = UUID.randomUUID();
         Violation boundary = violationAt(spotId, ViolationType.BOUNDARY_EXCEEDED);
         Violation overstay = violationAt(spotId, ViolationType.OVERSTAY);
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(boundary, overstay));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(boundary, overstay));
         when(violations.resolveIfActive(any(), any(), any())).thenReturn(1);
 
-        service.resolveOthers(PLATE, ZONE, spotId, ViolationType.OVERSTAY, ResolutionReason.CORRECTED);
+        service.resolveOthers(PLATE, ZONE, ZONE, spotId, ViolationType.OVERSTAY, ResolutionReason.CORRECTED);
 
         verify(violations).resolveIfActive(boundary.getId(), ResolutionReason.CORRECTED, NOW);
         verify(violations, never()).resolveIfActive(eq(overstay.getId()), any(), any());
@@ -267,10 +269,10 @@ class ViolationServiceTest {
     @Test
     void resolveOthersWithoutKeepResolvesAll() {
         Violation a = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(a));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(a));
         when(violations.resolveIfActive(any(), any(), any())).thenReturn(1);
 
-        service.resolveOthers(PLATE, ZONE, null, null, ResolutionReason.LEFT);
+        service.resolveOthers(PLATE, ZONE, ZONE, null, null, ResolutionReason.LEFT);
 
         verify(violations).resolveIfActive(a.getId(), ResolutionReason.LEFT, NOW);
     }
@@ -278,10 +280,10 @@ class ViolationServiceTest {
     @Test
     void noEventWhenSomeoneElseResolvedItFirst() {
         Violation a = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(a));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(a));
         when(violations.resolveIfActive(any(), any(), any())).thenReturn(0);
 
-        service.resolveOthers(PLATE, ZONE, null, null, ResolutionReason.LEFT);
+        service.resolveOthers(PLATE, ZONE, ZONE, null, null, ResolutionReason.LEFT);
 
         verifyNoInteractions(events);
     }
@@ -413,10 +415,10 @@ class ViolationServiceTest {
     void aSessionEndResolvesTheOpenViolationsOfThePlateInTheZoneAsLeft() {
         Violation open = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
         ReflectionTestUtils.setField(open, "lastSeenAt", NOW.minusSeconds(240));
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(open));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(open));
         when(violations.resolveIfActive(open.getId(), ResolutionReason.LEFT, NOW)).thenReturn(1);
 
-        assertThat(service.resolveEnded(PLATE, ZONE, NOW.minusSeconds(60))).isEqualTo(1);
+        assertThat(service.resolveEnded(PLATE, ZONE, ZONE, NOW.minusSeconds(60))).isEqualTo(1);
 
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
         verify(events).enqueue(eq(OutboxService.AGGREGATE_VIOLATION), eq(open.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE),
@@ -427,14 +429,14 @@ class ViolationServiceTest {
     @Test
     void aRedeliveredSessionEndResolvesNothingAndPublishesNothing() {
         // the first delivery resolved it: the repository no longer lists it as active, and a race loses the atomic update
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of());
-        assertThat(service.resolveEnded(PLATE, ZONE, NOW)).isZero();
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of());
+        assertThat(service.resolveEnded(PLATE, ZONE, ZONE, NOW)).isZero();
 
         Violation raced = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
         ReflectionTestUtils.setField(raced, "lastSeenAt", NOW.minusSeconds(240));
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(raced));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(raced));
         when(violations.resolveIfActive(any(), any(), any())).thenReturn(0);
-        assertThat(service.resolveEnded(PLATE, ZONE, NOW)).isZero();
+        assertThat(service.resolveEnded(PLATE, ZONE, ZONE, NOW)).isZero();
 
         verifyNoInteractions(events);
     }
@@ -443,9 +445,9 @@ class ViolationServiceTest {
     void aViolationConfirmedAfterTheSessionEndedMeansTheVehicleIsStillThereAndStaysOpen() {
         Violation stillThere = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
         ReflectionTestUtils.setField(stillThere, "lastSeenAt", NOW.minusSeconds(10));
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(stillThere));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(stillThere));
 
-        assertThat(service.resolveEnded(PLATE, ZONE, NOW.minusSeconds(120))).isZero();
+        assertThat(service.resolveEnded(PLATE, ZONE, ZONE, NOW.minusSeconds(120))).isZero();
 
         verify(violations, never()).resolveIfActive(any(), any(), any());
     }
@@ -453,10 +455,10 @@ class ViolationServiceTest {
     @Test
     void aSessionEndWithoutATimeResolvesEveryOpenViolation() {
         Violation open = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
-        when(violations.findActiveByPlateAndZone(PLATE, ZONE)).thenReturn(List.of(open));
+        when(violations.findActiveByPlateAndSiteAndZone(PLATE, ZONE, ZONE)).thenReturn(List.of(open));
         when(violations.resolveIfActive(any(), any(), any())).thenReturn(1);
 
-        assertThat(service.resolveEnded(PLATE, ZONE, null)).isEqualTo(1);
+        assertThat(service.resolveEnded(PLATE, ZONE, ZONE, null)).isEqualTo(1);
     }
 
     @Test

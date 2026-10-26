@@ -69,7 +69,7 @@ class DisputeRepositoryTest {
     private Fine fine(String zone) {
         UUID id = UUID.randomUUID();
         jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek) values (?, 'ABC123', ?, 'overstay', 450)", id, zone);
-        Violation v = Violation.open(UUID.randomUUID(), zone, "ABC123", null, ViolationType.OVERSTAY, T, T);
+        Violation v = Violation.open(UUID.randomUUID(), zone, zone, "ABC123", null, ViolationType.OVERSTAY, T, T);
         Fine fine = Fine.issue(v, new BigDecimal("450"), null, T);
         ReflectionTestUtils.setField(fine, "id", id);
         return fine;

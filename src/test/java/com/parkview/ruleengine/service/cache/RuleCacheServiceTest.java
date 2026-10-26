@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.cache;
 
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.client.ZoneRuleDirectory;
 import com.parkview.ruleengine.domain.value.ZoneInfo;
@@ -32,6 +33,7 @@ class RuleCacheServiceTest {
 
     private final ZoneRuleDirectory ruleDirectory = mock(ZoneRuleDirectory.class);
     private final ZoneDirectory zoneDirectory = mock(ZoneDirectory.class);
+    private final SiteDirectory siteDirectory = mock(SiteDirectory.class);
     private final AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-10-12T08:00:00Z"));
     private RuleCacheService cache;
 
@@ -53,7 +55,7 @@ class RuleCacheServiceTest {
                 return now.get();
             }
         };
-        cache = new RuleCacheService(ruleDirectory, zoneDirectory, TestFixtures.properties(), clock);
+        cache = new RuleCacheService(ruleDirectory, zoneDirectory, siteDirectory, TestFixtures.properties(), clock);
     }
 
     @Test
@@ -64,13 +66,13 @@ class RuleCacheServiceTest {
                 LocalTime.of(23, 59), true, 60, false);
         when(ruleDirectory.enabledRulesOf(ZONE)).thenReturn(List.of(before)).thenReturn(List.of(after));
 
-        assertThat(cache.rulesOf(ZONE)).containsExactly(before);
+        assertThat(cache.rulesOf(ZONE, ZONE)).containsExactly(before);
         now.set(now.get().plus(Duration.ofSeconds(59)));
-        assertThat(cache.rulesOf(ZONE)).containsExactly(before);
+        assertThat(cache.rulesOf(ZONE, ZONE)).containsExactly(before);
         verify(ruleDirectory, times(1)).enabledRulesOf(ZONE);
 
         now.set(now.get().plus(Duration.ofSeconds(2)));
-        assertThat(cache.rulesOf(ZONE)).containsExactly(after);
+        assertThat(cache.rulesOf(ZONE, ZONE)).containsExactly(after);
         verify(ruleDirectory, times(2)).enabledRulesOf(ZONE);
     }
 
@@ -93,8 +95,8 @@ class RuleCacheServiceTest {
     void aZoneWithoutRulesIsCachedToo() {
         when(ruleDirectory.enabledRulesOf(ZONE)).thenReturn(List.of());
 
-        assertThat(cache.rulesOf(ZONE)).isEmpty();
-        assertThat(cache.rulesOf(ZONE)).isEmpty();
+        assertThat(cache.rulesOf(ZONE, ZONE)).isEmpty();
+        assertThat(cache.rulesOf(ZONE, ZONE)).isEmpty();
 
         verify(ruleDirectory, times(1)).enabledRulesOf(ZONE);
     }

@@ -6,6 +6,7 @@ import com.parkview.ruleengine.domain.type.FineActionType;
 import com.parkview.ruleengine.domain.type.PaidMethod;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
@@ -62,6 +63,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class FineManagementControllerTest {
 
+    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    @MockitoBean
+    ZoneDirectory zoneDirectory;
+
     private static final Instant T = Instant.parse("2026-10-09T10:00:00Z");
     private static final UUID OWNER = UUID.fromString("7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11");
     private static final UUID FINE_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
@@ -82,7 +87,7 @@ class FineManagementControllerTest {
 
     @BeforeEach
     void setUp() {
-        Violation violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
+        Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
         fine = Fine.issue(violation, new BigDecimal("700"), OWNER, T);
         ReflectionTestUtils.setField(fine, "id", FINE_ID);
         when(fineQuery.get(FINE_ID)).thenReturn(fine);

@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.service.fine;
 
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.domain.Fine;
@@ -38,10 +39,11 @@ abstract class FineServiceTestBase {
     protected final FineActionRepository actions = mock(FineActionRepository.class);
     protected final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     protected final ZoneDirectory zones = mock(ZoneDirectory.class);
+    protected final SiteDirectory sites = mock(SiteDirectory.class);
     protected final DisputeRepository disputes = mock(DisputeRepository.class);
     protected final FineEvidenceService evidence = mock(FineEvidenceService.class);
     protected final OutboxService events = mock(OutboxService.class);
-    protected final FineEvents fineEvents = new FineEvents(events, zones, owners);
+    protected final FineEvents fineEvents = new FineEvents(events, zones, sites, owners);
     protected final DisputeCloser closer = new DisputeCloser(disputes, actions, fineEvents);
     protected final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     protected final FineIssuingService issuing =

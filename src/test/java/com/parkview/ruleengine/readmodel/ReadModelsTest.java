@@ -167,13 +167,13 @@ class ReadModelsTest {
         jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z2', '2026-10-12T09:30:00Z')");
         jdbc.update("insert into sessions (plate, zone_id, started_at) values ('XYZ789', 'z1', '2026-10-12T09:45:00Z')");
 
-        SessionView active = sessions.findFirstByPlateAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z1").orElseThrow();
+        SessionView active = sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z1", "z1").orElseThrow();
 
         assertThat(active.getPlate()).isEqualTo("ABC123");
         assertThat(active.getZoneId()).isEqualTo("z1");
         assertThat(active.getStartedAt()).isEqualTo(Instant.parse("2026-10-12T09:00:00Z"));
         assertThat(active.getEndedAt()).isNull();
-        assertThat(sessions.findFirstByPlateAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z3")).isEmpty();
+        assertThat(sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z3", "z3")).isEmpty();
     }
 
     @Test
@@ -182,7 +182,7 @@ class ReadModelsTest {
         insertSpot("z1", "point", "[59.3, 18.0]");
         insertSpot("z2", "polygon", "[[1, 1], [1, 2], [2, 2]]");
 
-        List<ParkingSpotView> found = spots.findPolygonSpotsByZoneId("z1");
+        List<ParkingSpotView> found = spots.findPolygonSpotsBySiteId("z1");
 
         assertThat(found).hasSize(1);
         ParkingSpotView view = found.get(0);
@@ -233,7 +233,7 @@ class ReadModelsTest {
         List<ParkingSpotView> found = spots.findPolygonSpotsOutsideViews("z1");
 
         assertThat(found).extracting(ParkingSpotView::getId).containsExactly(legacy);
-        assertThat(spots.findPolygonSpotsByZoneId("z1")).hasSize(2);
+        assertThat(spots.findPolygonSpotsBySiteId("z1")).hasSize(2);
     }
 
     @Test
@@ -282,7 +282,7 @@ class ReadModelsTest {
         jdbc.update("insert into zones (id, address) values ('z1', 'Storgatan 1')");
         entityManager.clear();
 
-        ParkingSpotView spot = spots.findPolygonSpotsByZoneId("z1").get(0);
+        ParkingSpotView spot = spots.findPolygonSpotsBySiteId("z1").get(0);
         ReflectionTestUtils.setField(spot, "type", "no_parking");
         ReflectionTestUtils.setField(spot, "boundaryGraceMin", 99);
         ZoneView zone = zones.findById("z1").orElseThrow();
@@ -298,7 +298,7 @@ class ReadModelsTest {
     void mergingAModifiedDetachedViewWritesNothing() {
         UUID id = insertSpot("z1", "polygon", "[[0, 0], [0, 10], [10, 10]]");
         entityManager.clear();
-        ParkingSpotView spot = spots.findPolygonSpotsByZoneId("z1").get(0);
+        ParkingSpotView spot = spots.findPolygonSpotsBySiteId("z1").get(0);
         entityManager.detach(spot);
 
         ReflectionTestUtils.setField(spot, "permitType", "visitor");

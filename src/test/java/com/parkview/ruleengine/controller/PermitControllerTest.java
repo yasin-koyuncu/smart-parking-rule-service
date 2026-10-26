@@ -2,6 +2,7 @@ package com.parkview.ruleengine.controller;
 
 import com.parkview.ruleengine.domain.PlatePermit;
 import com.parkview.ruleengine.dto.request.CreatePermitRequest;
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
@@ -50,6 +51,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class PermitControllerTest {
 
+    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    @MockitoBean
+    ZoneDirectory zoneDirectory;
+
     private static final Instant T = Instant.parse("2026-10-09T10:00:00Z");
     private static final String BODY = "{\"plate\":\"abc 123\",\"permitType\":\"resident\",\"zoneId\":\"z1\"}";
     private static final String GLOBAL_BODY = "{\"plate\":\"abc 123\",\"permitType\":\"resident\"}";
@@ -67,6 +72,11 @@ class PermitControllerTest {
     void setUp() {
         zonePermit = permit("z1");
         globalPermit = permit(null);
+        // a zone of its own site, as every zone from before sites; no zone and no site: every site
+        when(permitService.siteOf(any(CreatePermitRequest.class))).thenAnswer(inv -> {
+            CreatePermitRequest r = inv.getArgument(0);
+            return r.zoneId() != null ? r.zoneId() : r.siteId();
+        });
         when(permitService.grant(any(CreatePermitRequest.class), anyString())).thenAnswer(inv -> {
             CreatePermitRequest r = inv.getArgument(0);
             return permit(r.zoneId());
@@ -74,7 +84,7 @@ class PermitControllerTest {
     }
 
     private static PlatePermit permit(String zoneId) {
-        PlatePermit p = PlatePermit.grant("ABC123", "resident", zoneId, T, null, "user-1");
+        PlatePermit p = PlatePermit.grant("ABC123", "resident", zoneId, zoneId, T, null, "user-1");
         ReflectionTestUtils.setField(p, "id", UUID.randomUUID());
         return p;
     }
@@ -172,24 +182,24 @@ class PermitControllerTest {
 
     @Test
     void operatorListIsRestrictedToOwnZonesAndGlobalPermits() throws Exception {
-        when(permitService.search(isNull(), isNull(), any(), any())).thenReturn(new PageImpl<>(List.of(zonePermit, globalPermit)));
+        when(permitService.search(isNull(), isNull(), isNull(), any(), any())).thenReturn(new PageImpl<>(List.of(zonePermit, globalPermit)));
 
         mvc.perform(get("/api/v1/permits").with(user("operator", List.of(), List.of("z1"))))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Total-Count", "2"))
                 .andExpect(jsonPath("$.length()").value(2));
 
-        verify(permitService).search(isNull(), isNull(), eq(List.of("z1")), any());
+        verify(permitService).search(isNull(), isNull(), isNull(), eq(List.of("z1")), any());
     }
 
     @Test
     void adminListIsUnrestricted() throws Exception {
-        when(permitService.search(eq("ABC123"), isNull(), isNull(), any())).thenReturn(new PageImpl<>(List.of(zonePermit)));
+        when(permitService.search(eq("ABC123"), isNull(), isNull(), isNull(), any())).thenReturn(new PageImpl<>(List.of(zonePermit)));
 
         mvc.perform(get("/api/v1/permits?plate=ABC123").with(user("admin", List.of(), List.of())))
                 .andExpect(status().isOk());
 
-        verify(permitService).search(eq("ABC123"), isNull(), isNull(), any());
+        verify(permitService).search(eq("ABC123"), isNull(), isNull(), isNull(), any());
     }
 
     @Test

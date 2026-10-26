@@ -5,6 +5,7 @@ import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineEvidence;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
@@ -49,6 +50,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class FineEvidenceControllerTest {
 
+    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    @MockitoBean
+    ZoneDirectory zoneDirectory;
+
     private static final Instant DETECTED = Instant.parse("2026-10-09T09:45:00Z");
     private static final Instant ISSUED = Instant.parse("2026-10-09T10:00:00Z");
     private static final UUID FINE_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
@@ -67,16 +72,16 @@ class FineEvidenceControllerTest {
 
     @BeforeEach
     void setUp() {
-        Violation violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", null, ViolationType.OVERSTAY, DETECTED,
+        Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.OVERSTAY, DETECTED,
                 DETECTED.plus(Duration.ofMinutes(5)), "The stay limit is 60 minutes (the limit of the zone) and the parking session had lasted longer.");
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
         fine = Fine.issue(violation, new BigDecimal("450"), null, ISSUED);
         ReflectionTestUtils.setField(fine, "id", FINE_ID);
-        frozen = FineEvidence.of(fine, violation, "Storgatan 1", "A1", violation.getRuleSummary(), List.of(DETECTION_ID.toString()),
+        frozen = FineEvidence.of(fine, violation, "Storgatan 1", "Storgatan 1", "A1", violation.getRuleSummary(), List.of(DETECTION_ID.toString()),
                 List.of("snapshots/cam-1/a.jpg"), new BigDecimal("0.8700"));
         when(fineQuery.get(FINE_ID)).thenReturn(fine);
         when(evidence.find(FINE_ID)).thenReturn(Optional.of(frozen));
-        when(evidence.explain(any(Fine.class))).thenReturn(new FineExplanation(fine, frozen, "Storgatan 1", DisputeStatus.OPEN));
+        when(evidence.explain(any(Fine.class))).thenReturn(new FineExplanation(fine, frozen, "Storgatan 1", "Storgatan 1", DisputeStatus.OPEN));
     }
 
     private static RequestPostProcessor driver(String... plates) {
@@ -122,13 +127,13 @@ class FineEvidenceControllerTest {
 
     @Test
     void evidence_anAdminMayReadAnyZoneAndMinConfidenceIsExplicitNullWhenNoneWasRecorded() throws Exception {
-        Violation v = Violation.open(frozen.getSpotId(), "z9", "ABC123", null, ViolationType.NO_PARKING, DETECTED, DETECTED);
+        Violation v = Violation.open(frozen.getSpotId(), "z9", "z9", "ABC123", null, ViolationType.NO_PARKING, DETECTED, DETECTED);
         ReflectionTestUtils.setField(v, "id", UUID.randomUUID());
         Fine other = Fine.issue(v, new BigDecimal("900"), null, ISSUED);
         UUID otherId = UUID.randomUUID();
         ReflectionTestUtils.setField(other, "id", otherId);
         when(fineQuery.get(otherId)).thenReturn(other);
-        when(evidence.find(otherId)).thenReturn(Optional.of(FineEvidence.of(other, v, null, null, "x", List.of(), List.of(), null)));
+        when(evidence.find(otherId)).thenReturn(Optional.of(FineEvidence.of(other, v, null, null, null, "x", List.of(), List.of(), null)));
 
         mvc.perform(get("/api/v1/fines/{id}/evidence", otherId).with(actor("admin", null, List.of())))
                 .andExpect(status().isOk())
@@ -207,7 +212,7 @@ class FineEvidenceControllerTest {
 
     @Test
     void explanation_anOldFineWithoutEvidenceHasNullsWhereNothingWasRecorded() throws Exception {
-        when(evidence.explain(any(Fine.class))).thenReturn(new FineExplanation(fine, null, "Storgatan 1", null));
+        when(evidence.explain(any(Fine.class))).thenReturn(new FineExplanation(fine, null, "Storgatan 1", "Storgatan 1", null));
 
         mvc.perform(get("/api/v1/fines/{id}/explanation", FINE_ID).with(driver("ABC123")))
                 .andExpect(status().isOk())

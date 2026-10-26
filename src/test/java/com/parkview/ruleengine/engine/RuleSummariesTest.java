@@ -51,19 +51,19 @@ class RuleSummariesTest {
                 BigDecimal.valueOf(900), BigDecimal.valueOf(450), BigDecimal.valueOf(700), BigDecimal.valueOf(900),
                 BigDecimal.valueOf(700), 60000, 20, 15, 120, 60000, 10, 5, 15, 600, 6, 60, true);
         evaluator = new ViolationEvaluator(ruleCache, new RuleResolver(holidays, metrics), permits, sessions, vehicles, properties, metrics);
-        when(ruleCache.rulesOf(ZONE_ID)).thenReturn(List.of());
+        when(ruleCache.rulesOf(ZONE_ID, ZONE_ID)).thenReturn(List.of());
         when(vehicles.lookup(anyString(), anyString())).thenReturn(Optional.empty());
-        when(sessions.startOfActiveSession(anyString(), anyString())).thenReturn(Optional.empty());
-        when(permits.holdsAll(anyString(), anyString(), any(), any())).thenReturn(true);
+        when(sessions.startOfActiveSession(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(permits.holdsAll(anyString(), anyString(), anyString(), any(), any())).thenReturn(true);
     }
 
     private static ParkingSpot spot(String type, String permitType, int maxMinutes) {
         Polygon square = new Polygon(List.of(new Point(0, 0), new Point(10, 0), new Point(10, 10), new Point(0, 10)));
-        return new ParkingSpot(UUID.randomUUID(), ZONE_ID, "A1", type, permitType, square, 0, 0, maxMinutes);
+        return new ParkingSpot(UUID.randomUUID(), ZONE_ID, ZONE_ID, "A1", type, permitType, square, 0, 0, maxMinutes);
     }
 
     private Finding assess(ParkingSpot spot, boolean insideLines, int zoneMax, ZoneRule... rules) {
-        when(ruleCache.rulesOf(ZONE_ID)).thenReturn(List.of(rules));
+        when(ruleCache.rulesOf(ZONE_ID, ZONE_ID)).thenReturn(List.of(rules));
         ZoneInfo zone = new ZoneInfo("Storgatan 1", zoneMax, "SE", ZoneInfo.DEFAULT_TIMEZONE);
         return evaluator.assess(new Observation(zone, spot, insideLines, PLATE, VehicleClass.CAR, NOW)).orElseThrow();
     }
@@ -115,7 +115,7 @@ class RuleSummariesTest {
 
     @Test
     void aMissingPermitNamesWhatTheSpotAndTheRuleDemand() {
-        when(permits.holdsAll(anyString(), anyString(), any(), any())).thenReturn(false);
+        when(permits.holdsAll(anyString(), anyString(), anyString(), any(), any())).thenReturn(false);
 
         Finding spotOnly = assess(spot("permit", "Resident", 0), true, 0);
         Finding both = assess(spot("permit", "resident", 0), true, 0, Rules.rule().permit("disabled").build());
@@ -128,7 +128,7 @@ class RuleSummariesTest {
 
     @Test
     void anOverstayNamesTheLimitAndWhereItCameFrom() {
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(3 * 3600)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(3 * 3600)));
 
         Finding byRule = assess(spot("paid", null, 0), true, 240, Rules.rule().maxMinutes(60).build());
         Finding bySpot = assess(spot("timed", null, 90), true, 240);

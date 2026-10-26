@@ -62,10 +62,10 @@ class ViolationEvaluatorTest {
     @BeforeEach
     void setUp() {
         build(properties);
-        when(ruleCache.rulesOf(ZONE_ID)).thenReturn(List.of());
+        when(ruleCache.rulesOf(ZONE_ID, ZONE_ID)).thenReturn(List.of());
         when(vehicles.lookup(anyString(), anyString())).thenReturn(Optional.empty());
-        when(sessions.startOfActiveSession(anyString(), anyString())).thenReturn(Optional.empty());
-        when(permits.holdsAll(anyString(), anyString(), any(), any())).thenReturn(true);
+        when(sessions.startOfActiveSession(anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(permits.holdsAll(anyString(), anyString(), anyString(), any(), any())).thenReturn(true);
     }
 
     private void build(RuleEngineProperties props) {
@@ -77,7 +77,7 @@ class ViolationEvaluatorTest {
 
     private static ParkingSpot spot(String type, String permitType, int maxMinutes) {
         Polygon square = new Polygon(List.of(new Point(0, 0), new Point(10, 0), new Point(10, 10), new Point(0, 10)));
-        return new ParkingSpot(UUID.randomUUID(), ZONE_ID, "A1", type, permitType, square, 0, 0, maxMinutes);
+        return new ParkingSpot(UUID.randomUUID(), ZONE_ID, ZONE_ID, "A1", type, permitType, square, 0, 0, maxMinutes);
     }
 
     private static ParkingSpot spot(String type) {
@@ -97,7 +97,7 @@ class ViolationEvaluatorTest {
     }
 
     private void withRules(ZoneRule... rules) {
-        when(ruleCache.rulesOf(ZONE_ID)).thenReturn(List.of(rules));
+        when(ruleCache.rulesOf(ZONE_ID, ZONE_ID)).thenReturn(List.of(rules));
     }
 
     private void registryKnows(VehicleClass vehicleClass, Fuel fuel) {
@@ -153,7 +153,7 @@ class ViolationEvaluatorTest {
     void noParkingComesBeforeEverythingElse() {
         withRules(Rules.rule().noParking().permit("resident").maxMinutes(1).build());
         registryKnows(VehicleClass.CAR, Fuel.OTHER);
-        when(permits.holdsAll(anyString(), anyString(), any(), any())).thenReturn(false);
+        when(permits.holdsAll(anyString(), anyString(), anyString(), any(), any())).thenReturn(false);
 
         assertThat(evaluate(spot("ev"), false, PLATE, VehicleClass.CAR, 0)).contains(ViolationType.NO_PARKING);
     }
@@ -206,7 +206,7 @@ class ViolationEvaluatorTest {
     void aWrongVehicleTypeComesBeforeAWrongPermit() {
         registryKnows(VehicleClass.CAR, Fuel.OTHER);
         withRules(Rules.rule().permit("resident").build());
-        when(permits.holdsAll(anyString(), anyString(), any(), any())).thenReturn(false);
+        when(permits.holdsAll(anyString(), anyString(), anyString(), any(), any())).thenReturn(false);
 
         assertThat(evaluate(spot("ev"))).contains(ViolationType.WRONG_VEHICLE_TYPE);
     }
@@ -215,11 +215,11 @@ class ViolationEvaluatorTest {
 
     @Test
     void aPermitSpotNeedsAPermitOfItsType() {
-        when(permits.holdsAll(PLATE, ZONE_ID, Set.of("resident"), NOW)).thenReturn(false);
+        when(permits.holdsAll(PLATE, ZONE_ID, ZONE_ID, Set.of("resident"), NOW)).thenReturn(false);
 
         assertThat(evaluate(spot("permit", "resident", 0))).contains(ViolationType.WRONG_PERMIT);
 
-        when(permits.holdsAll(PLATE, ZONE_ID, Set.of("resident"), NOW)).thenReturn(true);
+        when(permits.holdsAll(PLATE, ZONE_ID, ZONE_ID, Set.of("resident"), NOW)).thenReturn(true);
 
         assertThat(evaluate(spot("permit", "resident", 0))).isEmpty();
     }
@@ -233,11 +233,11 @@ class ViolationEvaluatorTest {
 
     @Test
     void aDisabledSpotNeedsADisabledPermit() {
-        when(permits.holdsAll(PLATE, ZONE_ID, Set.of("disabled"), NOW)).thenReturn(false);
+        when(permits.holdsAll(PLATE, ZONE_ID, ZONE_ID, Set.of("disabled"), NOW)).thenReturn(false);
 
         assertThat(evaluate(spot("disabled"))).contains(ViolationType.WRONG_PERMIT);
 
-        when(permits.holdsAll(PLATE, ZONE_ID, Set.of("disabled"), NOW)).thenReturn(true);
+        when(permits.holdsAll(PLATE, ZONE_ID, ZONE_ID, Set.of("disabled"), NOW)).thenReturn(true);
 
         assertThat(evaluate(spot("disabled"))).isEmpty();
     }
@@ -245,7 +245,7 @@ class ViolationEvaluatorTest {
     @Test
     void theDecidingRulesPermitIsRequiredOnAnyRegularSpot() {
         withRules(Rules.rule().permit("Resident").build());
-        when(permits.holdsAll(PLATE, ZONE_ID, Set.of("resident"), NOW)).thenReturn(false);
+        when(permits.holdsAll(PLATE, ZONE_ID, ZONE_ID, Set.of("resident"), NOW)).thenReturn(false);
 
         assertThat(evaluate(spot("paid"))).contains(ViolationType.WRONG_PERMIT);
     }
@@ -263,10 +263,10 @@ class ViolationEvaluatorTest {
     @Test
     void spotAndRulePermitsAreCheckedTogetherInOneQuery() {
         withRules(Rules.rule().permit("loading").build());
-        when(permits.holdsAll(PLATE, ZONE_ID, Set.of("resident", "loading"), NOW)).thenReturn(false);
+        when(permits.holdsAll(PLATE, ZONE_ID, ZONE_ID, Set.of("resident", "loading"), NOW)).thenReturn(false);
 
         assertThat(evaluate(spot("permit", "resident", 0))).contains(ViolationType.WRONG_PERMIT);
-        verify(permits, times(1)).holdsAll(anyString(), anyString(), any(), any());
+        verify(permits, times(1)).holdsAll(anyString(), anyString(), anyString(), any(), any());
     }
 
     @Test
@@ -275,7 +275,7 @@ class ViolationEvaluatorTest {
 
         evaluate(spot("permit", "resident", 0));
 
-        verify(permits).holdsAll(eq(PLATE), eq(ZONE_ID), eq(Set.of("resident")), eq(NOW));
+        verify(permits).holdsAll(eq(PLATE), eq(ZONE_ID), eq(ZONE_ID), eq(Set.of("resident")), eq(NOW));
     }
 
     @Test
@@ -288,14 +288,14 @@ class ViolationEvaluatorTest {
 
     @Test
     void stayingLongerThanTheZoneLimitIsAnOverstay() {
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(121 * 60)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(121 * 60)));
 
         assertThat(evaluate(spot("paid"), true, PLATE, VehicleClass.CAR, 120)).contains(ViolationType.OVERSTAY);
     }
 
     @Test
     void exactlyTheLimitIsNotYetAnOverstay() {
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(120 * 60)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(120 * 60)));
 
         assertThat(evaluate(spot("paid"), true, PLATE, VehicleClass.CAR, 120)).isEmpty();
     }
@@ -303,7 +303,7 @@ class ViolationEvaluatorTest {
     @Test
     void theRulesLimitOverridesTheSpotAndTheZone() {
         withRules(Rules.rule().maxMinutes(30).build());
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(31 * 60)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(31 * 60)));
 
         assertThat(evaluate(spot("timed", null, 240), true, PLATE, VehicleClass.CAR, 480)).contains(ViolationType.OVERSTAY);
     }
@@ -311,14 +311,14 @@ class ViolationEvaluatorTest {
     @Test
     void aRuleLimitLongerThanTheZoneDefaultRelaxesIt() {
         withRules(Rules.rule().maxMinutes(300).build());
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(200 * 60)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(200 * 60)));
 
         assertThat(evaluate(spot("paid"), true, PLATE, VehicleClass.CAR, 120)).isEmpty();
     }
 
     @Test
     void timedAndLoadingSpotsUseTheirOwnLimitBeforeTheZones() {
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(61 * 60)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(61 * 60)));
 
         assertThat(evaluate(spot("timed", null, 60), true, PLATE, VehicleClass.CAR, 480)).contains(ViolationType.OVERSTAY);
         assertThat(evaluate(spot("loading", null, 60), true, PLATE, VehicleClass.CAR, 480)).contains(ViolationType.OVERSTAY);
@@ -326,7 +326,7 @@ class ViolationEvaluatorTest {
 
     @Test
     void otherSpotTypesIgnoreTheirMaxMinutesColumn() {
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(61 * 60)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(61 * 60)));
 
         assertThat(evaluate(spot("paid", null, 30), true, PLATE, VehicleClass.CAR, 0)).isEmpty();
         verifyNoInteractions(sessions);
@@ -341,7 +341,7 @@ class ViolationEvaluatorTest {
     @Test
     void withoutAnActiveSessionOverstayCannotBeJudged() {
         assertThat(evaluate(spot("paid"), true, PLATE, VehicleClass.CAR, 120)).isEmpty();
-        verify(sessions).startOfActiveSession(PLATE, ZONE_ID);
+        verify(sessions).startOfActiveSession(PLATE, ZONE_ID, ZONE_ID);
     }
 
     @Test
@@ -352,15 +352,15 @@ class ViolationEvaluatorTest {
 
     @Test
     void overstayComesBeforeBoundary() {
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(500 * 60)));
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(500 * 60)));
 
         assertThat(evaluate(spot("paid"), false, PLATE, VehicleClass.CAR, 120)).contains(ViolationType.OVERSTAY);
     }
 
     @Test
     void aWrongPermitComesBeforeOverstay() {
-        when(permits.holdsAll(anyString(), anyString(), any(), any())).thenReturn(false);
-        when(sessions.startOfActiveSession(PLATE, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(500 * 60)));
+        when(permits.holdsAll(anyString(), anyString(), anyString(), any(), any())).thenReturn(false);
+        when(sessions.startOfActiveSession(PLATE, ZONE_ID, ZONE_ID)).thenReturn(Optional.of(NOW.minusSeconds(500 * 60)));
 
         assertThat(evaluate(spot("permit", "resident", 0), true, PLATE, VehicleClass.CAR, 120)).contains(ViolationType.WRONG_PERMIT);
         verifyNoInteractions(sessions);

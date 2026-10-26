@@ -2,6 +2,7 @@ package com.parkview.ruleengine.controller;
 
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
@@ -48,6 +49,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class ViolationControllerTest {
 
+    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    @MockitoBean
+    ZoneDirectory zoneDirectory;
+
     private static final Instant T = Instant.parse("2026-10-09T10:00:00Z");
 
     @Autowired
@@ -60,7 +65,7 @@ class ViolationControllerTest {
 
     @BeforeEach
     void setUp() {
-        violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", null, ViolationType.WRONG_PERMIT, T, T.plusSeconds(600));
+        violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.WRONG_PERMIT, T, T.plusSeconds(600));
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
     }
 
@@ -136,8 +141,8 @@ class ViolationControllerTest {
     void anAdminSeesEveryZoneOfAPlateButAnOperatorOnlyTheirOwn() throws Exception {
         when(violationService.byPlate(eq("XYZ999"), any())).thenReturn(new PageImpl<>(List.of(violation)));
         // the violation of the plate is in z1; an operator of z2 is asked for z2 only and gets nothing
-        when(violationService.byPlateInZones(eq("XYZ999"), eq(List.of("z2")), any())).thenReturn(new PageImpl<>(List.of()));
-        when(violationService.byPlateInZones(eq("XYZ999"), eq(List.of("z1")), any())).thenReturn(new PageImpl<>(List.of(violation)));
+        when(violationService.byPlateInSites(eq("XYZ999"), eq(List.of("z2")), any())).thenReturn(new PageImpl<>(List.of()));
+        when(violationService.byPlateInSites(eq("XYZ999"), eq(List.of("z1")), any())).thenReturn(new PageImpl<>(List.of(violation)));
 
         mvc.perform(get("/api/v1/violations/plate/XYZ999").with(user("admin", List.of(), List.of())))
                 .andExpect(status().isOk())
@@ -155,7 +160,7 @@ class ViolationControllerTest {
     void theSnapshotKeyOfAViolationIsForStaffWithViolationReadOnly() throws Exception {
         ReflectionTestUtils.setField(violation, "imagePath", "snapshots/1.jpg");
         when(violationService.byPlate(eq("ABC123"), any())).thenReturn(new PageImpl<>(List.of(violation)));
-        when(violationService.byPlateInZones(eq("ABC123"), eq(List.of("z1")), any())).thenReturn(new PageImpl<>(List.of(violation)));
+        when(violationService.byPlateInSites(eq("ABC123"), eq(List.of("z1")), any())).thenReturn(new PageImpl<>(List.of(violation)));
         when(violationService.activeByZone(eq("z1"), any())).thenReturn(new PageImpl<>(List.of(violation)));
 
         mvc.perform(get("/api/v1/violations/plate/ABC123").with(user("driver", List.of("ABC123"), List.of())))
@@ -195,7 +200,7 @@ class ViolationControllerTest {
     void plateListAcceptsDriversAndHoldersOfViolationReadOnly() throws Exception {
         when(violationService.byPlate(eq("XYZ999"), any())).thenReturn(new PageImpl<>(List.of()));
         when(violationService.byPlate(eq("ABC123"), any())).thenReturn(new PageImpl<>(List.of()));
-        when(violationService.byPlateInZones(eq("XYZ999"), any(), any())).thenReturn(new PageImpl<>(List.of()));
+        when(violationService.byPlateInSites(eq("XYZ999"), any(), any())).thenReturn(new PageImpl<>(List.of()));
 
         mvc.perform(get("/api/v1/violations/plate/XYZ999").with(userWith("operator", List.of("violation:read"), List.of(), List.of("z1"))))
                 .andExpect(status().isOk());

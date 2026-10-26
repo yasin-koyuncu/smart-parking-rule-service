@@ -41,11 +41,11 @@ class DisputeAndEvidenceMapperTest {
 
     @BeforeEach
     void setUp() {
-        violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", null, ViolationType.WRONG_PERMIT, DETECTED, DETECTED.plus(Duration.ofMinutes(10)));
+        violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.WRONG_PERMIT, DETECTED, DETECTED.plus(Duration.ofMinutes(10)));
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
         fine = Fine.issue(violation, new BigDecimal("700"), null, ISSUED);
         ReflectionTestUtils.setField(fine, "id", UUID.randomUUID());
-        evidence = FineEvidence.of(fine, violation, "Storgatan 1", "A1", "A resident permit is required.",
+        evidence = FineEvidence.of(fine, violation, "Storgatan 1", "Storgatan 1", "A1", "A resident permit is required.",
                 List.of(UUID.randomUUID().toString()), List.of("snapshots/cam-1/a.jpg"), new BigDecimal("0.8700"));
     }
 
@@ -81,7 +81,7 @@ class DisputeAndEvidenceMapperTest {
         ReflectionTestUtils.setField(dispute, "id", UUID.randomUUID());
         dispute.close(DisputeStatus.VOIDED, ISSUED.plusSeconds(60), UUID.randomUUID(), "The permit was valid");
 
-        var response = DisputeMapper.toResponse(new DisputeDetails(dispute, fine, "Storgatan 1"));
+        var response = DisputeMapper.toResponse(new DisputeDetails(dispute, fine, "Storgatan 1", "Storgatan 1"));
 
         assertThat(response.id()).isEqualTo(dispute.getId());
         assertThat(response.fineId()).isEqualTo(fine.getId());
@@ -104,8 +104,8 @@ class DisputeAndEvidenceMapperTest {
         ReflectionTestUtils.setField(fine, "reasonText", "Missing resident permit");
         Dispute dispute = Dispute.open(fine, null, DisputeChannel.DRIVER, "I disagree with this", ISSUED);
 
-        assertThat(DisputeMapper.toResponse(new DisputeDetails(dispute, fine, null)).reasonText()).isEqualTo("Missing resident permit");
-        assertThat(DisputeMapper.toResponse(new DisputeDetails(dispute, fine, null)).zoneAddress()).isNull();
+        assertThat(DisputeMapper.toResponse(new DisputeDetails(dispute, fine, null, null)).reasonText()).isEqualTo("Missing resident permit");
+        assertThat(DisputeMapper.toResponse(new DisputeDetails(dispute, fine, null, null)).zoneAddress()).isNull();
     }
 
     @Test
@@ -140,7 +140,7 @@ class DisputeAndEvidenceMapperTest {
 
     @Test
     void theExplanationNeverContainsSnapshotsDetectionIdsOrThePlate() {
-        ExplanationResponse response = EvidenceMapper.toExplanation(new FineExplanation(fine, evidence, "Storgatan 1", DisputeStatus.OPEN));
+        ExplanationResponse response = EvidenceMapper.toExplanation(new FineExplanation(fine, evidence, "Storgatan 1", "Storgatan 1", DisputeStatus.OPEN));
 
         JsonNode node = json.valueToTree(response);
         assertThat(node.fieldNames()).toIterable().containsExactlyInAnyOrder("fineId", "issuedAt", "amountSek", "zoneAddress", "spotNumber",
@@ -153,7 +153,7 @@ class DisputeAndEvidenceMapperTest {
 
     @Test
     void anExplanationOfAFineWithoutEvidenceKeepsWhatTheFineKnows() {
-        ExplanationResponse response = EvidenceMapper.toExplanation(new FineExplanation(fine, null, "Storgatan 1", null));
+        ExplanationResponse response = EvidenceMapper.toExplanation(new FineExplanation(fine, null, "Storgatan 1", "Storgatan 1", null));
 
         assertThat(response.amountSek()).isEqualByComparingTo("700");
         assertThat(response.issuedAt()).isEqualTo(ISSUED);

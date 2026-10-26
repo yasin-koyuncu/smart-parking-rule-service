@@ -108,7 +108,7 @@ class RuleEnginePropertiesTest {
     }
 
     private static ParkingSpot spot(Integer boundaryGrace, Integer permitGrace) {
-        return new ParkingSpot(UUID.randomUUID(), "z1", "A1", "paid", null, null, boundaryGrace, permitGrace, 0);
+        return new ParkingSpot(UUID.randomUUID(), "z1", "z1", "A1", "paid", null, null, boundaryGrace, permitGrace, 0);
     }
 
     @Test

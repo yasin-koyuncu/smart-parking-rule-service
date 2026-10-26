@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.PlatePermit;
 import com.parkview.ruleengine.dto.request.CreatePermitRequest;
 import com.parkview.ruleengine.repository.PlatePermitRepository;
@@ -29,11 +30,12 @@ class PermitServiceTest {
     private static final Instant NOW = Instant.parse("2026-10-09T10:00:00Z");
 
     private final PlatePermitRepository repository = mock(PlatePermitRepository.class);
+    private final ZoneDirectory zones = mock(ZoneDirectory.class);
     private PermitService service;
 
     @BeforeEach
     void setUp() {
-        service = new PermitService(repository, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new PermitService(repository, zones, Clock.fixed(NOW, ZoneOffset.UTC));
         when(repository.save(any(PlatePermit.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
@@ -76,7 +78,7 @@ class PermitServiceTest {
 
     @Test
     void revokeDeletesAndUnknownIdIsNotFound() {
-        PlatePermit permit = PlatePermit.grant("ABC123", "resident", null, NOW, null, "u");
+        PlatePermit permit = PlatePermit.grant("ABC123", "resident", null, null, NOW, null, "u");
         UUID id = UUID.randomUUID();
         when(repository.findById(id)).thenReturn(Optional.of(permit));
 
@@ -91,16 +93,16 @@ class PermitServiceTest {
 
     @Test
     void holdsAllDelegatesToTheRepositoryWithLowerCaseDistinctTypes() {
-        when(repository.countHeldTypes("ABC123", Set.of("resident", "loading"), "zone-1", NOW)).thenReturn(2L);
-        when(repository.countHeldTypes("ABC123", Set.of("resident", "loading"), "zone-2", NOW)).thenReturn(1L);
+        when(repository.countHeldTypes("ABC123", Set.of("resident", "loading"), "zone-1", "zone-1", NOW)).thenReturn(2L);
+        when(repository.countHeldTypes("ABC123", Set.of("resident", "loading"), "zone-2", "zone-2", NOW)).thenReturn(1L);
 
-        assertThat(service.holdsAll("ABC123", "zone-1", List.of("Resident", "LOADING", "resident"), NOW)).isTrue();
-        assertThat(service.holdsAll("ABC123", "zone-2", List.of("Resident", "LOADING", "resident"), NOW)).isFalse();
+        assertThat(service.holdsAll("ABC123", "zone-1", "zone-1", List.of("Resident", "LOADING", "resident"), NOW)).isTrue();
+        assertThat(service.holdsAll("ABC123", "zone-2", "zone-2", List.of("Resident", "LOADING", "resident"), NOW)).isFalse();
     }
 
     @Test
     void holdsAllOfNothingIsTrueWithoutAQuery() {
-        assertThat(service.holdsAll("ABC123", "zone-1", List.of(), NOW)).isTrue();
+        assertThat(service.holdsAll("ABC123", "zone-1", "zone-1", List.of(), NOW)).isTrue();
         verifyNoInteractions(repository);
     }
 }

@@ -117,7 +117,7 @@ class FineIssuingTransactionTest {
     }
 
     private Violation dueViolation() {
-        return violations.saveAndFlush(Violation.open(spot.id(), TestFixtures.ZONE, TestFixtures.PLATE, null, ViolationType.WRONG_PERMIT,
+        return violations.saveAndFlush(Violation.open(spot.id(), TestFixtures.ZONE, TestFixtures.ZONE, TestFixtures.PLATE, null, ViolationType.WRONG_PERMIT,
                 NOW.minusSeconds(900), NOW.minusSeconds(60), "No valid permit was registered for the plate: the spot requires a resident permit."));
     }
 

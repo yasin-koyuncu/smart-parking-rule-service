@@ -98,7 +98,7 @@ class FineIssuingServiceTest extends FineServiceTestBase {
     @Test
     void theOwnerStoredOnTheViolationWinsOverALookup() {
         UUID owner = UUID.randomUUID();
-        Violation violation = Violation.open(UUID.randomUUID(), TestFixtures.ZONE, TestFixtures.PLATE, owner,
+        Violation violation = Violation.open(UUID.randomUUID(), TestFixtures.ZONE, TestFixtures.ZONE, TestFixtures.PLATE, owner,
                 ViolationType.NO_PARKING, NOW.minusSeconds(900), NOW.minusSeconds(60));
 
         assertThat(service.issueFine(violation).getUserId()).isEqualTo(owner);

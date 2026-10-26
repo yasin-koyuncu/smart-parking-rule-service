@@ -52,7 +52,7 @@ class FineSettlementServiceTest extends FineServiceTestBase {
         assertThat(entry.getDetails()).isEqualTo(Map.of("method", "online", "paymentId", "pay-1"));
 
         FinePaidEvent event = (FinePaidEvent) publishedPayload("fine.paid");
-        assertThat(event).isEqualTo(new FinePaidEvent(fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE,
+        assertThat(event).isEqualTo(new FinePaidEvent(fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, TestFixtures.ZONE,
                 new BigDecimal("700.00"), "online", NOW));
     }
 

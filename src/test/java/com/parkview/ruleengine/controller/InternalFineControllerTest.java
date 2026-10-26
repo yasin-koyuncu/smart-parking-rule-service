@@ -4,6 +4,7 @@ import com.parkview.ruleengine.controller.internal.InternalFineController;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.InternalApiKeyFilter;
@@ -39,6 +40,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + INTERNAL_KEY})
 class InternalFineControllerTest {
 
+    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    @MockitoBean
+    ZoneDirectory zoneDirectory;
+
     @Autowired
     MockMvc mvc;
 
@@ -47,7 +52,7 @@ class InternalFineControllerTest {
 
     private Fine fine() {
         Instant t = Instant.parse("2026-10-09T10:00:00Z");
-        Violation v = Violation.open(UUID.randomUUID(), "z1", "ABC123", null, ViolationType.WRONG_PERMIT, t, t);
+        Violation v = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.WRONG_PERMIT, t, t);
         Fine fine = Fine.issue(v, new BigDecimal("700"), UUID.fromString("7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11"), t);
         ReflectionTestUtils.setField(fine, "id", UUID.fromString("11111111-2222-3333-4444-555555555555"));
         return fine;

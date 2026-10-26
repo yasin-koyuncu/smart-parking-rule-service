@@ -58,7 +58,9 @@ class DetectionServiceTest {
     void setUp() {
         service = new DetectionService(spotCache, ruleCache, boundary, evaluator, violations, TestFixtures.properties(), Clock.fixed(NOW, ZoneOffset.UTC));
         when(spotCache.spotsOf(ZONE, null)).thenReturn(List.of(spot));
-        when(ruleCache.zoneOf(ZONE)).thenReturn(zoneInfo);
+        // an event of a producer from before sites names only the zone; the zone of the fixtures is its own site
+        when(ruleCache.siteIdOf(ZONE)).thenReturn(ZONE);
+        when(ruleCache.placeOf(ZONE, ZONE)).thenReturn(zoneInfo);
     }
 
     private static VehicleDetectedEvent event(String plate, List<List<Double>> polygon, String vehicleClass) {
@@ -83,7 +85,7 @@ class DetectionServiceTest {
 
         InOrder order = inOrder(violations);
         order.verify(violations).confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", "summary", NOW);
-        order.verify(violations).resolveOthers(PLATE, ZONE, spot.id(), ViolationType.WRONG_PERMIT, ResolutionReason.CORRECTED);
+        order.verify(violations).resolveOthers(PLATE, ZONE, ZONE, spot.id(), ViolationType.WRONG_PERMIT, ResolutionReason.CORRECTED);
     }
 
     @Test
@@ -94,7 +96,7 @@ class DetectionServiceTest {
         service.process(event(PLATE, SQUARE, "car"));
 
         verify(violations).confirm(spot, ViolationType.OVERSTAY, PLATE, "cam-1", "summary", NOW);
-        verify(violations).resolveOthers(PLATE, ZONE, spot.id(), ViolationType.OVERSTAY, ResolutionReason.CORRECTED);
+        verify(violations).resolveOthers(PLATE, ZONE, ZONE, spot.id(), ViolationType.OVERSTAY, ResolutionReason.CORRECTED);
     }
 
     @Test
@@ -135,7 +137,7 @@ class DetectionServiceTest {
         service.process(event(PLATE, SQUARE, null));
 
         verify(violations, never()).confirm(any(), any(), anyString(), anyString(), any(), any());
-        verify(violations).resolveOthers(PLATE, ZONE, null, null, ResolutionReason.CORRECTED);
+        verify(violations).resolveOthers(PLATE, ZONE, ZONE, null, null, ResolutionReason.CORRECTED);
     }
 
     @Test
@@ -144,8 +146,18 @@ class DetectionServiceTest {
 
         service.process(event(PLATE, SQUARE, null));
 
-        verify(violations).resolveOthers(PLATE, ZONE, null, null, ResolutionReason.LEFT);
+        verify(violations).resolveOthers(PLATE, ZONE, ZONE, null, null, ResolutionReason.LEFT);
         verifyNoInteractions(evaluator);
+    }
+
+    @Test
+    void anObservationAtASiteWithoutAZoneIsMatchedAgainstTheSpotsOfTheSite() {
+        when(spotCache.spotsOf("s1", null)).thenReturn(List.of());
+
+        service.process(new VehicleDetectedEvent("cam-9", null, PLATE, SQUARE, null, null, 0.9, 0.9, NOW.toEpochMilli(), null, null, "s1"));
+
+        verify(spotCache).spotsOf("s1", null);
+        verifyNoInteractions(boundary, evaluator, violations);
     }
 
     @Test

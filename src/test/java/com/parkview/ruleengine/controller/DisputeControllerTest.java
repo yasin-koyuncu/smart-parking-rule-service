@@ -6,6 +6,7 @@ import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.security.AccessPolicy;
 import com.parkview.ruleengine.security.CurrentUser;
 import com.parkview.ruleengine.security.JwtSecurityConfig;
@@ -64,6 +65,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class DisputeControllerTest {
 
+    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    @MockitoBean
+    ZoneDirectory zoneDirectory;
+
     private static final Instant T = Instant.parse("2026-10-09T10:00:00Z");
     private static final UUID FINE_ID = UUID.fromString("11111111-2222-3333-4444-555555555555");
     private static final UUID DISPUTE_ID = UUID.fromString("99999999-2222-3333-4444-555555555555");
@@ -89,14 +94,14 @@ class DisputeControllerTest {
 
     @BeforeEach
     void setUp() {
-        Violation violation = Violation.open(UUID.randomUUID(), "z1", "ABC123", null, ViolationType.OVERSTAY, T, T);
+        Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.OVERSTAY, T, T);
         fine = Fine.issue(violation, new BigDecimal("450"), null, T);
         ReflectionTestUtils.setField(fine, "id", FINE_ID);
         dispute = Dispute.open(fine, UUID.randomUUID(), DisputeChannel.DRIVER, MESSAGE, T);
         ReflectionTestUtils.setField(dispute, "id", DISPUTE_ID);
         when(fineQuery.get(FINE_ID)).thenReturn(fine);
         when(disputes.get(DISPUTE_ID)).thenReturn(dispute);
-        when(disputes.detailsOf(any(Dispute.class))).thenAnswer(inv -> new DisputeDetails(inv.getArgument(0), fine, "Storgatan 1"));
+        when(disputes.detailsOf(any(Dispute.class))).thenAnswer(inv -> new DisputeDetails(inv.getArgument(0), fine, "Storgatan 1", "Storgatan 1"));
         when(disputeService.open(eq(FINE_ID), any(), any(), any())).thenReturn(dispute);
         when(disputeService.withdraw(eq(DISPUTE_ID), any())).thenReturn(dispute);
         when(disputeService.decide(eq(DISPUTE_ID), any(), any(), any())).thenReturn(dispute);
@@ -318,8 +323,8 @@ class DisputeControllerTest {
     // ---- GET /disputes ----
 
     private void pageOfOne() {
-        when(disputes.list(any(), any(), any(Pageable.class))).thenReturn(new PageImpl<>(
-                List.of(new DisputeDetails(dispute, fine, "Storgatan 1")), PageRequest.of(0, 100), 1));
+        when(disputes.list(any(), any(), any(), any(Pageable.class))).thenReturn(new PageImpl<>(
+                List.of(new DisputeDetails(dispute, fine, "Storgatan 1", "Storgatan 1")), PageRequest.of(0, 100), 1));
     }
 
     @Test
@@ -339,7 +344,7 @@ class DisputeControllerTest {
                 .andExpect(header().string("X-Total-Count", "1"))
                 .andExpect(jsonPath("$[0].id").value(DISPUTE_ID.toString()))
                 .andExpect(jsonPath("$[0].message").value(MESSAGE));
-        verify(disputes).list(eq(DisputeQueryService.Filter.OPEN), eq(List.of("z1", "z3")), any(Pageable.class));
+        verify(disputes).list(eq(DisputeQueryService.Filter.OPEN), eq(List.of("z1", "z3")), isNull(), any(Pageable.class));
     }
 
     @Test
@@ -348,7 +353,7 @@ class DisputeControllerTest {
 
         mvc.perform(get("/api/v1/disputes").param("status", "all").with(actor("admin", null, List.of())))
                 .andExpect(status().isOk());
-        verify(disputes).list(eq(DisputeQueryService.Filter.ALL), isNull(), any(Pageable.class));
+        verify(disputes).list(eq(DisputeQueryService.Filter.ALL), isNull(), isNull(), any(Pageable.class));
     }
 
     @Test
@@ -357,7 +362,7 @@ class DisputeControllerTest {
 
         mvc.perform(get("/api/v1/disputes").param("zoneId", "z1").param("status", "decided").with(operator(MANAGE, "z1", "z3")))
                 .andExpect(status().isOk());
-        verify(disputes).list(eq(DisputeQueryService.Filter.DECIDED), eq(List.of("z1")), any(Pageable.class));
+        verify(disputes).list(eq(DisputeQueryService.Filter.DECIDED), eq(List.of("z1", "z3")), eq("z1"), any(Pageable.class));
 
         mvc.perform(get("/api/v1/disputes").param("zoneId", "z2").with(operator(MANAGE, "z1")))
                 .andExpect(status().isForbidden());
@@ -370,7 +375,7 @@ class DisputeControllerTest {
         mvc.perform(get("/api/v1/disputes").param("status", "pending").with(operator(MANAGE, "z1")))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
-        verify(disputes, never()).list(any(), anyCollection(), any());
+        verify(disputes, never()).list(any(), anyCollection(), any(), any());
     }
 
     @Test
@@ -381,7 +386,7 @@ class DisputeControllerTest {
                 .andExpect(status().isOk());
 
         org.mockito.ArgumentCaptor<Pageable> page = org.mockito.ArgumentCaptor.forClass(Pageable.class);
-        verify(disputes).list(any(), any(), page.capture());
+        verify(disputes).list(any(), any(), isNull(), page.capture());
         org.assertj.core.api.Assertions.assertThat(page.getValue().getPageNumber()).isEqualTo(2);
         org.assertj.core.api.Assertions.assertThat(page.getValue().getPageSize()).isEqualTo(500);
         org.assertj.core.api.Assertions.assertThat(page.getValue().getSort().getOrderFor("openedAt").isDescending()).isTrue();

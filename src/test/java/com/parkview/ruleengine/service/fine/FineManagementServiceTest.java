@@ -55,7 +55,7 @@ class FineManagementServiceTest extends FineServiceTestBase {
         assertThat(entry.getDetails()).isEmpty();
 
         FineVoidedEvent event = (FineVoidedEvent) publishedPayload("fine.voided");
-        assertThat(event).isEqualTo(new FineVoidedEvent(fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, NOW));
+        assertThat(event).isEqualTo(new FineVoidedEvent(fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, TestFixtures.ZONE, NOW));
     }
 
     @Test

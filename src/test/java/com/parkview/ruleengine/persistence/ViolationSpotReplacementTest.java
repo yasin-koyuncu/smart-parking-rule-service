@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.persistence;
 
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
@@ -89,7 +90,7 @@ class ViolationSpotReplacementTest {
         ZoneDirectory zones = mock(ZoneDirectory.class);
         when(owners.ownerOf(anyString())).thenReturn(Optional.empty());
         when(zones.addressOf(anyString())).thenReturn(Optional.empty());
-        service = new ViolationService(violations, fines, owners, zones, outbox, TestFixtures.properties(),
+        service = new ViolationService(violations, fines, owners, zones, mock(SiteDirectory.class), outbox, TestFixtures.properties(),
                 new EngineMetrics(new SimpleMeterRegistry()), spotCache, Clock.fixed(NOW, ZoneOffset.UTC),
                 new TransactionTemplate(transactionManager));
     }
@@ -107,7 +108,7 @@ class ViolationSpotReplacementTest {
     }
 
     private static ParkingSpot spotWithId(UUID id) {
-        return new ParkingSpot(id, ZONE, "A1", "permit", "resident", TestFixtures.rect(0, 0, 10, 10), null, null, 0);
+        return new ParkingSpot(id, ZONE, ZONE, "A1", "permit", "resident", TestFixtures.rect(0, 0, 10, 10), null, null, 0);
     }
 
     private int violationCount() {
@@ -160,10 +161,10 @@ class ViolationSpotReplacementTest {
     @Test
     void aFineOlderThanTheBlockWindowOrForAnotherReasonDoesNotBlockANewViolation() {
         UUID spot = insertSpot();
-        Violation old = violations.saveAndFlush(Violation.open(spot, ZONE, PLATE, null, ViolationType.WRONG_PERMIT,
+        Violation old = violations.saveAndFlush(Violation.open(spot, ZONE, ZONE, PLATE, null, ViolationType.WRONG_PERMIT,
                 NOW.minus(Duration.ofHours(8)), NOW.minus(Duration.ofHours(8))));
         fines.save(Fine.issue(old, new BigDecimal("700"), null, NOW.minus(Duration.ofHours(7))));
-        Violation other = violations.saveAndFlush(Violation.open(spot, ZONE, PLATE, null, ViolationType.OVERSTAY,
+        Violation other = violations.saveAndFlush(Violation.open(spot, ZONE, ZONE, PLATE, null, ViolationType.OVERSTAY,
                 NOW.minusSeconds(60), NOW.minusSeconds(60)));
         fines.save(Fine.issue(other, new BigDecimal("450"), null, NOW.minusSeconds(30)));
         jdbc.update("delete from spot_violations");

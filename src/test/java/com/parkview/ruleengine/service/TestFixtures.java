@@ -32,11 +32,11 @@ public final class TestFixtures {
     }
 
     public static ParkingSpot spot(String type, String permitType, Integer boundaryGrace, Integer permitGrace) {
-        return new ParkingSpot(UUID.randomUUID(), ZONE, "A1", type, permitType, rect(0, 0, 10, 10), boundaryGrace, permitGrace, 0);
+        return new ParkingSpot(UUID.randomUUID(), ZONE, ZONE, "A1", type, permitType, rect(0, 0, 10, 10), boundaryGrace, permitGrace, 0);
     }
 
     public static Violation violation(ViolationType type, Instant detectedAt, Instant graceUntil) {
-        Violation v = Violation.open(UUID.randomUUID(), ZONE, PLATE, null, type, detectedAt, graceUntil);
+        Violation v = Violation.open(UUID.randomUUID(), ZONE, ZONE, PLATE, null, type, detectedAt, graceUntil);
         ReflectionTestUtils.setField(v, "id", UUID.randomUUID());
         return v;
     }

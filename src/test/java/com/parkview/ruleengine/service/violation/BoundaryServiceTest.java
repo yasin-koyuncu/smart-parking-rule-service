@@ -33,7 +33,7 @@ class BoundaryServiceTest {
     }
 
     private static ParkingSpot spot(Polygon polygon) {
-        return new ParkingSpot(UUID.randomUUID(), ZONE, "A1", "paid", null, polygon, 0, 0, 0);
+        return new ParkingSpot(UUID.randomUUID(), ZONE, ZONE, "A1", "paid", null, polygon, 0, 0, 0);
     }
 
     @Test

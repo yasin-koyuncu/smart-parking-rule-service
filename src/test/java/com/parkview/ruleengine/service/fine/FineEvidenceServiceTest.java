@@ -2,6 +2,7 @@ package com.parkview.ruleengine.service.fine;
 
 import com.parkview.ruleengine.client.DetectionDirectory.Detection;
 import com.parkview.ruleengine.client.DetectionDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.Dispute;
 import com.parkview.ruleengine.domain.Fine;
@@ -43,9 +44,10 @@ class FineEvidenceServiceTest {
     private final FineEvidenceRepository evidence = mock(FineEvidenceRepository.class);
     private final DetectionDirectory detections = mock(DetectionDirectory.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
+    private final SiteDirectory sites = mock(SiteDirectory.class);
     private final SpotCacheService spots = mock(SpotCacheService.class);
     private final DisputeRepository disputes = mock(DisputeRepository.class);
-    private final FineEvidenceService service = new FineEvidenceService(evidence, detections, zones, spots, disputes);
+    private final FineEvidenceService service = new FineEvidenceService(evidence, detections, zones, sites, spots, disputes);
 
     private final ParkingSpot spot = TestFixtures.spot("permit", "resident", 0, 30);
     private Violation violation;
@@ -53,7 +55,7 @@ class FineEvidenceServiceTest {
 
     @BeforeEach
     void setUp() {
-        violation = Violation.open(spot.id(), TestFixtures.ZONE, TestFixtures.PLATE, null, ViolationType.WRONG_PERMIT, DETECTED,
+        violation = Violation.open(spot.id(), TestFixtures.ZONE, TestFixtures.ZONE, TestFixtures.PLATE, null, ViolationType.WRONG_PERMIT, DETECTED,
                 DETECTED.plus(Duration.ofMinutes(10)), "No valid permit was registered for the plate: the spot requires a resident permit.");
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
         fine = Fine.issue(violation, new BigDecimal("700"), null, ISSUED);
@@ -123,7 +125,7 @@ class FineEvidenceServiceTest {
 
     @Test
     void aViolationWithoutARuleTextFallsBackToThePlainTextOfItsType() {
-        Violation old = Violation.open(spot.id(), TestFixtures.ZONE, TestFixtures.PLATE, null, ViolationType.OVERSTAY, DETECTED, DETECTED);
+        Violation old = Violation.open(spot.id(), TestFixtures.ZONE, TestFixtures.ZONE, TestFixtures.PLATE, null, ViolationType.OVERSTAY, DETECTED, DETECTED);
         ReflectionTestUtils.setField(old, "id", UUID.randomUUID());
 
         FineEvidence e = service.record(fine, old);
