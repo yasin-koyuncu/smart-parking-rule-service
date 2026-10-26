@@ -257,6 +257,32 @@ for a dispute the system upheld); `reason` is null for `paid_online` and a withd
 `{"method": "cash"}` for mark-paid, `{"method": "online", "paymentId": "..."}` for the online payment, `{"disputeId", "channel"}` for `dispute_opened` and `{"disputeId"}` for the other
 dispute actions. Each command writes its row in the same transaction as the change.
 
+### Error texts and languages
+
+The texts of API errors (`detail` and `message` of the problem+json, `title`, the `errors[].message` of validation failures, also the 401/403 of the
+security chain) are in the language of the `Accept-Language` header: Swedish for `sv` (also `sv-SE`), English when the header is missing or the language
+is not offered (`fr`, `*`, malformed). Never the language of the server (`spring.web.locale: en`, `locale-resolver: accept-header`). Logs, event payloads and
+HTTP statuses are not affected and stay English.
+
+* Bundles: `src/main/resources/messages/errors.properties` (English base, complete) and `errors_sv.properties`. UTF-8; `{0}` is the parameter
+  (the id of a `notFound.*`). A message without parameters is used as it is, one with parameters goes through `MessageFormat` (a literal apostrophe is
+  written `''` there); the texts avoid apostrophes. `ErrorMessagesBundleTest` checks that every English key has a Swedish text with the same placeholders.
+* An exception carries a stable `code`: `ConflictException.coded("dispute.alreadyOpen", "<English text>", args...)`, likewise `BusinessRuleException.coded(...)`.
+  `ResourceNotFoundException(resource, id)` derives `notFound.<resource>` (lower case, spaces as `-`). The English text in the code is also the text when a
+  bundle has no entry, so an exception without a code (`new ConflictException("...")`) keeps working and stays English.
+* The problem gets one extra member, `code` (a client may switch on it, not on the text): `<area>.<reason>` in lower camelCase, unique in this service and
+  never renamed. The common ones are `error.forbidden`, `error.unauthorized`, `error.dataConflict`, `error.validation.params`, `error.validation.body`,
+  `error.internal`.
+* Codes of this service: `dispute.fineAlreadyPaid`, `dispute.fineVoided`, `dispute.alreadyOpen`, `dispute.alreadyUpheld`, `dispute.withdrawn`,
+  `dispute.alreadyDecided` (409); `fine.voidPaid`, `fine.payVoided`, `fine.payUnderReview` (409); `violation.fineAlreadyIssued` (409);
+  `permit.plateEmpty`, `permit.validToNotAfterValidFrom` (422); `notFound.fine`, `notFound.dispute`, `notFound.dispute-of-fine`, `notFound.permit`,
+  `notFound.violation` (404).
+* DTO validation: the literal `message` of `@Pattern` is `{validation.<rule>}` (`plateCharacters`, `disputeOutcome`, `paidMethod`, `disputeStatusFilter`) and
+  `@NotBlank`/`@Size` use the bundles too, so a field error is Swedish or English, never the language of the validator library. `ErrorMessagesConfig` wires
+  the bundles into the validator.
+* Adding a message: new code in the exception, one line in `errors.properties` and one in `errors_sv.properties` (same placeholders). Internal guards
+  (`IllegalStateException`, `IllegalArgumentException`, which are 500 and never shown) stay literal on purpose.
+
 ### Evidence and disputes
 
 **Frozen evidence.** When the fine sweep issues a fine, `FineIssuingService` writes one `fine_evidence` row in the same transaction (a rollback leaves neither fine nor evidence).

@@ -10,7 +10,7 @@ import java.time.Instant;
 @Schema(description = "Grants a permit to a plate")
 public record CreatePermitRequest(
         @Schema(description = "Plate; spaces and dashes are ignored", example = "ABC 123")
-        @NotBlank @Size(max = 16) @Pattern(regexp = "^[A-Za-z0-9 -]+$", message = "must contain only letters, digits, spaces and dashes")
+        @NotBlank @Size(max = 16) @Pattern(regexp = "^[A-Za-z0-9 -]+$", message = "{validation.plateCharacters}")
         String plate,
 
         @Schema(description = "Permit type as configured on the permit spots (parking_spots.permit_type)", example = "resident")

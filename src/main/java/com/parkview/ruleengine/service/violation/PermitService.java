@@ -49,11 +49,11 @@ public class PermitService {
     public PlatePermit grant(CreatePermitRequest request, String createdBy) {
         String plate = Plates.normalize(request.plate());
         if (plate == null) {
-            throw new BusinessRuleException("Plate must not be empty");
+            throw BusinessRuleException.coded("permit.plateEmpty", "Plate must not be empty");
         }
         Instant validFrom = request.validFrom() != null ? request.validFrom() : clock.instant();
         if (request.validTo() != null && !request.validTo().isAfter(validFrom)) {
-            throw new BusinessRuleException("validTo must be after validFrom");
+            throw BusinessRuleException.coded("permit.validToNotAfterValidFrom", "validTo must be after validFrom");
         }
         String zoneId = ZoneIds.normalize(request.zoneId());
         PlatePermit permit = repository.save(PlatePermit.grant(

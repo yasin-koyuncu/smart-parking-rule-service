@@ -10,6 +10,9 @@ spring:
       # HttpURLConnection like before (no selector threads): Boot's RestClient.Builder, which the lookup-service client now starts from so
       # that its calls are observed and carry traceparent, would otherwise build a JDK HttpClient first.
       factory: simple
+  web:
+    locale: en                    # texts of API errors: Accept-Language decides, English when it is missing or unknown
+    locale-resolver: accept-header
   threads:
     virtual:
       enabled: true

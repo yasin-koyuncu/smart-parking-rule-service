@@ -212,10 +212,10 @@ public class ViolationService {
     public void resolveManually(UUID id) {
         Violation violation = get(id);
         if (violation.getFineIssuedAt() != null) {
-            throw new ConflictException("A fine has already been issued for this violation");
+            throw ConflictException.coded("violation.fineAlreadyIssued", "A fine has already been issued for this violation");
         }
         if (!resolve(violation, ResolutionReason.MANUAL) && get(id).getFineIssuedAt() != null) {
-            throw new ConflictException("A fine has already been issued for this violation");
+            throw ConflictException.coded("violation.fineAlreadyIssued", "A fine has already been issued for this violation");
         }
     }
 

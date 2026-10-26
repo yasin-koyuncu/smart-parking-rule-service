@@ -55,16 +55,20 @@ public class DisputeService {
     public Dispute open(UUID fineId, DisputeChannel channel, UUID by, String message) {
         Fine fine = lockFine(fineId);
         if (fine.isPaid()) {
-            throw new ConflictException("This fine has already been paid, so it can no longer be disputed.");
+            throw ConflictException.coded("dispute.fineAlreadyPaid",
+                    "This fine has already been paid, so it can no longer be disputed.");
         }
         if (fine.isVoided()) {
-            throw new ConflictException("This fine has been cancelled, so there is nothing to dispute.");
+            throw ConflictException.coded("dispute.fineVoided",
+                    "This fine has been cancelled, so there is nothing to dispute.");
         }
         if (disputes.existsByFineIdAndStatus(fineId, DisputeStatus.OPEN)) {
-            throw new ConflictException("A review of this fine has already been requested and is still open.");
+            throw ConflictException.coded("dispute.alreadyOpen",
+                    "A review of this fine has already been requested and is still open.");
         }
         if (disputes.existsByFineIdAndStatus(fineId, DisputeStatus.UPHELD)) {
-            throw new ConflictException("This fine has already been reviewed by an operator and the fine stands.");
+            throw ConflictException.coded("dispute.alreadyUpheld",
+                    "This fine has already been reviewed by an operator and the fine stands.");
         }
         Instant now = clock.instant();
         Dispute dispute = disputes.saveAndFlush(Dispute.open(fine, by, channel, message, now));
@@ -126,9 +130,9 @@ public class DisputeService {
     private Dispute openDispute(UUID disputeId) {
         Dispute dispute = disputes.findById(disputeId).orElseThrow(() -> new ResourceNotFoundException("Dispute", disputeId));
         if (!dispute.isOpen()) {
-            throw new ConflictException(dispute.getStatus() == DisputeStatus.WITHDRAWN
-                    ? "This dispute has been withdrawn and cannot be changed."
-                    : "This dispute has already been decided and cannot be changed.");
+            throw dispute.getStatus() == DisputeStatus.WITHDRAWN
+                    ? ConflictException.coded("dispute.withdrawn", "This dispute has been withdrawn and cannot be changed.")
+                    : ConflictException.coded("dispute.alreadyDecided", "This dispute has already been decided and cannot be changed.");
         }
         return dispute;
     }

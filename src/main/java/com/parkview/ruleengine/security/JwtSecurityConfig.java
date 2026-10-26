@@ -1,10 +1,14 @@
 package com.parkview.ruleengine.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkview.ruleengine.web.ErrorMessagesConfig;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.MessageSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchy;
 import org.springframework.security.access.hierarchicalroles.RoleHierarchyImpl;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -44,6 +48,7 @@ import org.springframework.security.config.Customizer;
 @EnableWebSecurity
 @EnableMethodSecurity
 @EnableConfigurationProperties(SecurityProperties.class)
+@Import(ErrorMessagesConfig.class)   // 401/403 texts come from the same bundles as the other errors
 public class JwtSecurityConfig {
 
     @Bean
@@ -74,6 +79,7 @@ public class JwtSecurityConfig {
             HttpSecurity http,
             SecurityProperties props,
             ObjectMapper objectMapper,
+            @Qualifier("errorMessages") MessageSource errorMessages,
             ObjectProvider<SecurityPathCustomizer> pathCustomizer) throws Exception {
 
         http
@@ -86,12 +92,12 @@ public class JwtSecurityConfig {
                         .referrerPolicy(r -> r.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
                         .cacheControl(Customizer.withDefaults()))
                 .exceptionHandling(e -> e
-                        .authenticationEntryPoint(ProblemJsonErrorHandlers.authenticationEntryPoint(objectMapper))
-                        .accessDeniedHandler(ProblemJsonErrorHandlers.accessDeniedHandler(objectMapper)))
+                        .authenticationEntryPoint(ProblemJsonErrorHandlers.authenticationEntryPoint(objectMapper, errorMessages))
+                        .accessDeniedHandler(ProblemJsonErrorHandlers.accessDeniedHandler(objectMapper, errorMessages)))
                 .oauth2ResourceServer(o -> o
                         .jwt(j -> j.jwtAuthenticationConverter(new ParkviewJwtAuthenticationConverter(props.legacyRoleFallback())))
-                        .authenticationEntryPoint(ProblemJsonErrorHandlers.authenticationEntryPoint(objectMapper))
-                        .accessDeniedHandler(ProblemJsonErrorHandlers.accessDeniedHandler(objectMapper)));
+                        .authenticationEntryPoint(ProblemJsonErrorHandlers.authenticationEntryPoint(objectMapper, errorMessages))
+                        .accessDeniedHandler(ProblemJsonErrorHandlers.accessDeniedHandler(objectMapper, errorMessages)));
 
         if (props.internalApiEnabled()) {
             http.addFilterBefore(new InternalApiKeyFilter(props.internalApiKey()), BearerTokenAuthenticationFilter.class);

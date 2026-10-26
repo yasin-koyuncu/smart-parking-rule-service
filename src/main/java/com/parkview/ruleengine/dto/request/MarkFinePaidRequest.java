@@ -13,7 +13,7 @@ public record MarkFinePaidRequest(
         String reason,
 
         @Schema(description = "How it was paid", allowableValues = {"cash", "transfer", "other"}, example = "cash")
-        @NotBlank @Pattern(regexp = "^(cash|transfer|other)$", message = "must be one of cash, transfer, other")
+        @NotBlank @Pattern(regexp = "^(cash|transfer|other)$", message = "{validation.paidMethod}")
         String method
 ) {
 

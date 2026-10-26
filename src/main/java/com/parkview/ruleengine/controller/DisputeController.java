@@ -122,7 +122,7 @@ public class DisputeController {
     @ApiResponse(responseCode = "403", description = "Missing permission, or zoneId outside the caller zones")
     public ResponseEntity<List<DisputeResponse>> list(
             @Parameter(description = "open (default), decided or all")
-            @RequestParam(defaultValue = "open") @Pattern(regexp = "open|decided|all", message = "must be open, decided or all") String status,
+            @RequestParam(defaultValue = "open") @Pattern(regexp = "open|decided|all", message = "{validation.disputeStatusFilter}") String status,
             @Parameter(description = "Only this zone (must be one of the caller zones)") @RequestParam(required = false) String zoneId,
             @Parameter(description = "Zero-based page") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "Page size, at most 500") @RequestParam(defaultValue = "100") int size) {

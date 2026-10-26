@@ -58,7 +58,7 @@ public class FineManagementService {
             return fine;
         }
         if (fine.isPaid()) {
-            throw new ConflictException("A paid fine cannot be voided; refunds are a separate process");
+            throw ConflictException.coded("fine.voidPaid", "A paid fine cannot be voided; refunds are a separate process");
         }
         Instant now = clock.instant();
         fine.voidFine(now, reason, actor);
@@ -87,10 +87,11 @@ public class FineManagementService {
             return fine;
         }
         if (fine.isVoided()) {
-            throw new ConflictException("A voided fine cannot be marked as paid");
+            throw ConflictException.coded("fine.payVoided", "A voided fine cannot be marked as paid");
         }
         if (disputes.existsByFineIdAndStatus(fineId, DisputeStatus.OPEN)) {
-            throw new ConflictException("This fine is under review: decide the dispute before marking the fine as paid");
+            throw ConflictException.coded("fine.payUnderReview",
+                    "This fine is under review: decide the dispute before marking the fine as paid");
         }
         Instant now = clock.instant();
         fine.markPaid(now, method, actor);
