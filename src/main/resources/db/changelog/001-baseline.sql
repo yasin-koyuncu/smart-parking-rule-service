@@ -190,26 +190,31 @@ create index spot_violations_plate_site_idx     on spot_violations (plate, site_
 -- `seq` gives a strict insertion order (the relay delivers the events of one aggregate - a fine or a violation - in that order),
 -- `request_id` keeps the x-request-id header of the request that caused the event, the row id is the AMQP messageId (idempotency key for
 -- consumers) - `payload` is the exact JSON the consumers receive (text, not jsonb: jsonb would reorder the keys).
-create table rule_outbox_events (
-  id              uuid primary key default gen_random_uuid(),
-  seq             bigint generated always as identity,
-  aggregate_type  text        not null,
-  aggregate_id    text        not null,
-  exchange        text        not null,
-  routing_key     text        not null,
-  payload         text        not null,
-  request_id      text,
-  created_at      timestamptz not null default now(),
-  published_at    timestamptz,
-  attempts        integer     not null default 0,
-  next_attempt_at timestamptz not null default now(),
-  last_error      text
+create table outbox_events (
+    id              uuid primary key default gen_random_uuid(),
+    -- insertion order; the relay delivers the events of one aggregate in this order
+    seq             bigint generated always as identity,
+    aggregate_type  text        not null,
+    aggregate_id    text        not null,
+    exchange        text        not null,
+    routing_key     text        not null,
+    -- the exact JSON the consumers receive (text, not jsonb: jsonb would reorder the keys)
+    payload         text        not null,
+    -- X-Request-Id of the request that caused the event, null when there was none
+    request_id      text,
+    created_at      timestamptz not null default now(),
+    published_at    timestamptz,
+    attempts        integer     not null default 0,
+    next_attempt_at timestamptz not null default now(),
+    last_error      text
 );
 
 -- the relay only looks at unpublished rows: the due ones in insertion order, and per aggregate the oldest unpublished one
-create index rule_outbox_events_due_idx       on rule_outbox_events (seq) where published_at is null;
-create index rule_outbox_events_aggregate_idx on rule_outbox_events (aggregate_id, seq) where published_at is null;
-create index rule_outbox_events_published_idx on rule_outbox_events (published_at) where published_at is not null;
+create index outbox_events_due_idx on outbox_events (seq) where published_at is null;
+create index outbox_events_pending_aggregate_idx on outbox_events (aggregate_id, seq) where published_at is null;
+create index outbox_events_published_idx on outbox_events (published_at) where published_at is not null;
+-- everything that happened to one aggregate (diagnostics, reconciliation)
+create index outbox_events_aggregate_idx on outbox_events (aggregate_id, created_at);
 
 -- changeset parkview:2-baseline-evidence-guard splitStatements:false
 -- Database-level guard (the application only ever inserts): any UPDATE or DELETE of an evidence row is rejected, whoever runs it.
