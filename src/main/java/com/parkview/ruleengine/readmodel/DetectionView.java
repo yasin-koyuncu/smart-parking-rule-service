@@ -14,14 +14,14 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Read-only view of {@code detections}, which is owned by ingestion-service (ADR 0001). rule-service reads which camera
+ * Read-only view of {@code ingestion.v_detections}, the published view of the detections of ingestion-service (ADR 0010). rule-service reads which camera
  * snapshots belong to a fine when it freezes the evidence: the plate (or the reviewer's correction), the site and zone, the time,
  * the snapshot key, the detector confidence and the review state. Maps just the columns used; never written by this
  * service and never created by its Liquibase changelog.
  */
 @Entity
 @Immutable
-@Table(name = "detections")
+@Table(schema = "ingestion", name = "v_detections")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class DetectionView {

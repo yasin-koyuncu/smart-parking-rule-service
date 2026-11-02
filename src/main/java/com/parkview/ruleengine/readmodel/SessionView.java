@@ -13,16 +13,15 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Read-only view of {@code sessions}, which is owned by session-service. rule-service reads the start of the
+ * Read-only view of {@code sessions.v_sessions}, the published view of the sessions of session-service (ADR 0010). rule-service reads the start of the
  * active session ({@code ended_at} is null) of a plate at a site
- * (in a zone, when the spot has one) to decide whether it overstays.
- * Maps just the columns used (not {@code spot_id} and not {@code voided_at}: the Supabase base table lacks them until
- * session-service has migrated, and a mapped column that is missing fails the schema validation at startup; the voided
- * filter is a native query, see {@link SessionViewRepository}); never written by this service and never created by its Liquibase changelog.
+ * (in a zone, when the spot has one) to decide whether it overstays;
+ * a voided session (an operator corrected a wrong one) never happened and is not active.
+ * Maps just the columns used; never written by this service and never created by its Liquibase changelog.
  */
 @Entity
 @Immutable
-@Table(name = "sessions")
+@Table(schema = "sessions", name = "v_sessions")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SessionView {
@@ -45,6 +44,9 @@ public class SessionView {
 
     @Column(name = "ended_at")
     private Instant endedAt;
+
+    @Column(name = "voided_at")
+    private Instant voidedAt;
 
     @Override
     public boolean equals(Object o) {

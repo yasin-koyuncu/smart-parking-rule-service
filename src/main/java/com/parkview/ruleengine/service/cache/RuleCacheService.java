@@ -90,15 +90,12 @@ public class RuleCacheService {
         return cached(sites, siteId, () -> siteDirectory.infoOf(siteId).orElseGet(ZoneInfo::unknownSite));
     }
 
-    /**
-     * The site of a zone, for a message that names only the zone (a producer from before ADR 0009). A zone that is not in the
-     * database is taken to be its own site, which is true of every zone that existed before sites did. Null for a null zone.
-     */
+    /** The site of a zone, for a message that names only the zone. Null for a null zone and for a zone that is not known. */
     public String siteIdOf(String zoneId) {
         if (zoneId == null) {
             return null;
         }
-        return cached(siteOfZone, zoneId, () -> zoneDirectory.siteOf(zoneId)).orElse(zoneId);
+        return cached(siteOfZone, zoneId, () -> zoneDirectory.siteOf(zoneId)).orElse(null);
     }
 
     /**
@@ -111,7 +108,7 @@ public class RuleCacheService {
             siteRules.remove(siteId);
             sites.remove(siteId);
             siteOfZone.forEach((zone, entry) -> {
-                if (Objects.equals(entry.value().orElse(zone), siteId)) {
+                if (siteId.equals(entry.value().orElse(null))) {
                     zoneRules.remove(zone);
                     zones.remove(zone);
                 }

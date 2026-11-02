@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.Immutable;
 
 /**
- * Read-only view of {@code sites}, which is owned by parking-mapping-service (ADR 0009). A site is the place: it owns the
+ * Read-only view of {@code mapping.v_sites}, the published view of the sites of parking-mapping-service (ADR 0009, ADR 0010). A site is the place: it owns the
  * spots and, outside its zones, its own rules and tariff. rule-service needs the street address for the events, and the stay
  * limit, whether parking is allowed, country and timezone to evaluate the site rules at a spot without a zone.
  * {@code price_per_hour} null means free, {@code max_minutes} null no limit. Maps just the columns used; never written by
@@ -18,7 +18,7 @@ import org.hibernate.annotations.Immutable;
  */
 @Entity
 @Immutable
-@Table(name = "sites")
+@Table(schema = "mapping", name = "v_sites")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SiteView {

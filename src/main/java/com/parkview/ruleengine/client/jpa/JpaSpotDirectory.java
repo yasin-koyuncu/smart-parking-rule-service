@@ -20,9 +20,6 @@ import java.util.UUID;
 /**
  * Reads polygon spots. {@code coordinates} and {@code image_polygon} are jsonb; Postgres normalises them to
  * {@code [[0, 0], [0, 10]]}, so they are parsed as real JSON.
- *
- * <p>A database without the camera-view columns (see {@link SpotViewSchema}) is read as before views existed: every
- * polygon spot is a legacy spot and there are no view spots.
  */
 @Slf4j
 @Component
@@ -34,14 +31,10 @@ class JpaSpotDirectory implements SpotDirectory {
 
     private final ParkingSpotViewRepository spots;
     private final ObjectMapper objectMapper;
-    private final SpotViewSchema schema;
 
     @Override
     public List<ParkingSpot> polygonSpotsOf(String siteId) {
-        List<ParkingSpotView> found = schema.present()
-                ? spots.findPolygonSpotsOutsideViews(siteId)
-                : spots.findPolygonSpotsBySiteId(siteId);
-        return found.stream()
+        return spots.findPolygonSpotsOutsideViews(siteId).stream()
                 .map(view -> toSpot(view, view.getCoordinates()))
                 .filter(Objects::nonNull)
                 .toList();
@@ -49,10 +42,6 @@ class JpaSpotDirectory implements SpotDirectory {
 
     @Override
     public List<ParkingSpot> polygonSpotsOfView(String siteId, UUID viewId) {
-        if (!schema.present()) {
-            log.debug("View {} asked for before parking_spots has camera-view columns: no spots", viewId);
-            return List.of();
-        }
         return spots.findSpotsOnView(viewId, siteId).stream()
                 .map((PlacedSpot placed) -> toSpot(placed.spot(), placed.imagePolygon()))
                 .filter(Objects::nonNull)

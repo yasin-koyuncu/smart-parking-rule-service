@@ -32,11 +32,7 @@ public class RabbitConfig {
     public static final String VEHICLE_DETECTED_QUEUE = "vehicle.detected";
     public static final String PAYMENT_COMPLETED_QUEUE = "payment.completed.rule-engine";
     public static final String SESSION_ENDED_QUEUE = "session.ended.rule-engine";
-    /**
-     * The former durable queue shared by all instances, which evicted the cache on one instance only. It is no longer
-     * declared; {@link com.parkview.ruleengine.messaging.LegacyMapQueueCleanup} removes it from brokers that still have it.
-     * Also the prefix of the per-instance queues.
-     */
+    /** The prefix of the per-instance queues of map.updated: every instance evicts its own caches. */
     public static final String MAP_UPDATED_QUEUE = "map.updated.rule-engine";
 
     public static final String VEHICLE_DETECTED_KEY = "vehicle.detected";

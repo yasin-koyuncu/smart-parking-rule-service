@@ -53,12 +53,9 @@ public class AccessPolicy {
         return zoneId != null && canAccessSite(user, siteOfZone(zoneId));
     }
 
-    /**
-     * The site of a zone. A zone that is not known is taken to be its own site, which is true of every zone that existed
-     * before sites did (ADR 0009: a site created for a zone has the zone's id); it has no records at another site either.
-     */
+    /** The site of a zone; null when the zone is not known (then no operator has access to it). */
     public String siteOfZone(String zoneId) {
-        return zoneId == null ? null : zones.siteOf(zoneId).orElse(zoneId);
+        return zoneId == null ? null : zones.siteOf(zoneId).orElse(null);
     }
 
     public void requirePlate(AuthenticatedUser user, String plate) {

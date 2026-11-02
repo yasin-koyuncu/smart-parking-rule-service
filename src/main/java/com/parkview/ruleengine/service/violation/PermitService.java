@@ -60,10 +60,10 @@ public class PermitService {
 
     /**
      * The site a new permit is for: the site of its zone when it names one (a zone of another site than {@code siteId} is
-     * refused), else {@code siteId}; null for a permit valid at every site. A zone that is not known is taken to be its own
-     * site, which is true of every zone that existed before sites did.
+     * refused), else {@code siteId}; null for a permit valid at every site.
      *
-     * @throws BusinessRuleException {@code zone.otherSite} when the zone does not belong to the given site
+     * @throws ResourceNotFoundException when the zone is not known
+     * @throws BusinessRuleException     {@code zone.otherSite} when the zone does not belong to the given site
      */
     @Transactional(readOnly = true)
     public String siteOf(CreatePermitRequest request) {
@@ -72,7 +72,7 @@ public class PermitService {
         if (zoneId == null) {
             return siteId;
         }
-        String siteOfZone = zones.siteOf(zoneId).orElse(zoneId);
+        String siteOfZone = zones.siteOf(zoneId).orElseThrow(() -> new ResourceNotFoundException("Zone", zoneId));
         if (siteId != null && !siteId.equals(siteOfZone)) {
             throw BusinessRuleException.coded("zone.otherSite", "The zone belongs to another site");
         }

@@ -13,17 +13,10 @@ import java.util.UUID;
 public interface ParkingSpotViewRepository extends Repository<ParkingSpotView, UUID> {
 
     /**
-     * Spots drawn as polygons at the site, in a zone or not; point spots carry no geometry that can be matched against a
-     * vehicle. Only for a database without camera views: it would also return the spots of a view, whose
-     * {@code coordinates} are not in the pixel space of a legacy observation.
-     */
-    @Query("select s from ParkingSpotView s where s.siteId = :siteId and s.shape = 'polygon'")
-    List<ParkingSpotView> findPolygonSpotsBySiteId(String siteId);
-
-    /**
-     * The legacy spots of a site in a database that has camera views: polygon spots drawn on no view, with their raw
-     * camera-pixel {@code coordinates} (which are null for a spot that only has a geo polygon).
-     * Needs the {@code view_id} column.
+     * The legacy spots of a site: polygon spots drawn on no view, in a zone or not, with their raw camera-pixel
+     * {@code coordinates} (which are null for a spot that only has a geo polygon). Point spots carry no geometry that can
+     * be matched against a vehicle, and the {@code coordinates} of a spot on a view are not in the pixel space of a legacy
+     * observation.
      */
     @Query("""
             select s from ParkingSpotView s
@@ -34,7 +27,6 @@ public interface ParkingSpotViewRepository extends Repository<ParkingSpotView, U
     /**
      * The spots drawn on a camera view, with their {@code image_polygon}. The shape does not matter here: the polygon
      * of the view is the geometry. The site is a guard so that a view id never leaks spots of another site.
-     * Needs the {@code view_id} and {@code image_polygon} columns.
      */
     @Query("""
             select new com.parkview.ruleengine.readmodel.PlacedSpot(s, p.imagePolygon)

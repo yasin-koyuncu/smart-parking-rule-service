@@ -65,7 +65,7 @@ public class DetectionService {
         }
         String siteId = blankToNull(event.siteId()) != null ? event.siteId().trim() : ruleCache.siteIdOf(zoneId);
         if (siteId == null) {
-            log.warn("Observation from camera {} names neither a site nor a zone: ignored", event.cameraId());
+            log.warn("Observation from camera {} names no known site or zone: ignored", event.cameraId());
             return;
         }
         String plate = Plates.normalize(event.plate());

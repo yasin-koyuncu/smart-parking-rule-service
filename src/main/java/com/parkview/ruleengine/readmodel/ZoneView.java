@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.Immutable;
 
 /**
- * Read-only view of {@code zones}, which is owned by the Supabase schema / parking-mapping-service.
+ * Read-only view of {@code mapping.v_zones}, the published view of the zones of parking-mapping-service (ADR 0010).
  * rule-service needs the street address to enrich {@code violation.created} and {@code fine.issued} events, the site
  * the zone belongs to (ADR 0009), and the stay limit, whether parking is allowed, country and timezone to evaluate rules. {@code country} and {@code timezone} may be null
  * (the engine then assumes {@code SE} and {@code Europe/Stockholm}).
@@ -18,7 +18,7 @@ import org.hibernate.annotations.Immutable;
  */
 @Entity
 @Immutable
-@Table(name = "zones")
+@Table(schema = "mapping", name = "v_zones")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ZoneView {

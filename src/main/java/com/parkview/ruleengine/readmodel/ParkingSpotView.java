@@ -14,17 +14,17 @@ import org.hibernate.type.SqlTypes;
 import java.util.UUID;
 
 /**
- * Read-only view of {@code parking_spots}, which is owned by parking-mapping-service.
+ * Read-only view of {@code mapping.v_parking_spots}, the published view of the spots of parking-mapping-service (ADR 0010).
  * rule-service reads the spot geometry and grace settings to decide which spot a detected vehicle occupies, and the site
  * and (optional) zone whose rules apply in it.
  * Maps just the columns used; never written by this service and never created by its Liquibase changelog.
  * {@code coordinates} is kept as the raw JSON text so that unusable geometry is rejected per spot by the
  * adapter instead of failing the whole query; it is null for a spot that only has a geo polygon. The camera-view columns
- * ({@code view_id}, {@code image_polygon}) are deliberately not mapped here, see {@link SpotPlacementView}.
+ * ({@code view_id}, {@code image_polygon}) are mapped by {@link SpotPlacementView}.
  */
 @Entity
 @Immutable
-@Table(name = "parking_spots")
+@Table(schema = "mapping", name = "v_parking_spots")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ParkingSpotView {

@@ -15,20 +15,19 @@ import org.hibernate.type.SqlTypes;
 import java.util.UUID;
 
 /**
- * Read-only view of {@code zone_rules}, the rules operators edit in the operator UI. The table is owned by the
- * Supabase schema / parking-mapping-service. A row with a zone is a zone rule, a row without one a site rule (ADR 0009).
+ * Read-only view of {@code mapping.v_zone_rules}, the published view of the rules operators edit in the operator UI
+ * (owned by parking-mapping-service, ADR 0010). A row with a zone is a zone rule, a row without one a site rule (ADR 0009).
  * {@code start_time} and {@code end_time} are {@code time} columns,
  * {@code vehicle_types} is {@code text[]} and {@code weekdays} {@code int[]}.
  *
- * <p>The two time columns are read as text ({@code HH:mm:ss}, or {@code HH:mm} while a database still has text
- * columns) and parsed by the adapter: mapping a {@code time} column to {@code LocalTime} goes through
+ * <p>The two time columns are read as text ({@code HH:mm:ss}) and parsed by the adapter: mapping a {@code time} column to {@code LocalTime} goes through
  * {@code java.sql.Time}, which together with {@code hibernate.jdbc.time_zone=UTC} shifts the value by the UTC offset of
  * the JVM default zone (22:00 became 23:00 on a Stockholm host).
  * Maps just the columns used (not the price); never written by this service and never created by its Liquibase changelog.
  */
 @Entity
 @Immutable
-@Table(name = "zone_rules")
+@Table(schema = "mapping", name = "v_zone_rules")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ZoneRuleView {

@@ -97,6 +97,14 @@ public interface ViolationRepository extends JpaRepository<Violation, UUID> {
             """)
     List<UUID> findDueForFine(Instant now, Instant seenSince, Pageable limit);
 
+    /** The active violations of the site whose spot is no longer in the published spots of parking-mapping-service. */
+    @Query("""
+            select v from Violation v
+            where v.siteId = :siteId and v.resolvedAt is null and v.fineIssuedAt is null
+              and not exists (select 1 from ParkingSpotView s where s.id = v.spotId)
+            """)
+    List<Violation> findActiveOfRemovedSpots(String siteId);
+
     @Query("""
             select v from Violation v
             where v.resolvedAt is null and v.fineIssuedAt is null and v.lastSeenAt < :seenBefore

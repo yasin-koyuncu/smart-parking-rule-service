@@ -21,9 +21,8 @@ import com.parkview.ruleengine.domain.converter.LowercaseViolationTypeConverter;
 import com.parkview.ruleengine.domain.type.PaidMethod;
 import com.parkview.ruleengine.domain.type.ViolationType;
 /**
- * A fine issued for a violation. The table is shared with other services (payment reads it through
- * the internal API, the Supabase migrations created its original shape); this service is the only
- * writer of new rows. A fine ends either paid (payment event or an operator) or voided (an operator), never both.
+ * A fine issued for a violation. The table is this service's own (payment reads a fine through the internal API, ingestion-service
+ * reads the published view {@code rules.v_fines}); this service is the only writer. A fine ends either paid (payment event or an operator) or voided (an operator), never both.
  */
 @Entity
 @Table(name = "fines")
@@ -45,7 +44,7 @@ public class Fine {
     @Column(name = "zone_id")
     private String zoneId;
 
-    /** Read only: the sweep does not know the camera; rows created elsewhere (older shapes of the table) may carry one. */
+    /** Read only: the sweep does not know the camera, so no command of this service sets it. */
     @Column(name = "camera_id", insertable = false, updatable = false)
     private String cameraId;
 
@@ -53,7 +52,7 @@ public class Fine {
     @Column(nullable = false)
     private ViolationType reason;
 
-    /** Read only, same reason as {@code cameraId}: optional display data written by other producers of the table. */
+    /** Read only, same reason as {@code cameraId}: optional display data that no command of this service sets. */
     @Column(name = "reason_code", insertable = false, updatable = false)
     private String reasonCode;
 

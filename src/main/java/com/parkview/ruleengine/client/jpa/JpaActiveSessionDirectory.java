@@ -14,7 +14,6 @@ import java.util.Optional;
 class JpaActiveSessionDirectory implements ActiveSessionDirectory {
 
     private final SessionViewRepository sessions;
-    private final SessionVoidSchema schema;
 
     /**
      * A voided session (an operator corrected a wrong one) is not active: it must not cause an overstay. Always limited to the
@@ -25,16 +24,10 @@ class JpaActiveSessionDirectory implements ActiveSessionDirectory {
         if (siteId == null) {
             return Optional.empty();
         }
-        Optional<SessionView> active;
-        if (zoneId != null) {
-            active = schema.present()
-                    ? sessions.findActiveNotVoided(normalizedPlate, siteId, zoneId)
-                    : sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc(normalizedPlate, siteId, zoneId);
-        } else {
-            active = schema.present()
-                    ? sessions.findActiveNotVoidedAtSite(normalizedPlate, siteId)
-                    : sessions.findFirstByPlateAndSiteIdAndEndedAtIsNullOrderByStartedAtDesc(normalizedPlate, siteId);
-        }
+        Optional<SessionView> active = zoneId != null
+                ? sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullAndVoidedAtIsNullOrderByStartedAtDesc(
+                        normalizedPlate, siteId, zoneId)
+                : sessions.findFirstByPlateAndSiteIdAndEndedAtIsNullAndVoidedAtIsNullOrderByStartedAtDesc(normalizedPlate, siteId);
         return active.map(SessionView::getStartedAt);
     }
 }

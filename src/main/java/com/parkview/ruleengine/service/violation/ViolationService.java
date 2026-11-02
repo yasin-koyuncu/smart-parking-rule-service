@@ -14,7 +14,6 @@ import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
-import com.parkview.ruleengine.service.cache.SpotCacheService;
 import com.parkview.ruleengine.service.outbox.OutboxService;
 import com.parkview.ruleengine.util.Plates;
 import com.parkview.ruleengine.web.ConflictException;
@@ -29,7 +28,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -53,9 +51,6 @@ public class ViolationService {
 
     private static final int STALE_BATCH = 200;
 
-    /** PostgreSQL SQLSTATE of a foreign key violation. */
-    private static final String FOREIGN_KEY_VIOLATION = "23503";
-
     private final ViolationRepository violations;
     private final FineRepository fines;
     private final PlateOwnerDirectory plateOwners;
@@ -64,7 +59,6 @@ public class ViolationService {
     private final OutboxService outbox;
     private final RuleEngineProperties properties;
     private final EngineMetrics metrics;
-    private final SpotCacheService spotCache;
     private final Clock clock;
     private final TransactionTemplate tx;
 
@@ -88,27 +82,11 @@ public class ViolationService {
         try {
             tx.executeWithoutResult(status -> confirmOrOpen(spot, type, plate, cameraId, ruleSummary, observedAt));
         } catch (DataIntegrityViolationException e) {
-            if (isForeignKeyViolation(e)) {
-                // The spot was deleted after the cache loaded it, e.g. by a re-scan: not an error, and a retry would only
-                // dead-letter the message. Plates are personal data and stay out of the log.
-                spotCache.evict(spot.siteId());
-                log.debug("Spot {} of site {} no longer exists: observation dropped, spot cache evicted", spot.id(), spot.siteId());
-                return;
-            }
             if (violations.findActive(plate, spot.id(), type).isEmpty()) {
                 throw e;
             }
             log.debug("Violation {} for spot {} was opened concurrently", type, spot.id());
         }
-    }
-
-    private static boolean isForeignKeyViolation(Throwable error) {
-        for (Throwable t = error; t != null; t = t.getCause() == t ? null : t.getCause()) {
-            if (t instanceof SQLException sql && FOREIGN_KEY_VIOLATION.equals(sql.getSQLState())) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void confirmOrOpen(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary,
@@ -126,7 +104,7 @@ public class ViolationService {
             return;
         }
         // The same stay must not be fined twice when the spot was replaced meanwhile (re-scan, "empty the area", rollback): the
-        // new spot has a new id and the cascade took the old violation with it, so only the fine itself remembers it. A voided
+        // new spot has a new id and the violation of the old one is closed (see resolveOfRemovedSpots), so only the fine itself remembers it. A voided
         // fine counts too: an operator decided about this stay already.
         if (properties.refineBlockHours() > 0 && finedRecently(spot, type, plate, observedAt.minus(properties.refineBlock()))) {
             log.debug("A fine for {} at site {} zone {} was issued within {} h: no new violation", type, spot.siteId(), spot.zoneId(),
@@ -191,6 +169,29 @@ public class ViolationService {
         return stale.size();
     }
 
+    /**
+     * Closes the active violations of the site whose spot no longer exists (as LEFT: nobody can be breaking a rule in a spot that is
+     * gone, and none of them is fined). Called for {@code map.updated}, after the spot cache of the site was evicted: a re-scan,
+     * a rollback, "empty the area" or deleting a spot or a zone replaces the spots, and rule-service has no foreign key that would
+     * take their violations along (ADR 0010). Reads the spots through the published view of parking-mapping-service. A violation
+     * that already has a fine stays as it is; one opened from a stale cache in the instant before the eviction is closed by the
+     * stale sweep instead, since no detection can confirm it any more.
+     *
+     * @return how many violations this call resolved
+     */
+    public int resolveOfRemovedSpots(String siteId) {
+        int resolved = 0;
+        for (Violation orphan : violations.findActiveOfRemovedSpots(siteId)) {
+            if (resolve(orphan, ResolutionReason.LEFT)) {
+                resolved++;
+            }
+        }
+        if (resolved > 0) {
+            log.info("Closed {} violations of spots that no longer exist at site {}", resolved, siteId);
+        }
+        return resolved;
+    }
+
     /** The open violations of the plate at the site, only those in the zone when {@code zoneId} is set. */
     private List<Violation> activeOf(String plate, String siteId, String zoneId) {
         return zoneId != null
@@ -207,13 +208,13 @@ public class ViolationService {
      * ended the session without leaving, or the event arrived late). Should a clock difference between the services make
      * this skip a violation that should have been resolved, the fine sweep still refuses it as not recently seen.
      *
-     * @param siteId  the site of the session; null from a producer that predates sites, then the zone's site is used
+     * @param siteId  the site of the session; null when the event names only the zone, then the zone's site is used
      * @param zoneId  the zone of the session, null for a session outside the zones of the site
      * @param endedAt when the session ended, null when unknown (then every open violation of the plate there is resolved)
      * @return how many violations this call resolved
      */
     public int resolveEnded(String plate, String siteId, String zoneId, Instant endedAt) {
-        String site = siteId != null ? siteId : zoneId == null ? null : zones.siteOf(zoneId).orElse(zoneId);
+        String site = siteId != null ? siteId : zoneId == null ? null : zones.siteOf(zoneId).orElse(null);
         if (site == null) {
             return 0;
         }
