@@ -18,7 +18,7 @@ spring:
       enabled: true
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/parkview}
-    username: ${DB_USER:postgres}
+    username: ${DB_USER:svc_rule}
     password: ${DB_PASS}
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:10}
@@ -32,6 +32,7 @@ spring:
       ddl-auto: validate
     properties:
       hibernate:
+        default_schema: ${DB_SCHEMA:rules}
         jdbc:
           batch_size: 50
           time_zone: UTC
@@ -39,6 +40,10 @@ spring:
         order_updates: true
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+    # the tables of this service and Liquibase's own tracking tables live in its schema (ADR 0010): the schema and the role
+    # (search_path = rules, public) are created by the infrastructure
+    default-schema: ${DB_SCHEMA:rules}
+    liquibase-schema: ${DB_SCHEMA:rules}
   rabbitmq:
     host: ${RABBIT_HOST:localhost}
     port: ${RABBIT_PORT:5672}
