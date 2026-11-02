@@ -22,7 +22,7 @@ import com.parkview.ruleengine.domain.type.PaidMethod;
 import com.parkview.ruleengine.domain.type.ViolationType;
 /**
  * A fine issued for a violation. The table is this service's own (payment reads a fine through the internal API, ingestion-service
- * reads the published view {@code rules.v_fines}); this service is the only writer. A fine ends either paid (payment event or an operator) or voided (an operator), never both.
+ * reads {@code id, site_id, image_path} through the published view {@code rules.v_fines}); this service is the only writer. A fine ends either paid (payment event or an operator) or voided (an operator), never both.
  */
 @Entity
 @Table(name = "fines")
@@ -44,20 +44,9 @@ public class Fine {
     @Column(name = "zone_id")
     private String zoneId;
 
-    /** Read only: the sweep does not know the camera, so no command of this service sets it. */
-    @Column(name = "camera_id", insertable = false, updatable = false)
-    private String cameraId;
-
     @Convert(converter = LowercaseViolationTypeConverter.class)
     @Column(nullable = false)
     private ViolationType reason;
-
-    /** Read only, same reason as {@code cameraId}: optional display data that no command of this service sets. */
-    @Column(name = "reason_code", insertable = false, updatable = false)
-    private String reasonCode;
-
-    @Column(name = "reason_text", insertable = false, updatable = false)
-    private String reasonText;
 
     @Column(name = "amount_sek", nullable = false, precision = 10, scale = 2)
     private BigDecimal amountSek;
@@ -78,11 +67,11 @@ public class Fine {
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
-    /** Null for fines paid before the column existed. */
+    /** Set together with {@code paid} (database check {@code fines_paid_consistent_check}). */
     @Column(name = "paid_at")
     private Instant paidAt;
 
-    /** {@code online | cash | transfer | other}; null while unpaid and for fines paid before the column existed. */
+    /** {@code online | cash | transfer | other}; null while unpaid, set together with {@code paid}. */
     @Column(name = "paid_method")
     private String paidMethod;
 
@@ -93,7 +82,7 @@ public class Fine {
     @Column(name = "voided_at")
     private Instant voidedAt;
 
-    /** Operator free text: shown in the audit trail to staff only, never logged. */
+    /** Operator free text: shown in the audit trail to staff only, never logged; the retention job clears it from old closed fines. */
     @Column(name = "void_reason")
     private String voidReason;
 

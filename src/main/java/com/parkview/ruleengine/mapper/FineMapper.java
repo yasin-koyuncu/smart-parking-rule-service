@@ -28,8 +28,8 @@ public final class FineMapper {
      *                      for staff, drivers get it through the evidence endpoint only (ADR 0008)
      */
     public static FineResponse toResponse(Fine f, DisputeStatus disputeStatus, boolean withImagePath) {
-        return new FineResponse(f.getId(), f.getPlate(), f.getZoneId(), f.getSiteId(), f.getCameraId(),
-                f.getReason().name().toLowerCase(Locale.ROOT), f.getReasonCode(), f.getReasonText(),
+        return new FineResponse(f.getId(), f.getPlate(), f.getZoneId(), f.getSiteId(),
+                f.getReason().name().toLowerCase(Locale.ROOT),
                 f.getAmountSek(), f.getIssuedAt(), f.isPaid(), withImagePath ? f.getImagePath() : null, f.getPaidAt(), f.isVoided(), f.getVoidedAt(),
                 disputeStatus == DisputeStatus.OPEN, disputeStatus == null ? null : disputeStatus.wire());
     }

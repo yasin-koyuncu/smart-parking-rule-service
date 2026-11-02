@@ -23,9 +23,8 @@ public final class DisputeMapper {
                 d.getDecisionNote());
     }
 
-    /** The text stored with the fine when another producer wrote one, else the plain-language text of the violation type. */
+    /** The plain-language text of why the fine was issued. */
     static String reasonText(Fine fine) {
-        String stored = fine.getReasonText();
-        return stored != null && !stored.isBlank() ? stored : ReasonTexts.of(fine.getReason());
+        return ReasonTexts.of(fine.getReason());
     }
 }

@@ -5,6 +5,7 @@ import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.service.fine.FineIssuingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -24,7 +25,8 @@ import java.util.UUID;
  *       violation and two instances never fine the same one. A violation is only fined when a detection confirmed it
  *       within {@code fine-freshness-seconds}: rule-service is not told that a car left, so a violation that stopped being
  *       confirmed (the car drove away during the grace period) must not be fined just because its grace is over. The
- *       stale sweep, or {@code session.ended}, closes it.</li>
+ *       stale sweep, or {@code session.ended}, closes it. The database allows one fine per violation: should a second fine ever be
+ *       attempted, its transaction fails on the unique constraint, rolls back as a whole and is logged as already fined.</li>
  *   <li>stale sweep: resolves violations no detection has confirmed for {@code stale-minutes} as LEFT.</li>
  * </ul>
  */
@@ -68,6 +70,10 @@ public class ViolationJobs {
                 if (Boolean.TRUE.equals(tx.execute(status -> fineOne(id, now, seenSince)))) {
                     fined++;
                 }
+            } catch (DataIntegrityViolationException e) {
+                // the database allows one fine per violation (unique violation_id on the evidence, unique fine_id on the violation): a
+                // second fine for the same violation is rolled back as a whole and counts as already fined, not as a failure
+                log.warn("Violation {} was fined already, no second fine was issued", id);
             } catch (RuntimeException e) {
                 log.error("Could not issue a fine for violation {}; it is retried on the next sweep", id, e);
             }
