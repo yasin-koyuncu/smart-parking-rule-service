@@ -13,7 +13,6 @@ import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
-import com.parkview.ruleengine.service.cache.SpotCacheService;
 import com.parkview.ruleengine.service.TestFixtures;
 import com.parkview.ruleengine.service.TestTransactions;
 import com.parkview.ruleengine.service.outbox.OutboxService;
@@ -55,7 +54,6 @@ class ViolationServiceTest {
 
     private final ViolationRepository violations = mock(ViolationRepository.class);
     private final FineRepository fines = mock(FineRepository.class);
-    private final SpotCacheService spotCache = mock(SpotCacheService.class);
     private final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
     private final SiteDirectory sites = mock(SiteDirectory.class);
@@ -66,7 +64,7 @@ class ViolationServiceTest {
     @BeforeEach
     void setUp() {
         service = new ViolationService(violations, fines, owners, zones, sites, events, TestFixtures.properties(),
-                new EngineMetrics(registry), spotCache, Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
+                new EngineMetrics(registry), Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
         when(owners.ownerOf(anyString())).thenReturn(Optional.empty());
         when(zones.addressOf(anyString())).thenReturn(Optional.empty());
         when(violations.saveAndFlush(any(Violation.class))).thenAnswer(inv -> {
@@ -300,6 +298,17 @@ class ViolationServiceTest {
     }
 
     @Test
+    void violationsOfSpotsThatNoLongerExistAreResolvedAsLeft() {
+        Violation orphan = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
+        when(violations.findActiveOfRemovedSpots(ZONE)).thenReturn(List.of(orphan));
+        when(violations.resolveIfActive(any(), any(), any())).thenReturn(1);
+
+        assertThat(service.resolveOfRemovedSpots(ZONE)).isEqualTo(1);
+
+        verify(violations).resolveIfActive(orphan.getId(), ResolutionReason.LEFT, NOW);
+    }
+
+    @Test
     void manualResolveClosesAnOpenViolationAndPublishes() {
         Violation open = violationAt(UUID.randomUUID(), ViolationType.WRONG_PERMIT);
         when(violations.findById(open.getId())).thenReturn(Optional.of(open));
@@ -373,19 +382,6 @@ class ViolationServiceTest {
 
         verify(violations).touch(active.getId(), seen);
         verify(violations, never()).touch(active.getId(), NOW);
-    }
-
-    @Test
-    void aForeignKeyFailureMeansTheSpotIsGoneAndIsAcknowledgedWithTheZoneCacheEvicted() {
-        ParkingSpot spot = TestFixtures.spot("permit", "resident", null, null);
-        when(violations.findActive(PLATE, spot.id(), ViolationType.WRONG_PERMIT)).thenReturn(Optional.empty());
-        when(violations.saveAndFlush(any(Violation.class))).thenThrow(new DataIntegrityViolationException("insert or update violates fk",
-                new java.sql.SQLException("violates foreign key constraint", "23503")));
-
-        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1", null, NOW);
-
-        verify(spotCache).evict(ZONE);
-        verifyNoInteractions(events);
     }
 
     @Test

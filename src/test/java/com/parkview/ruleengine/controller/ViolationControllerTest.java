@@ -49,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class ViolationControllerTest {
 
-    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    /** The access policy asks it for the site of a zone; the tests use zone ids that are their own site. */
     @MockitoBean
     ZoneDirectory zoneDirectory;
 
@@ -65,6 +65,8 @@ class ViolationControllerTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.when(zoneDirectory.siteOf(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(inv -> java.util.Optional.of(inv.getArgument(0)));
         violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.WRONG_PERMIT, T, T.plusSeconds(600));
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
     }

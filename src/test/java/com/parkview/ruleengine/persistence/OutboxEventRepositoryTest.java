@@ -81,15 +81,6 @@ class OutboxEventRepositoryTest {
     }
 
     @Test
-    void theTableIsNotThePaymentServicesTable() {
-        enqueue("f-1", "fine.issued");
-
-        assertThat(jdbc.queryForObject("select count(*) from rule_outbox_events", Integer.class)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select to_regclass('public.outbox_events') is null", Boolean.class))
-                .as("rule-service must not create or use payment-service's outbox_events").isTrue();
-    }
-
-    @Test
     void dueRowsAreClaimedInInsertionOrderUpToTheBatchSize() {
         enqueue("f-1", "fine.issued");
         enqueue("f-2", "fine.issued");

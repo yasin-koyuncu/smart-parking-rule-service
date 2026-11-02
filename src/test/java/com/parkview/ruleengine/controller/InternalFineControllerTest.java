@@ -40,7 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + INTERNAL_KEY})
 class InternalFineControllerTest {
 
-    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    /** The access policy asks it for the site of a zone; the tests use zone ids that are their own site. */
     @MockitoBean
     ZoneDirectory zoneDirectory;
 

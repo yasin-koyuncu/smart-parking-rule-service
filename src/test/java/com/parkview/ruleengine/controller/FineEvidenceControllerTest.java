@@ -50,7 +50,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
 class FineEvidenceControllerTest {
 
-    /** The access policy asks it for the site of a zone; unknown zones are their own site, like every zone from before sites. */
+    /** The access policy asks it for the site of a zone; the tests use zone ids that are their own site. */
     @MockitoBean
     ZoneDirectory zoneDirectory;
 
@@ -72,6 +72,8 @@ class FineEvidenceControllerTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.when(zoneDirectory.siteOf(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(inv -> java.util.Optional.of(inv.getArgument(0)));
         Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.OVERSTAY, DETECTED,
                 DETECTED.plus(Duration.ofMinutes(5)), "The stay limit is 60 minutes (the limit of the zone) and the parking session had lasted longer.");
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());

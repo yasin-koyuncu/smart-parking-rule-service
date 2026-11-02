@@ -95,9 +95,9 @@ class RuleServiceFlowTest {
 
     private String newZone(String spotType, String permitType) {
         String zone = "zone-" + UUID.randomUUID();
-        jdbc.update("insert into zones (id, address) values (?, 'Testgatan 1')", zone);
+        jdbc.update("insert into mapping.zones (id, address) values (?, 'Testgatan 1')", zone);
         jdbc.update("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type)
                 values (?, ?, 'polygon', ?::jsonb, 'A1', ?)""", zone, spotType, SPOT_POLYGON, permitType);
         return zone;
     }
@@ -158,13 +158,13 @@ class RuleServiceFlowTest {
     void anObservationOnACameraViewIsMatchedAgainstTheSpotsOfThatViewAndALegacyOneAgainstTheLegacySpots() {
         String zone = "zone-" + UUID.randomUUID();
         UUID view = UUID.randomUUID();
-        jdbc.update("insert into zones (id, address) values (?, 'Testgatan 1')", zone);
+        jdbc.update("insert into mapping.zones (id, address) values (?, 'Testgatan 1')", zone);
         // a legacy spot at the origin (raw camera pixels) and a spot drawn on a view far away (image polygon, no coordinates)
         jdbc.update("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number)
                 values (?, 'no_parking', 'polygon', ?::jsonb, 'LEGACY')""", zone, SPOT_POLYGON);
         jdbc.update("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon)
                 values (?, 'no_parking', 'polygon', null, 'ON-VIEW', ?, ?::jsonb)""", zone, view, "[[100, 100], [100, 110], [110, 110], [110, 100]]");
         String legacyAtView = newPlate();
         String viewAtLegacy = newPlate();
@@ -176,7 +176,7 @@ class RuleServiceFlowTest {
         detectOnView(zone, onView, VEHICLE_ELSEWHERE, view);
         detect(zone, legacy, VEHICLE_IN_SPOT);
 
-        String sql = "select s.spot_number from spot_violations v join parking_spots s on s.id = v.spot_id where v.plate = ?";
+        String sql = "select s.spot_number from spot_violations v join mapping.parking_spots s on s.id = v.spot_id where v.plate = ?";
         await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(200)).untilAsserted(() -> {
             assertThat(jdbc.queryForList(sql, String.class, onView)).containsExactly("ON-VIEW");
             assertThat(jdbc.queryForList(sql, String.class, legacy)).containsExactly("LEGACY");
@@ -190,7 +190,7 @@ class RuleServiceFlowTest {
         String zone = newZone("permit", "resident");
         String plate = newPlate();
         UUID owner = UUID.randomUUID();
-        jdbc.update("insert into user_plates (user_id, plate) values (?, ?)", owner, plate);
+        jdbc.update("insert into identity.user_plates (user_id, plate) values (?, ?)", owner, plate);
 
         detect(zone, plate, VEHICLE_IN_SPOT);
         detect(zone, plate, VEHICLE_IN_SPOT);
@@ -260,7 +260,7 @@ class RuleServiceFlowTest {
         String zone = newZone("permit", "resident");
         String plate = newPlate();
         UUID owner = UUID.randomUUID();
-        jdbc.update("insert into user_plates (user_id, plate) values (?, ?)", owner, plate);
+        jdbc.update("insert into identity.user_plates (user_id, plate) values (?, ?)", owner, plate);
 
         detect(zone, plate, VEHICLE_IN_SPOT);
         awaitEvent("violation.created", plate);
@@ -310,10 +310,10 @@ class RuleServiceFlowTest {
         String zone = newZone("permit", "resident");
         String plate = newPlate();
         UUID owner = UUID.randomUUID();
-        jdbc.update("insert into user_plates (user_id, plate) values (?, ?)", owner, plate);
+        jdbc.update("insert into identity.user_plates (user_id, plate) values (?, ?)", owner, plate);
         detect(zone, plate, VEHICLE_IN_SPOT);
         awaitEvent("violation.created", plate);
-        jdbc.update("insert into detections (plate, zone_id, image_path, confidence) values (?, ?, 'snapshots/cam-1/flow.jpg', 0.88)", plate, zone);
+        jdbc.update("insert into ingestion.detections (plate, zone_id, image_path, confidence) values (?, ?, 'snapshots/cam-1/flow.jpg', 0.88)", plate, zone);
         jdbc.update("update spot_violations set grace_until = now() - interval '1 minute' where plate = ?", plate);
         UUID fineId = UUID.fromString(awaitEvent("fine.issued", plate).get("fineId").asText());
 
@@ -325,7 +325,7 @@ class RuleServiceFlowTest {
         assertThat(evidence.get("rule_summary").toString()).contains("the spot requires a resident permit");
         assertThat(evidence.get("image_paths").toString()).contains("snapshots/cam-1/flow.jpg");
         assertThat(evidence.get("decision_basis")).isEqualTo("automatic");
-        jdbc.update("update zones set address = 'Renamed street 9' where id = ?", zone);
+        jdbc.update("update mapping.zones set address = 'Renamed street 9' where id = ?", zone);
         assertThat(jdbc.queryForObject("select zone_address from fine_evidence where fine_id = ?", String.class, fineId)).isEqualTo("Testgatan 1");
 
         // the driver disputes it: announced, and the fine cannot be marked as paid meanwhile
@@ -630,9 +630,9 @@ class RuleServiceFlowTest {
     @Test
     void aVoidedSessionDoesNotMakeAnOverstay() {
         String zone = newZone("paid", null);
-        jdbc.update("update zones set max_minutes = 60 where id = ?", zone);
+        jdbc.update("update mapping.zones set max_minutes = 60 where id = ?", zone);
         String plate = newPlate();
-        jdbc.update("insert into sessions (plate, zone_id, started_at, voided_at) values (?, ?, now() - interval '90 minutes', now())", plate, zone);
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, voided_at) values (?, ?, now() - interval '90 minutes', now())", plate, zone);
 
         detect(zone, plate, VEHICLE_IN_SPOT);
         awaitProcessed();
@@ -644,7 +644,7 @@ class RuleServiceFlowTest {
     void aZoneRuleForTrucksOnlyHitsTrucksAndUsesTheDetectorClass() {
         String zone = newZone("paid", null);
         jdbc.update("""
-                insert into zone_rules (zone_id, label, priority, vehicle_types, no_parking)
+                insert into mapping.zone_rules (zone_id, label, priority, vehicle_types, no_parking)
                 values (?, 'No trucks', 10, '{truck}', true)""", zone);
         String car = newPlate();
         String truck = newPlate();
@@ -661,9 +661,9 @@ class RuleServiceFlowTest {
     @Test
     void aStayLongerThanTheZoneLimitBecomesAnOverstayAndALaterTypeChangeResolvesIt() {
         String zone = newZone("paid", null);
-        jdbc.update("update zones set max_minutes = 60 where id = ?", zone);
+        jdbc.update("update mapping.zones set max_minutes = 60 where id = ?", zone);
         String plate = newPlate();
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values (?, ?, now() - interval '90 minutes')", plate, zone);
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at) values (?, ?, now() - interval '90 minutes')", plate, zone);
 
         detect(zone, plate, VEHICLE_IN_SPOT);
 
@@ -672,7 +672,7 @@ class RuleServiceFlowTest {
         assertThat(created.get("graceMinutes").asInt()).isEqualTo(5);
         assertThat(violationRow(plate).get("violation_type")).isEqualTo("OVERSTAY");
 
-        jdbc.update("update sessions set ended_at = now() where plate = ?", plate);
+        jdbc.update("update sessions.sessions set ended_at = now() where plate = ?", plate);
         detect(zone, plate, VEHICLE_IN_SPOT);
 
         assertThat(awaitEvent("violation.resolved", plate).get("reason").asText()).isEqualTo("CORRECTED");

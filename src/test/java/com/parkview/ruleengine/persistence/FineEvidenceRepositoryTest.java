@@ -63,7 +63,7 @@ class FineEvidenceRepositoryTest {
     void setUp() {
         jdbc.execute("truncate fine_evidence, fines cascade");
         fineId = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek, issued_at) values (?, 'ABC123', 'z1', 'overstay', 450, ?)",
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek, issued_at) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, ?)",
                 fineId, java.sql.Timestamp.from(ISSUED));
         violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.OVERSTAY, DETECTED,
                 DETECTED.plus(Duration.ofMinutes(5)));
@@ -170,11 +170,11 @@ class FineEvidenceRepositoryTest {
     @Test
     void onlyAutomaticIsAKnownDecisionBasis() {
         UUID other = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'overstay', 450)", other);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450)", other);
 
-        assertThatThrownBy(() -> jdbc.update("insert into fine_evidence (fine_id, plate, zone_id, violation_type, violation_id, rule_summary, "
+        assertThatThrownBy(() -> jdbc.update("insert into fine_evidence (fine_id, plate, site_id, zone_id, violation_type, violation_id, rule_summary, "
                 + "grace_minutes, violation_detected_at, grace_expired_at, issued_at, decision_basis) "
-                + "values (?, 'XYZ999', 'z1', 'OVERSTAY', gen_random_uuid(), 'x', 1, now(), now(), now(), 'manual')", other))
+                + "values (?, 'XYZ999', 'z1', 'z1', 'OVERSTAY', gen_random_uuid(), 'x', 1, now(), now(), now(), 'manual')", other))
                 .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("fine_evidence_decision_basis_check");
     }
 }

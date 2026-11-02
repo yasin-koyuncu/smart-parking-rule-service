@@ -1,12 +1,7 @@
 package com.parkview.ruleengine.messaging;
 
-import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.service.cache.SpotCacheService;
 import org.junit.jupiter.api.Test;
-import org.springframework.amqp.core.BindingBuilder;
-import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.core.TopicExchange;
-import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * {@code map.updated} against a real broker: the event reaches the listener of this instance through its own queue and
- * evicts the zone from the spot cache, and the shared queue of earlier releases is removed. Not covered: two running
+ * evicts the zone from the spot cache. Not covered: two running
  * instances (the topology test shows that each declares its own queue).
  */
 @Testcontainers
@@ -45,23 +40,19 @@ class MapUpdatedBrokerTest {
     @Autowired
     RabbitTemplate rabbit;
     @Autowired
-    RabbitAdmin admin;
-    @Autowired
     JdbcTemplate jdbc;
     @Autowired
     SpotCacheService cache;
-    @Autowired
-    LegacyMapQueueCleanup cleanup;
 
     @Test
     void anEventEvictsTheZoneFromTheCacheOfThisInstance() throws Exception {
         String zone = "zone-" + UUID.randomUUID();
-        jdbc.update("insert into zones (id, address) values (?, 'Testgatan 1')", zone);
+        jdbc.update("insert into mapping.zones (id, address) values (?, 'Testgatan 1')", zone);
         jdbc.update("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number)
                 values (?, 'paid', 'polygon', '[[0, 0], [0, 10], [10, 10], [10, 0]]'::jsonb, 'A1')""", zone);
         assertThat(cache.spotsOf(zone)).extracting("spotNumber").containsExactly("A1");
-        jdbc.update("update parking_spots set spot_number = 'B2' where zone_id = ?", zone);
+        jdbc.update("update mapping.parking_spots set spot_number = 'B2' where zone_id = ?", zone);
         assertThat(cache.spotsOf(zone)).extracting("spotNumber").containsExactly("A1");   // still the cached ones
 
         rabbit.convertAndSend("parkview.mapping", "map.updated", Map.of("zoneId", zone, "versionNumber", 2,
@@ -72,17 +63,5 @@ class MapUpdatedBrokerTest {
             Thread.sleep(100);
         }
         assertThat(cache.spotsOf(zone)).extracting("spotNumber").containsExactly("B2");
-    }
-
-    @Test
-    void theSharedQueueOfEarlierReleasesIsRemovedFromTheBroker() {
-        Queue legacy = DeadLetterConfig.durableQueue(RabbitConfig.MAP_UPDATED_QUEUE);
-        admin.declareQueue(legacy);
-        admin.declareBinding(BindingBuilder.bind(legacy).to(new TopicExchange("parkview.mapping", true, false)).with("map.updated"));
-        assertThat(admin.getQueueProperties(RabbitConfig.MAP_UPDATED_QUEUE)).isNotNull();
-
-        cleanup.removeLegacyQueue();
-
-        assertThat(admin.getQueueProperties(RabbitConfig.MAP_UPDATED_QUEUE)).isNull();
     }
 }

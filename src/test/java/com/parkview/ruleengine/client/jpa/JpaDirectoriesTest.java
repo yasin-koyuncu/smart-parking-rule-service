@@ -62,21 +62,21 @@ class JpaDirectoriesTest {
 
     @BeforeEach
     void adapters() {
-        jdbc.update("delete from sessions");
-        jdbc.update("delete from zone_rules");
-        jdbc.update("delete from parking_spots");
-        jdbc.update("delete from user_plates");
-        jdbc.update("delete from zones");
-        spots = new JpaSpotDirectory(spotViews, new ObjectMapper(), new SpotViewSchema(jdbc));
+        jdbc.update("delete from sessions.sessions");
+        jdbc.update("delete from mapping.zone_rules");
+        jdbc.update("delete from mapping.parking_spots");
+        jdbc.update("delete from identity.user_plates");
+        jdbc.update("delete from mapping.zones");
+        spots = new JpaSpotDirectory(spotViews, new ObjectMapper());
         owners = new JpaPlateOwnerDirectory(plateViews);
         zones = new JpaZoneDirectory(zoneViews);
         rules = new JpaZoneRuleDirectory(ruleViews);
-        sessions = new JpaActiveSessionDirectory(sessionViews, new SessionVoidSchema(jdbc, java.time.Clock.systemUTC()));
+        sessions = new JpaActiveSessionDirectory(sessionViews);
     }
 
     private void insertSpot(String zone, String shape, String type, String permit, String coordinates, Integer boundary, Integer permitGrace) {
         jdbc.update("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type, boundary_grace_min, permit_grace_min)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type, boundary_grace_min, permit_grace_min)
                 values (?, ?, ?, ?::jsonb, 'A1', ?, ?, ?)""", zone, type, shape, coordinates, permit, boundary, permitGrace);
     }
 
@@ -123,7 +123,7 @@ class JpaDirectoriesTest {
 
     private UUID insertViewSpot(String zone, UUID viewId, String shape, String imagePolygon, String coordinates) {
         return jdbc.queryForObject("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon)
                 values (?, 'permit', ?, ?::jsonb, 'V1', ?, ?::jsonb) returning id""",
                 UUID.class, zone, shape, coordinates, viewId, imagePolygon);
     }
@@ -133,7 +133,7 @@ class JpaDirectoriesTest {
         UUID view = UUID.randomUUID();
         insertSpot("z1", "polygon", "paid", null, "[[0, 0], [0, 10], [10, 10]]", null, null);
         insertViewSpot("z1", view, "polygon", "[[5, 5], [5, 50], [50, 50]]", "[[0, 0], [0, 10], [10, 10]]");
-        jdbc.update("insert into parking_spots (zone_id, type, shape, coordinates) values ('z1', 'paid', 'polygon', null)");
+        jdbc.update("insert into mapping.parking_spots (zone_id, type, shape, coordinates) values ('z1', 'paid', 'polygon', null)");
 
         List<ParkingSpot> found = spots.polygonSpotsOf("z1");
 
@@ -169,7 +169,7 @@ class JpaDirectoriesTest {
         UUID view = UUID.randomUUID();
         insertSpot("z1", "polygon", "paid", null, "[[0, 0], [0, 10], [10, 10]]", null, null);
         UUID onView = insertViewSpot("z1", view, "polygon", "[[1, 1], [1, 9], [9, 9]]", null);
-        UUID legacy = jdbc.queryForObject("select id from parking_spots where view_id is null", UUID.class);
+        UUID legacy = jdbc.queryForObject("select id from mapping.parking_spots where view_id is null", UUID.class);
 
         assertThat(spots.spotNumberOf(legacy)).contains("A1");
         assertThat(spots.spotNumberOf(onView)).contains("V1");
@@ -179,8 +179,8 @@ class JpaDirectoriesTest {
     @Test
     void plateOwnerAndZoneAddressLookups() {
         UUID user = UUID.randomUUID();
-        jdbc.update("insert into user_plates (user_id, plate) values (?, 'ABC123')", user);
-        jdbc.update("insert into zones (id, address) values ('z1', 'Storgatan 1'), ('z2', null), ('z3', '  ')");
+        jdbc.update("insert into identity.user_plates (user_id, plate) values (?, 'ABC123')", user);
+        jdbc.update("insert into mapping.zones (id, address) values ('z1', 'Storgatan 1'), ('z2', null), ('z3', '  ')");
 
         assertThat(owners.ownerOf("ABC123")).contains(user);
         assertThat(owners.ownerOf("NOPE11")).isEmpty();
@@ -192,8 +192,8 @@ class JpaDirectoriesTest {
 
     @Test
     void zoneInfoAppliesDefaultsForNullColumns() {
-        jdbc.update("insert into zones (id, address, max_minutes, country, timezone) values ('z1', 'Storgatan 1', 90, 'NO', 'Europe/Oslo')");
-        jdbc.update("insert into zones (id) values ('z2')");
+        jdbc.update("insert into mapping.zones (id, address, max_minutes, country, timezone) values ('z1', 'Storgatan 1', 90, 'NO', 'Europe/Oslo')");
+        jdbc.update("insert into mapping.zones (id) values ('z2')");
 
         assertThat(zones.infoOf("z1")).contains(new ZoneInfo("Storgatan 1", 90, "NO", ZoneId.of("Europe/Oslo")));
         assertThat(zones.infoOf("z2")).contains(ZoneInfo.unknown());
@@ -203,10 +203,10 @@ class JpaDirectoriesTest {
     @Test
     void zoneRulesAreMappedToTheDomainRule() {
         jdbc.update("""
-                insert into zone_rules (zone_id, label, priority, vehicle_types, permit_required, weekdays, start_time, end_time,
+                insert into mapping.zone_rules (zone_id, label, priority, vehicle_types, permit_required, weekdays, start_time, end_time,
                                         applies_holidays, max_minutes, no_parking)
                 values ('z1', 'Night', 5, '{Truck, BUS}', 'resident', '{6,7}', '22:00', '06:00', false, 90, true)""");
-        jdbc.update("insert into zone_rules (zone_id, label, enabled) values ('z1', 'Off', false)");
+        jdbc.update("insert into mapping.zone_rules (zone_id, label, enabled) values ('z1', 'Off', false)");
 
         List<ZoneRule> found = rules.enabledRulesOf("z1");
 
@@ -227,8 +227,8 @@ class JpaDirectoriesTest {
 
     @Test
     void theStartOfTheActiveSessionIsReadPerPlateAndZone() {
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T09:00:00Z')");
-        jdbc.update("insert into sessions (plate, zone_id, started_at, ended_at) values ('DEF456', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T10:00:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T09:00:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, ended_at) values ('DEF456', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T10:00:00Z')");
 
         assertThat(sessions.startOfActiveSession("ABC123", "z1", "z1")).contains(Instant.parse("2026-10-12T09:00:00Z"));
         assertThat(sessions.startOfActiveSession("ABC123", "z2", "z2")).isEmpty();
@@ -238,27 +238,12 @@ class JpaDirectoriesTest {
 
     @Test
     void aVoidedSessionIsNotActive() {
-        jdbc.update("insert into sessions (plate, zone_id, started_at, voided_at) values ('VOID11', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T09:30:00Z')");
-        jdbc.update("insert into sessions (plate, zone_id, started_at, voided_at) values ('BOTH11', 'z1', '2026-10-12T10:00:00Z', '2026-10-12T10:30:00Z')");
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('BOTH11', 'z1', '2026-10-12T08:00:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, voided_at) values ('VOID11', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T09:30:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, voided_at) values ('BOTH11', 'z1', '2026-10-12T10:00:00Z', '2026-10-12T10:30:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at) values ('BOTH11', 'z1', '2026-10-12T08:00:00Z')");
 
         assertThat(sessions.startOfActiveSession("VOID11", "z1", "z1")).isEmpty();
         // the newer session is voided, so the older active one counts
         assertThat(sessions.startOfActiveSession("BOTH11", "z1", "z1")).contains(Instant.parse("2026-10-12T08:00:00Z"));
-    }
-
-    @Test
-    void withoutTheVoidedAtColumnYetTheSessionsAreReadAsBefore() {
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('OLD111', 'z1', '2026-10-12T09:00:00Z')");
-        jdbc.execute("alter table sessions drop column voided_at");
-        try {
-            assertThat(sessions.startOfActiveSession("OLD111", "z1", "z1")).contains(Instant.parse("2026-10-12T09:00:00Z"));
-        } finally {
-            jdbc.execute("alter table sessions add column voided_at timestamptz");
-        }
-        // the column came back (session-service migrated): a fresh probe sees it and filters
-        jdbc.update("update sessions set voided_at = now() where plate = 'OLD111'");
-        assertThat(new JpaActiveSessionDirectory(sessionViews, new SessionVoidSchema(jdbc, java.time.Clock.systemUTC()))
-                .startOfActiveSession("OLD111", "z1", "z1")).isEmpty();
     }
 }

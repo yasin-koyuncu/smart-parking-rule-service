@@ -68,7 +68,7 @@ class DisputeRepositoryTest {
 
     private Fine fine(String zone) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek) values (?, 'ABC123', ?, 'overstay', 450)", id, zone);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', ?, ?, 'overstay', 450)", id, zone, zone);
         Violation v = Violation.open(UUID.randomUUID(), zone, zone, "ABC123", null, ViolationType.OVERSTAY, T, T);
         Fine fine = Fine.issue(v, new BigDecimal("450"), null, T);
         ReflectionTestUtils.setField(fine, "id", id);
@@ -140,15 +140,15 @@ class DisputeRepositoryTest {
     void theStatusChannelAndDecisionColumnsAreConstrained() {
         Fine fine = fine("z1");
 
-        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, zone_id, channel, message, status) "
-                + "values (?, 'ABC123', 'z1', 'driver', 'x', 'maybe')", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, zone_id, channel, message) "
-                + "values (?, 'ABC123', 'z1', 'robot', 'x')", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, site_id, zone_id, channel, message, status) "
+                + "values (?, 'ABC123', 'z1', 'z1', 'driver', 'x', 'maybe')", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, site_id, zone_id, channel, message) "
+                + "values (?, 'ABC123', 'z1', 'z1', 'robot', 'x')", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
         // a decided dispute needs its time, an open one must not have it
-        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, zone_id, channel, message, status) "
-                + "values (?, 'ABC123', 'z1', 'driver', 'x', 'upheld')", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, zone_id, channel, message, status, decided_at) "
-                + "values (?, 'ABC123', 'z1', 'driver', 'x', 'open', now())", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, site_id, zone_id, channel, message, status) "
+                + "values (?, 'ABC123', 'z1', 'z1', 'driver', 'x', 'upheld')", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update("insert into fine_disputes (fine_id, plate, site_id, zone_id, channel, message, status, decided_at) "
+                + "values (?, 'ABC123', 'z1', 'z1', 'driver', 'x', 'open', now())", fine.getId())).isInstanceOf(DataIntegrityViolationException.class);
         assertThatThrownBy(() -> disputes.saveAndFlush(Dispute.open(fine("z1"), null, DisputeChannel.DRIVER, null, T)))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }

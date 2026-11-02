@@ -58,9 +58,9 @@ class FineRepositoryTest {
     private UUID insert(String plate, String zone, Instant issuedAt, boolean paid) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                insert into fines (id, plate, zone_id, camera_id, reason, reason_code, reason_text, amount_sek, issued_at, paid, user_id)
-                values (?, ?, ?, 'cam-1', 'wrong_vehicle_type', 'WVT', 'Not electric', 700, ?, ?, ?)
-                """, id, plate, zone, Timestamp.from(issuedAt), paid, UUID.randomUUID());
+                insert into fines (id, plate, site_id, zone_id, camera_id, reason, reason_code, reason_text, amount_sek, issued_at, paid, user_id)
+                values (?, ?, ?, ?, 'cam-1', 'wrong_vehicle_type', 'WVT', 'Not electric', 700, ?, ?, ?)
+                """, id, plate, zone, zone, Timestamp.from(issuedAt), paid, UUID.randomUUID());
         return id;
     }
 

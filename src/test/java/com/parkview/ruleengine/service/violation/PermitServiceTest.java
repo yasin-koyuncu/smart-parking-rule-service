@@ -36,6 +36,8 @@ class PermitServiceTest {
     @BeforeEach
     void setUp() {
         service = new PermitService(repository, zones, Clock.fixed(NOW, ZoneOffset.UTC));
+        org.mockito.Mockito.when(zones.siteOf(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(inv -> java.util.Optional.of(inv.getArgument(0)));
         when(repository.save(any(PlatePermit.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 

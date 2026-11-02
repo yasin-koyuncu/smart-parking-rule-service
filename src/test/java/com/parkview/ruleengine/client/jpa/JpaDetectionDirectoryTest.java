@@ -43,13 +43,13 @@ class JpaDetectionDirectoryTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.update("delete from detections");
+        jdbc.update("delete from ingestion.detections");
         directory = new JpaDetectionDirectory(views);
     }
 
     private UUID detection(String plate, String zone, Instant at, String image, Double confidence, String review, String corrected) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into detections (id, plate, corrected_plate, zone_id, at, image_path, confidence, review_status) values (?,?,?,?,?,?,?,?)",
+        jdbc.update("insert into ingestion.detections (id, plate, corrected_plate, zone_id, at, image_path, confidence, review_status) values (?,?,?,?,?,?,?,?)",
                 id, plate, corrected, zone, Timestamp.from(at), image, confidence, review);
         return id;
     }

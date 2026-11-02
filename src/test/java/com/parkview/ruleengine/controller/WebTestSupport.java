@@ -48,7 +48,7 @@ final class WebTestSupport {
 
     static RequestPostProcessor token(boolean legacyRoleFallback, String role, List<String> permissions,
                                       List<String> plates, List<String> zones, String subject) {
-        Map<String, Object> appMetadata = new HashMap<>(Map.of("role", role, "plates", plates, "zones", zones));
+        Map<String, Object> appMetadata = new HashMap<>(Map.of("role", role, "plates", plates, "sites", zones));
         if (permissions != null) {
             appMetadata.put("permissions", permissions);
         }

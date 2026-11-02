@@ -209,7 +209,7 @@ class ListenersTest {
     }
 
     @Test
-    void mapUpdatedOfAnOldProducerEvictsTheSiteOfThatZoneAndTheCataloguePayloadIsParsed() throws Exception {
+    void mapUpdatedNamingOnlyAZoneEvictsTheSiteOfThatZoneAndTheCataloguePayloadIsParsed() throws Exception {
         SpotCacheService cache = mock(SpotCacheService.class);
         RuleCacheService rules = mock(RuleCacheService.class);
         when(rules.siteIdOf("z1")).thenReturn("s1");
@@ -217,10 +217,13 @@ class ListenersTest {
                 {"zoneId":"z1","versionNumber":7,"spotCount":12,"changeReason":"rollback","timestamp":1760000000000,"x":1}
                 """, MapUpdatedEvent.class);
 
-        new MapEventListener(cache, rules).onMapUpdated(event);
+        ViolationService violations = mock(ViolationService.class);
+
+        new MapEventListener(cache, rules, violations).onMapUpdated(event);
 
         verify(cache).evict("s1");
         verify(rules).evict("s1", "z1");
+        verify(violations).resolveOfRemovedSpots("s1");
         assertThat(event.versionNumber()).isEqualTo(7);
         assertThat(validator.validate(event)).isEmpty();
         assertThat(validator.validate(mapper.readValue("{\"versionNumber\":1}", MapUpdatedEvent.class))).isNotEmpty();
@@ -234,10 +237,13 @@ class ListenersTest {
                 {"siteId":"s1","zoneId":null,"versionNumber":3,"spotCount":4,"changeReason":"site rule","timestamp":1}
                 """, MapUpdatedEvent.class);
 
-        new MapEventListener(cache, rules).onMapUpdated(event);
+        ViolationService violations = mock(ViolationService.class);
+
+        new MapEventListener(cache, rules, violations).onMapUpdated(event);
 
         verify(cache).evict("s1");
         verify(rules).evict("s1", null);
+        verify(violations).resolveOfRemovedSpots("s1");
         assertThat(validator.validate(event)).isEmpty();
     }
 

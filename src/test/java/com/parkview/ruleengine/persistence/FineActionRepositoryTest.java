@@ -53,7 +53,7 @@ class FineActionRepositoryTest {
     void setUp() {
         jdbc.update("delete from fines");
         fineId = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'overstay', 450)", fineId);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450)", fineId);
     }
 
     @Test
@@ -82,7 +82,7 @@ class FineActionRepositoryTest {
     @Test
     void historyIsNewestFirstPagedAndNeverContainsOtherFines() {
         UUID other = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'overstay', 450)", other);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450)", other);
         FineAction oldest = actions.save(FineAction.of(fineId, NOW.minusSeconds(100), null, FineActionType.PAID_ONLINE, null, Map.of()));
         FineAction newest = actions.save(FineAction.of(fineId, NOW, UUID.randomUUID(), FineActionType.VOID, "misread", Map.of()));
         FineAction middle = actions.save(FineAction.of(fineId, NOW.minusSeconds(50), UUID.randomUUID(), FineActionType.MARK_PAID, "cash", Map.of()));

@@ -65,16 +65,16 @@ class ReadModelsTest {
 
     @BeforeEach
     void clean() {
-        jdbc.update("delete from sessions");
-        jdbc.update("delete from zone_rules");
-        jdbc.update("delete from parking_spots");
-        jdbc.update("delete from user_plates");
-        jdbc.update("delete from zones");
+        jdbc.update("delete from sessions.sessions");
+        jdbc.update("delete from mapping.zone_rules");
+        jdbc.update("delete from mapping.parking_spots");
+        jdbc.update("delete from identity.user_plates");
+        jdbc.update("delete from mapping.zones");
     }
 
     private UUID insertSpot(String zone, String shape, String coordinates) {
         return jdbc.queryForObject("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type, boundary_grace_min, permit_grace_min, label, price_per_hour, max_minutes)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number, permit_type, boundary_grace_min, permit_grace_min, label, price_per_hour, max_minutes)
                 values (?, 'permit', ?, ?::jsonb, 'A1', 'resident', 12, 34, 'extra', 9.5, 45) returning id""",
                 UUID.class, zone, shape, coordinates);
     }
@@ -96,8 +96,8 @@ class ReadModelsTest {
     @Test
     void zoneAndPlateViewsLoadDespiteExtraColumns() {
         UUID user = UUID.randomUUID();
-        jdbc.update("insert into zones (id, address, name, price_per_hour) values ('z1', 'Storgatan 1', 'Central', 20)");
-        jdbc.update("insert into user_plates (user_id, plate, label) values (?, 'ABC123', 'My car')", user);
+        jdbc.update("insert into mapping.zones (id, address, name, price_per_hour) values ('z1', 'Storgatan 1', 'Central', 20)");
+        jdbc.update("insert into identity.user_plates (user_id, plate, label) values (?, 'ABC123', 'My car')", user);
 
         assertThat(zones.findById("z1")).get().extracting(ZoneView::getAddress).isEqualTo("Storgatan 1");
         assertThat(zones.findById("missing")).isEmpty();
@@ -107,8 +107,8 @@ class ReadModelsTest {
 
     @Test
     void zoneViewCarriesStayLimitCountryAndTimezone() {
-        jdbc.update("insert into zones (id, address, max_minutes, country, timezone) values ('z1', 'Storgatan 1', 120, 'NO', 'Europe/Oslo')");
-        jdbc.update("insert into zones (id) values ('z2')");
+        jdbc.update("insert into mapping.zones (id, address, max_minutes, country, timezone) values ('z1', 'Storgatan 1', 120, 'NO', 'Europe/Oslo')");
+        jdbc.update("insert into mapping.zones (id) values ('z2')");
 
         ZoneView oslo = zones.findById("z1").orElseThrow();
         assertThat(oslo.getMaxMinutes()).isEqualTo(120);
@@ -123,12 +123,12 @@ class ReadModelsTest {
     @Test
     void zoneRuleViewLoadsTimeColumnsAndArraysOfEnabledRulesOnly() {
         jdbc.update("""
-                insert into zone_rules (zone_id, label, priority, enabled, vehicle_types, permit_required, weekdays,
+                insert into mapping.zone_rules (zone_id, label, priority, enabled, vehicle_types, permit_required, weekdays,
                                         start_time, end_time, applies_holidays, max_minutes, price_per_hour, no_parking, note)
                 values ('z1', 'Night', 5, true, '{truck,bus}', 'resident', '{1,2,3,4,5}', '22:00', '06:30:15', false, 90, 20, true, 'extra')""");
-        jdbc.update("insert into zone_rules (zone_id, label, enabled) values ('z1', 'Disabled', false)");
-        jdbc.update("insert into zone_rules (zone_id, label) values ('z2', 'Other zone')");
-        jdbc.update("insert into zone_rules (zone_id, label) values ('z1', 'Defaults')");
+        jdbc.update("insert into mapping.zone_rules (zone_id, label, enabled) values ('z1', 'Disabled', false)");
+        jdbc.update("insert into mapping.zone_rules (zone_id, label) values ('z2', 'Other zone')");
+        jdbc.update("insert into mapping.zone_rules (zone_id, label) values ('z1', 'Defaults')");
 
         List<ZoneRuleView> found = zoneRules.findByZoneIdAndEnabledTrue("z1");
 
@@ -161,19 +161,19 @@ class ReadModelsTest {
 
     @Test
     void sessionViewFindsTheNewestActiveSessionOfAPlateInAZone() {
-        jdbc.update("insert into sessions (plate, zone_id, started_at, ended_at) values ('ABC123', 'z1', '2026-10-12T06:00:00Z', '2026-10-12T07:00:00Z')");
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T08:00:00Z')");
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T09:00:00Z')");
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('ABC123', 'z2', '2026-10-12T09:30:00Z')");
-        jdbc.update("insert into sessions (plate, zone_id, started_at) values ('XYZ789', 'z1', '2026-10-12T09:45:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, ended_at) values ('ABC123', 'z1', '2026-10-12T06:00:00Z', '2026-10-12T07:00:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T08:00:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at) values ('ABC123', 'z1', '2026-10-12T09:00:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at) values ('ABC123', 'z2', '2026-10-12T09:30:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at) values ('XYZ789', 'z1', '2026-10-12T09:45:00Z')");
 
-        SessionView active = sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z1", "z1").orElseThrow();
+        SessionView active = sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullAndVoidedAtIsNullOrderByStartedAtDesc("ABC123", "z1", "z1").orElseThrow();
 
         assertThat(active.getPlate()).isEqualTo("ABC123");
         assertThat(active.getZoneId()).isEqualTo("z1");
         assertThat(active.getStartedAt()).isEqualTo(Instant.parse("2026-10-12T09:00:00Z"));
         assertThat(active.getEndedAt()).isNull();
-        assertThat(sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullOrderByStartedAtDesc("ABC123", "z3", "z3")).isEmpty();
+        assertThat(sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullAndVoidedAtIsNullOrderByStartedAtDesc("ABC123", "z3", "z3")).isEmpty();
     }
 
     @Test
@@ -182,7 +182,7 @@ class ReadModelsTest {
         insertSpot("z1", "point", "[59.3, 18.0]");
         insertSpot("z2", "polygon", "[[1, 1], [1, 2], [2, 2]]");
 
-        List<ParkingSpotView> found = spots.findPolygonSpotsBySiteId("z1");
+        List<ParkingSpotView> found = spots.findPolygonSpotsOutsideViews("z1");
 
         assertThat(found).hasSize(1);
         ParkingSpotView view = found.get(0);
@@ -200,7 +200,7 @@ class ReadModelsTest {
 
     private UUID insertViewSpot(String zone, UUID viewId, String imagePolygon) {
         return jdbc.queryForObject("""
-                insert into parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon, boundary_grace_min)
+                insert into mapping.parking_spots (zone_id, type, shape, coordinates, spot_number, view_id, image_polygon, boundary_grace_min)
                 values (?, 'paid', 'polygon', null, 'V1', ?, ?::jsonb, 7) returning id""",
                 UUID.class, zone, viewId, imagePolygon);
     }
@@ -211,7 +211,7 @@ class ReadModelsTest {
         UUID onView = insertViewSpot("z1", view, "[[10, 10], [10, 90], [90, 90]]");
         insertViewSpot("z1", UUID.randomUUID(), "[[1, 1], [1, 2], [2, 2]]");
         insertViewSpot("z2", view, "[[1, 1], [1, 2], [2, 2]]");
-        jdbc.update("insert into parking_spots (zone_id, type, shape, coordinates, view_id) values ('z1', 'paid', 'polygon', '[[0, 0], [0, 1], [1, 1]]'::jsonb, ?)", view);
+        jdbc.update("insert into mapping.parking_spots (zone_id, type, shape, coordinates, view_id) values ('z1', 'paid', 'polygon', '[[0, 0], [0, 1], [1, 1]]'::jsonb, ?)", view);
         entityManager.clear();
 
         List<PlacedSpot> found = spots.findSpotsOnView(view, "z1");
@@ -233,7 +233,7 @@ class ReadModelsTest {
         List<ParkingSpotView> found = spots.findPolygonSpotsOutsideViews("z1");
 
         assertThat(found).extracting(ParkingSpotView::getId).containsExactly(legacy);
-        assertThat(spots.findPolygonSpotsBySiteId("z1")).hasSize(2);
+        assertThat(spots.findPolygonSpotsOutsideViews("z1")).hasSize(2);
     }
 
     @Test
@@ -279,26 +279,26 @@ class ReadModelsTest {
     @Test
     void modifyingAManagedViewAndFlushingWritesNothing() {
         UUID id = insertSpot("z1", "polygon", "[[0, 0], [0, 10], [10, 10]]");
-        jdbc.update("insert into zones (id, address) values ('z1', 'Storgatan 1')");
+        jdbc.update("insert into mapping.zones (id, address) values ('z1', 'Storgatan 1')");
         entityManager.clear();
 
-        ParkingSpotView spot = spots.findPolygonSpotsBySiteId("z1").get(0);
+        ParkingSpotView spot = spots.findPolygonSpotsOutsideViews("z1").get(0);
         ReflectionTestUtils.setField(spot, "type", "no_parking");
         ReflectionTestUtils.setField(spot, "boundaryGraceMin", 99);
         ZoneView zone = zones.findById("z1").orElseThrow();
         ReflectionTestUtils.setField(zone, "address", "Changed 9");
         entityManager.flush();
 
-        assertThat(jdbc.queryForMap("select type, boundary_grace_min from parking_spots where id = ?", id))
+        assertThat(jdbc.queryForMap("select type, boundary_grace_min from mapping.parking_spots where id = ?", id))
                 .containsEntry("type", "permit").containsEntry("boundary_grace_min", 12);
-        assertThat(jdbc.queryForObject("select address from zones where id = 'z1'", String.class)).isEqualTo("Storgatan 1");
+        assertThat(jdbc.queryForObject("select address from mapping.zones where id = 'z1'", String.class)).isEqualTo("Storgatan 1");
     }
 
     @Test
     void mergingAModifiedDetachedViewWritesNothing() {
         UUID id = insertSpot("z1", "polygon", "[[0, 0], [0, 10], [10, 10]]");
         entityManager.clear();
-        ParkingSpotView spot = spots.findPolygonSpotsBySiteId("z1").get(0);
+        ParkingSpotView spot = spots.findPolygonSpotsOutsideViews("z1").get(0);
         entityManager.detach(spot);
 
         ReflectionTestUtils.setField(spot, "permitType", "visitor");
@@ -306,6 +306,6 @@ class ReadModelsTest {
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(jdbc.queryForObject("select permit_type from parking_spots where id = ?", String.class, id)).isEqualTo("resident");
+        assertThat(jdbc.queryForObject("select permit_type from mapping.parking_spots where id = ?", String.class, id)).isEqualTo("resident");
     }
 }

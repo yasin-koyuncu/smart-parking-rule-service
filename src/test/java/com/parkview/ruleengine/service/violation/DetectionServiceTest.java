@@ -58,7 +58,7 @@ class DetectionServiceTest {
     void setUp() {
         service = new DetectionService(spotCache, ruleCache, boundary, evaluator, violations, TestFixtures.properties(), Clock.fixed(NOW, ZoneOffset.UTC));
         when(spotCache.spotsOf(ZONE, null)).thenReturn(List.of(spot));
-        // an event of a producer from before sites names only the zone; the zone of the fixtures is its own site
+        // an event that names only the zone: the zone of the fixtures is its own site
         when(ruleCache.siteIdOf(ZONE)).thenReturn(ZONE);
         when(ruleCache.placeOf(ZONE, ZONE)).thenReturn(zoneInfo);
     }
