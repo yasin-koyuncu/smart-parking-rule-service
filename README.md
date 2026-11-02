@@ -18,7 +18,7 @@ Part of the Park & View platform (engineering contract: `smart-parking-e2e/docs/
 * Freezes the evidence of every fine when it is issued (`fine_evidence`) and lets a driver (or an operator on the phone with a driver) ask a
   person to review a fine, a **dispute**: while it is open the fine cannot be paid, an operator with `fine:manage` upholds or voids the fine
   with a written reason, everything is audited. Fines stay automatic; humans can always review the decision (ADR 0005 in smart-parking-e2e).
-* Publishes every event through a transactional outbox (`rule_outbox_events`), written in the transaction of the state change.
+* Publishes every event through a transactional outbox (`outbox_events`), written in the transaction of the state change.
 
 ## Architecture position
 
@@ -381,9 +381,9 @@ and when the system upholds it because the fine was paid). None carries free tex
 
 ## Transactional outbox
 
-Every event this service publishes (`violation.created`, `violation.resolved`, `fine.issued`, `fine.paid`, `fine.voided`, `fine.disputed`, `fine.dispute.decided`) is a row in `rule_outbox_events`, written by
-`OutboxService` in the same transaction as the state change (it refuses to run without one: a rollback leaves no event, a commit never loses one). The table is called `rule_outbox_events` because
-payment-service owns `outbox_events` in the same database and its relay publishes every row of that table. `OutboxRelay` (scheduled every `relay-interval`) claims due rows with `FOR UPDATE SKIP LOCKED`, sends them
+Every event this service publishes (`violation.created`, `violation.resolved`, `fine.issued`, `fine.paid`, `fine.voided`, `fine.disputed`, `fine.dispute.decided`) is a row in `outbox_events`, written by
+`OutboxService` in the same transaction as the state change (it refuses to run without one: a rollback leaves no event, a commit never loses one). The table, its columns and the relay are the same in every
+service that publishes events (platform standards, "Transactional outbox"); the table lives in this service's schema, so no other relay sees it. `OutboxRelay` (scheduled every `relay-interval`) claims due rows with `FOR UPDATE SKIP LOCKED`, sends them
 with publisher confirms and marks them published after the ack; consumers get what they got before: persistent JSON message, the row id as `messageId` (idempotency key), headers `x-event-type`, `x-source`
 (`rule-service`) and, when a request caused the event, `x-request-id` (the former `__TypeId__` header is gone, consumers infer the type from their listener).
 
@@ -401,7 +401,7 @@ with publisher confirms and marks them published after the ack; consumers get wh
 Schema `rules`, owned by the role `svc_rule` (ADR 0010). Everything is created by the one baseline changelog
 `db/changelog/001-baseline.sql` (the schema, the role and its `search_path = rules, public` are created by the infrastructure;
 Liquibase's tracking tables `databasechangelog*` live in the same schema). Owned tables: `spot_violations`, `fines`,
-`plate_permits`, `fine_actions`, `fine_evidence`, `fine_disputes`, `rule_outbox_events`, and the published views `rules.v_fines` and `rules.v_fine_evidence`.
+`plate_permits`, `fine_actions`, `fine_evidence`, `fine_disputes`, `outbox_events`, and the published views `rules.v_fines` and `rules.v_fine_evidence`.
 No foreign key leaves the schema: `spot_violations.spot_id/zone_id/user_id`, `fines.zone_id/camera_id/user_id` and the ids in the
 other tables are plain columns. Read only: the catalogue views of other services (see "Data read from other services").
 
@@ -421,8 +421,8 @@ other tables are plain columns. Read only: the catalogue views of other services
 * `fine_disputes(id, fine_id -> fines on delete cascade, plate, site_id, zone_id, opened_by_user_id null, channel driver|operator, message, status open|upheld|voided|withdrawn, opened_at, decided_by_user_id null,
   decided_at null, decision_note null)` with the partial unique index `fine_disputes_one_open_uq (fine_id) where status = 'open'`, `fine_disputes_fine_opened_idx`,
   `fine_disputes_site_opened_idx` and `fine_disputes_zone_opened_idx`.
-* `rule_outbox_events(id, seq identity, aggregate_type, aggregate_id, exchange, routing_key, payload text, request_id, created_at, published_at, attempts, next_attempt_at, last_error)` with
-  partial indexes on the unpublished rows.
+* `outbox_events(id, seq identity, aggregate_type, aggregate_id, exchange, routing_key, payload text, request_id, created_at, published_at, attempts, next_attempt_at, last_error)` with
+  partial indexes on the unpublished rows (`outbox_events_due_idx`, `outbox_events_pending_aggregate_idx`), one on the published ones and `outbox_events_aggregate_idx (aggregate_id, created_at)`.
 * One open violation per plate, spot and type: partial unique index `spot_violations_open_uq`.
 * `plate_permits(plate, permit_type, site_id null = every site, zone_id null = whole site, valid_from, valid_to null = open ended, created_by)`.
   Permit types are compared case-insensitively against `mapping.v_parking_spots.permit_type`.
@@ -478,7 +478,7 @@ Transactional outbox, Spring property `parkview.outbox.*` (set with `SPRING_APPL
 
 | Property | Default | Description |
 |---|---|---|
-| `relay-enabled` | `true` | switch the scheduled relay and the clean-up off (tests, maintenance); events then accumulate in `rule_outbox_events` |
+| `relay-enabled` | `true` | switch the scheduled relay and the clean-up off (tests, maintenance); events then accumulate in `outbox_events` |
 | `relay-interval` | `250ms` | delay between two relay runs; also the delay between two events of one fine |
 | `batch-size` | `50` | rows claimed per run (at most one per fine or violation) |
 | `confirm-timeout` | `5s` | how long to wait for the broker's publisher confirm |
@@ -570,7 +570,7 @@ idempotency, voided fines hidden from lists and drivers, audit rows and event pa
 * Health: `/actuator/health/liveness` and `/readiness` (public); metrics: `/actuator/prometheus` (internal key). Logs carry `requestId`; plates are masked.
 * Several instances may run: inserts are protected by the unique index, fines by `SKIP LOCKED`.
 * Messages in `parkview.dlq` are invalid payloads or exhausted retries; inspect `x-death` headers.
-* Fines are never issued while the database is unreachable; the sweep retries every `expire-sweep-ms`. A broker outage no longer blocks anything: events wait in `rule_outbox_events`
+* Fines are never issued while the database is unreachable; the sweep retries every `expire-sweep-ms`. A broker outage no longer blocks anything: events wait in `outbox_events`
   (watch `rule_outbox_pending` and `rule_outbox_oldest_pending_seconds`) and go out in order when the broker is back. A violation that failed repeatedly is logged at ERROR with its id.
 * Disputes pile up when nobody reads `GET /api/v1/disputes`: the `fine.disputed` event reaches notification-service and the operator stream. A fine under dispute that nobody decides stays unpayable;
   an operator can always decide it or void the fine. A payment that raced with a dispute is logged at WARN ("paid while a dispute was open").
