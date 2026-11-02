@@ -161,3 +161,13 @@ parkview:
     cache-ttl-minutes: 60
     negative-cache-ttl-seconds: 60
     cache-max-size: 10000
+  # Data retention of fines and violations (README, "Data retention"). Off and dry-run by default. The periods have NO default: they are a
+  # legal and product decision, and all three are required once enabled=true (examples are in the README). 25m = 25 months, 760d, 2y1m.
+  retention:
+    enabled: ${RETENTION_ENABLED:false}
+    dry-run: ${RETENTION_DRY_RUN:true}          # true: only count and log what a real run would do
+    cron: ${RETENTION_CRON:0 25 3 * * *}        # every night at 03:25 (server time zone)
+    batch-size: ${RETENTION_BATCH_SIZE:1000}    # rows per transaction
+    max-batches: ${RETENTION_MAX_BATCHES:200}   # per step and run; the rest waits for the next night
+    # evidence, closed-records and violations (PARKVIEW_RETENTION_EVIDENCE, PARKVIEW_RETENTION_CLOSED_RECORDS, PARKVIEW_RETENTION_VIOLATIONS)
+    # are deliberately not set here: without them the service refuses to start with retention enabled
