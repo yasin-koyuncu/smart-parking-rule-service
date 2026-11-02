@@ -53,7 +53,7 @@ class OutboxEventRepositoryTest {
 
     @BeforeEach
     void clean() {
-        jdbc.update("delete from rule_outbox_events");
+        jdbc.update("delete from outbox_events");
     }
 
     private OutboxEvent enqueue(String aggregate, String routingKey) {
@@ -77,7 +77,7 @@ class OutboxEventRepositoryTest {
         assertThat(loaded.getCreatedAt()).isEqualTo(NOW);
         assertThat(loaded.getPublishedAt()).isNull();
         assertThat(loaded.getAttempts()).isZero();
-        assertThat(jdbc.queryForObject("select seq from rule_outbox_events where id = ?", Long.class, saved.getId())).isPositive();
+        assertThat(jdbc.queryForObject("select seq from outbox_events where id = ?", Long.class, saved.getId())).isPositive();
     }
 
     @Test
@@ -120,9 +120,9 @@ class OutboxEventRepositoryTest {
     void publishedRowsAreNotClaimedAgainAndFutureRowsWait() {
         OutboxEvent done = enqueue("f-1", "fine.issued");
         tx.executeWithoutResult(status -> outbox.findById(done.getId()).orElseThrow().markPublished(NOW));
-        jdbc.update("update rule_outbox_events set next_attempt_at = ?", java.sql.Timestamp.from(NOW.plusSeconds(30)));
+        jdbc.update("update outbox_events set next_attempt_at = ?", java.sql.Timestamp.from(NOW.plusSeconds(30)));
         enqueue("f-2", "fine.issued");
-        jdbc.update("update rule_outbox_events set next_attempt_at = ? where aggregate_id = 'f-2'", java.sql.Timestamp.from(NOW.plusSeconds(30)));
+        jdbc.update("update outbox_events set next_attempt_at = ? where aggregate_id = 'f-2'", java.sql.Timestamp.from(NOW.plusSeconds(30)));
 
         assertThat(claimKeys(NOW, 10)).isEmpty();
         assertThat(claimKeys(NOW.plusSeconds(31), 10)).containsExactly("fine.issued");
@@ -169,8 +169,8 @@ class OutboxEventRepositoryTest {
         OutboxEvent oldPublished = enqueue("f-1", "fine.issued");
         OutboxEvent recentPublished = enqueue("f-2", "fine.issued");
         OutboxEvent pending = enqueue("f-3", "fine.issued");
-        jdbc.update("update rule_outbox_events set published_at = ? where id = ?", java.sql.Timestamp.from(NOW.minus(Duration.ofDays(20))), oldPublished.getId());
-        jdbc.update("update rule_outbox_events set published_at = ? where id = ?", java.sql.Timestamp.from(NOW.minus(Duration.ofDays(1))), recentPublished.getId());
+        jdbc.update("update outbox_events set published_at = ? where id = ?", java.sql.Timestamp.from(NOW.minus(Duration.ofDays(20))), oldPublished.getId());
+        jdbc.update("update outbox_events set published_at = ? where id = ?", java.sql.Timestamp.from(NOW.minus(Duration.ofDays(1))), recentPublished.getId());
 
         int removed = tx.execute(status -> outbox.deletePublishedBefore(NOW.minus(Duration.ofDays(14))));
 
@@ -194,7 +194,7 @@ class OutboxEventRepositoryTest {
 
     @Test
     void aRowWithoutPayloadOrRoutingKeyIsRejected() {
-        assertThatThrownBy(() -> jdbc.update("insert into rule_outbox_events (aggregate_type, aggregate_id, exchange, routing_key) values ('fine','f','x','k')"))
+        assertThatThrownBy(() -> jdbc.update("insert into outbox_events (aggregate_type, aggregate_id, exchange, routing_key) values ('fine','f','x','k')"))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 }

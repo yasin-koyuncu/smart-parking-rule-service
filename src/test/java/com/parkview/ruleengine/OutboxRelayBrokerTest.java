@@ -114,7 +114,7 @@ class OutboxRelayBrokerTest {
         assertThat(new String(delivered.getBody())).isEqualTo("{\"zzz\":1,\"fineId\":\"" + aggregate + "\",\"amountSek\":700.00}");
         JsonNode body = objectMapper.readTree(delivered.getBody());
         assertThat(body.get("amountSek").decimalValue()).isEqualByComparingTo("700");
-        assertThat(jdbc.queryForObject("select published_at is not null from rule_outbox_events where id = ?", Boolean.class, routed.getId())).isTrue();
+        assertThat(jdbc.queryForObject("select published_at is not null from outbox_events where id = ?", Boolean.class, routed.getId())).isTrue();
     }
 
     @Test
@@ -124,7 +124,7 @@ class OutboxRelayBrokerTest {
 
         run(relay);
 
-        assertThat(jdbc.queryForObject("select published_at is not null from rule_outbox_events where id = ?", Boolean.class, unroutable.getId())).isTrue();
+        assertThat(jdbc.queryForObject("select published_at is not null from outbox_events where id = ?", Boolean.class, unroutable.getId())).isTrue();
         assertThat(meters.get("rule.outbox.unroutable").counter().count()).isGreaterThanOrEqualTo(1);
     }
 
@@ -135,12 +135,12 @@ class OutboxRelayBrokerTest {
 
         run(relay(true));
 
-        assertThat(jdbc.queryForObject("select published_at is null from rule_outbox_events where id = ?", Boolean.class, unroutable.getId())).isTrue();
-        assertThat(jdbc.queryForObject("select attempts from rule_outbox_events where id = ?", Integer.class, unroutable.getId())).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select last_error from rule_outbox_events where id = ?", String.class, unroutable.getId())).contains("unroutable");
+        assertThat(jdbc.queryForObject("select published_at is null from outbox_events where id = ?", Boolean.class, unroutable.getId())).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from outbox_events where id = ?", Integer.class, unroutable.getId())).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select last_error from outbox_events where id = ?", String.class, unroutable.getId())).contains("unroutable");
 
         Queue queue = bind("relay-test-late-" + UUID.randomUUID(), key);
-        jdbc.update("update rule_outbox_events set next_attempt_at = now() where id = ?", unroutable.getId());
+        jdbc.update("update outbox_events set next_attempt_at = now() where id = ?", unroutable.getId());
         run(relay(true));
 
         Message retried = template.receive(queue.getName(), 5000);

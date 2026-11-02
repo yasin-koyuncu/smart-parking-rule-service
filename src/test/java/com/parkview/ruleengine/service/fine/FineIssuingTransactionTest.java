@@ -106,7 +106,7 @@ class FineIssuingTransactionTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.execute("truncate fine_evidence, fines, spot_violations, rule_outbox_events cascade");
+        jdbc.execute("truncate fine_evidence, fines, spot_violations, outbox_events cascade");
         spot = TestFixtures.spot("permit", "resident", 0, 30);
         when(owners.ownerOf(any())).thenReturn(Optional.empty());
         when(zones.addressOf(any())).thenReturn(Optional.of("Storgatan 1"));
@@ -139,7 +139,7 @@ class FineIssuingTransactionTest {
         assertThat(row.get("rule_summary")).isEqualTo("No valid permit was registered for the plate: the spot requires a resident permit.");
         assertThat(row.get("image_paths").toString()).contains("snapshots/cam-1/a.jpg").contains("snapshots/cam-1/b.jpg");
         assertThat((BigDecimal) row.get("min_confidence")).isEqualByComparingTo("0.87");
-        assertThat(jdbc.queryForList("select routing_key from rule_outbox_events where aggregate_id = ?", String.class, fine.getId().toString()))
+        assertThat(jdbc.queryForList("select routing_key from outbox_events where aggregate_id = ?", String.class, fine.getId().toString()))
                 .containsExactly("fine.issued");
         assertThat(evidenceService.find(fine.getId())).isPresent();
     }
@@ -155,7 +155,7 @@ class FineIssuingTransactionTest {
 
         assertThat(count("fines")).isZero();
         assertThat(count("fine_evidence")).isZero();
-        assertThat(count("rule_outbox_events")).isZero();
+        assertThat(count("outbox_events")).isZero();
         assertThat(violations.findById(violation.getId()).orElseThrow().getFineId()).isNull();
     }
 
@@ -169,7 +169,7 @@ class FineIssuingTransactionTest {
 
         assertThat(count("fines")).isZero();
         assertThat(count("fine_evidence")).isZero();
-        assertThat(count("rule_outbox_events")).isZero();
+        assertThat(count("outbox_events")).isZero();
     }
 
     @Test
@@ -177,6 +177,6 @@ class FineIssuingTransactionTest {
         assertThatThrownBy(() -> issuing.issueFine(dueViolation())).isInstanceOf(IllegalTransactionStateException.class);
         assertThatThrownBy(() -> outbox.enqueue("fine", UUID.randomUUID(), "parkview.violation", "fine.issued", Map.of("a", 1)))
                 .isInstanceOf(IllegalTransactionStateException.class);
-        assertThat(count("rule_outbox_events")).isZero();
+        assertThat(count("outbox_events")).isZero();
     }
 }

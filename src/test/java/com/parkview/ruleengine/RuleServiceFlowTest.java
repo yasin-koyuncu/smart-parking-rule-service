@@ -384,9 +384,9 @@ class RuleServiceFlowTest {
         awaitEvent("violation.created", plate);
 
         await().atMost(10, TimeUnit.SECONDS).untilAsserted(() -> assertThat(jdbc.queryForObject(
-                "select count(*) from rule_outbox_events where routing_key = 'violation.created' and published_at is not null "
+                "select count(*) from outbox_events where routing_key = 'violation.created' and published_at is not null "
                         + "and payload like ?", Integer.class, "%" + plate + "%")).isEqualTo(1));
-        Map<String, Object> row = jdbc.queryForMap("select * from rule_outbox_events where payload like ?", "%" + plate + "%");
+        Map<String, Object> row = jdbc.queryForMap("select * from outbox_events where payload like ?", "%" + plate + "%");
         assertThat(row.get("aggregate_type")).isEqualTo("violation");
         assertThat(row.get("exchange")).isEqualTo("parkview.violation");
         assertThat(row.get("attempts")).isEqualTo(0);
