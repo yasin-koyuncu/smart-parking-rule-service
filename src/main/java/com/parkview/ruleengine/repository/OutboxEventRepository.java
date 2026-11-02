@@ -20,9 +20,9 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
      * instance commits, so its successors stay untouched meanwhile.
      */
     @Query(value = """
-            select e.* from rule_outbox_events e
+            select e.* from outbox_events e
             where e.published_at is null and e.next_attempt_at <= :now
-              and not exists (select 1 from rule_outbox_events older
+              and not exists (select 1 from outbox_events older
                               where older.aggregate_id = e.aggregate_id
                                 and older.published_at is null
                                 and older.seq < e.seq)

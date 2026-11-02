@@ -21,7 +21,7 @@ import java.util.UUID;
  * mapped: only the relay's claim query uses it. {@code requestId} keeps the {@code x-request-id} header of the request that caused it.
  */
 @Entity
-@Table(name = "rule_outbox_events")
+@Table(name = "outbox_events")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class OutboxEvent {
