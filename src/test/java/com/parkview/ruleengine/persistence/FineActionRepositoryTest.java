@@ -51,7 +51,7 @@ class FineActionRepositoryTest {
 
     @BeforeEach
     void setUp() {
-        jdbc.update("delete from fines");
+        jdbc.execute("truncate fine_evidence, fines cascade");
         fineId = UUID.randomUUID();
         jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450)", fineId);
     }
@@ -105,12 +105,13 @@ class FineActionRepositoryTest {
     }
 
     @Test
-    void deletingAFineDeletesItsTrail() {
+    void aFineWithATrailCannotBeDeleted() {
         actions.save(FineAction.of(fineId, NOW, null, FineActionType.PAID_ONLINE, null, Map.of()));
 
-        jdbc.update("delete from fines where id = ?", fineId);
+        assertThatThrownBy(() -> jdbc.update("delete from fines where id = ?", fineId))
+                .isInstanceOf(DataIntegrityViolationException.class);
 
-        assertThat(actions.findByFineId(fineId, PageRequest.of(0, 10)).getTotalElements()).isZero();
+        assertThat(actions.findByFineId(fineId, PageRequest.of(0, 10)).getTotalElements()).isEqualTo(1);
     }
 
 

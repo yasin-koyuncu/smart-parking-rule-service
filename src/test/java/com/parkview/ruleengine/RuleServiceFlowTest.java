@@ -394,7 +394,7 @@ class RuleServiceFlowTest {
 
     private UUID insertFine(String plate, String zone) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, zone_id, reason, amount_sek) values (?, ?, ?, 'overstay', 450)", id, plate, zone);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, ?, ?, ?, 'overstay', 450)", id, plate, zone, zone);
         return id;
     }
 
@@ -701,10 +701,10 @@ class RuleServiceFlowTest {
         JsonNode fine = awaitEvent("fine.issued", plate);
 
         assertThat(fine.get("violationType").asText()).isEqualTo("NO_PARKING");
-        jdbc.update("insert into fines (plate, zone_id, reason, amount_sek) values (?, ?, 'wrong_vehicle_type', 700)", plate, zone);
+        jdbc.update("insert into fines (plate, site_id, zone_id, reason, amount_sek) values (?, ?, ?, 'wrong_vehicle_type', 700)", plate, zone, zone);
         jdbc.update("""
-                insert into spot_violations (spot_id, zone_id, plate, violation_type, grace_until)
-                values (gen_random_uuid(), ?, ?, 'WRONG_VEHICLE_TYPE', now())""", zone, plate);
+                insert into spot_violations (spot_id, site_id, zone_id, plate, violation_type, grace_until)
+                values (gen_random_uuid(), ?, ?, ?, 'WRONG_VEHICLE_TYPE', now())""", zone, zone, plate);
     }
 
     @Test

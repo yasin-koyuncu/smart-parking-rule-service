@@ -7,6 +7,14 @@ create schema if not exists sessions;
 create schema if not exists identity;
 create schema if not exists ingestion;
 alter role current_user set search_path = rules, public;
+-- the PostgREST role of ingestion-service: the grants of the published views of rule-service (rules.v_fines, rules.v_fine_evidence) go to it
+do $$
+begin
+  if not exists (select from pg_roles where rolname = 'service_role') then
+    create role service_role nologin;
+  end if;
+end
+$$;
 
 -- Base tables of the other services, shaped like the real ones: they have more columns than rule-service maps, which must not matter.
 -- rule-service reads them only through the views `v_*` below and never writes them; the tests insert into the base tables.
@@ -126,9 +134,12 @@ create view mapping.v_sites as select * from mapping.sites;
 create view mapping.v_zones as select * from mapping.zones;
 create view mapping.v_zone_rules as select * from mapping.zone_rules;
 create view mapping.v_parking_spots as select * from mapping.parking_spots;
-create view identity.v_user_plates as select * from identity.user_plates;
+create view identity.v_user_plates as select id, user_id, plate from identity.user_plates;
 create view sessions.v_sessions as select * from sessions.sessions;
-create view ingestion.v_detections as select * from ingestion.detections;
+create view ingestion.v_detections as
+select id, plate, corrected_plate, site_id, zone_id, image_path, confidence, review_status, at
+  from ingestion.detections
+ where review_status <> 'rejected';
 
 -- Test convenience only, not part of any service: the tests insert rows of the other owners' tables naming just the zone. A row without
 -- a site gets the site of its zone, else the zone id as site id (a site with the zone's id).

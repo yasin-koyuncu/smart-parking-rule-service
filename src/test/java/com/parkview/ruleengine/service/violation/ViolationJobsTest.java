@@ -85,6 +85,19 @@ class ViolationJobsTest {
     }
 
     @Test
+    void aSecondFineForTheSameViolationIsRefusedByTheDatabaseAndCountsAsAlreadyFined() {
+        Violation again = due();
+        Violation healthy = due();
+        when(violations.findDueForFine(any(), any(), any(Pageable.class))).thenReturn(List.of(again.getId(), healthy.getId()));
+        doThrow(new org.springframework.dao.DataIntegrityViolationException("fine_evidence_violation_id_key")).when(fineService).issueFine(again);
+
+        ViolationJobs.BatchResult result = jobs.issueBatch();
+
+        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1));
+        verify(fineService).issueFine(healthy);
+    }
+
+    @Test
     void oneFailingViolationDoesNotBlockTheOthers() {
         Violation failing = due();
         Violation healthy = due();

@@ -135,6 +135,55 @@ class FineEvidenceRepositoryTest {
     }
 
     @Test
+    void theRetentionSettingAllowsReplacingOnlyPlateAndReferencesAndNeverADelete() {
+        save(List.of(UUID.randomUUID().toString()), List.of("snapshots/cam-1/a.jpg"), null);
+
+        tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("select set_config('parkview.retention', 'on', true)", String.class);
+            assertThat(jdbc.update("update fine_evidence set plate = 'ANONYMISED', image_paths = '[]'::jsonb, detection_ids = '[]'::jsonb "
+                    + "where fine_id = ?", fineId)).isEqualTo(1);
+        });
+
+        FineEvidence loaded = evidence.findById(fineId).orElseThrow();
+        assertThat(loaded.getPlate()).isEqualTo("ANONYMISED");
+        assertThat(loaded.getImagePaths()).isEmpty();
+        assertThat(loaded.getDetectionIds()).isEmpty();
+        assertThat(loaded.getRuleSummary()).startsWith("The stay limit is 60 minutes");
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("select set_config('parkview.retention', 'on', true)", String.class);
+            jdbc.update("update fine_evidence set rule_summary = 'edited' where fine_id = ?", fineId);
+        })).hasMessageContaining("fine_evidence is immutable");
+        assertThatThrownBy(() -> tx.executeWithoutResult(status -> {
+            jdbc.queryForObject("select set_config('parkview.retention', 'on', true)", String.class);
+            jdbc.update("delete from fine_evidence where fine_id = ?", fineId);
+        })).hasMessageContaining("fine_evidence is immutable");
+        // the setting was local to the transactions above: outside of them the guard is closed again
+        assertThatThrownBy(() -> jdbc.update("update fine_evidence set plate = 'X' where fine_id = ?", fineId))
+                .hasMessageContaining("immutable");
+    }
+
+    @Test
+    void aViolationHasAtMostOneEvidenceRow() {
+        save(List.of(), List.of(), null);
+        UUID other = UUID.randomUUID();
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450)", other);
+        ReflectionTestUtils.setField(fine, "id", other);
+
+        assertThatThrownBy(() -> save(List.of(), List.of(), null)).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void onlyAKnownViolationTypeIsAccepted() {
+        UUID other = UUID.randomUUID();
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450)", other);
+
+        assertThatThrownBy(() -> jdbc.update("insert into fine_evidence (fine_id, plate, site_id, zone_id, violation_type, violation_id, rule_summary, "
+                + "grace_minutes, violation_detected_at, grace_expired_at, issued_at) "
+                + "values (?, 'XYZ999', 'z1', 'z1', 'PARKING', gen_random_uuid(), 'x', 1, now(), now(), now())", other))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("fine_evidence_violation_type_check");
+    }
+
+    @Test
     void changingTheEntityNeverReachesTheDatabase() {
         save(List.of(), List.of(), null);
 

@@ -100,11 +100,9 @@ class DisputeAndEvidenceMapperTest {
     }
 
     @Test
-    void aReasonTextWrittenByAnotherProducerOfTheFinesTableWins() {
-        ReflectionTestUtils.setField(fine, "reasonText", "Missing resident permit");
+    void aDisputeOfAFineWithoutAZoneHasNoZoneAddress() {
         Dispute dispute = Dispute.open(fine, null, DisputeChannel.DRIVER, "I disagree with this", ISSUED);
 
-        assertThat(DisputeMapper.toResponse(new DisputeDetails(dispute, fine, null, null)).reasonText()).isEqualTo("Missing resident permit");
         assertThat(DisputeMapper.toResponse(new DisputeDetails(dispute, fine, null, null)).zoneAddress()).isNull();
     }
 

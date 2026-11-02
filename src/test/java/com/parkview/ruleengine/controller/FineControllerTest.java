@@ -79,9 +79,6 @@ class FineControllerTest {
         Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
         fine = Fine.issue(violation, new BigDecimal("700"), OWNER, T);
         ReflectionTestUtils.setField(fine, "id", UUID.fromString("11111111-2222-3333-4444-555555555555"));
-        ReflectionTestUtils.setField(fine, "cameraId", "cam-1");
-        ReflectionTestUtils.setField(fine, "reasonCode", "WP");
-        ReflectionTestUtils.setField(fine, "reasonText", "Missing permit");
         ReflectionTestUtils.setField(fine, "imagePath", "fines/1.jpg");
     }
 
@@ -101,10 +98,7 @@ class FineControllerTest {
                 .andExpect(jsonPath("$[0].id").value("11111111-2222-3333-4444-555555555555"))
                 .andExpect(jsonPath("$[0].plate").value("ABC123"))
                 .andExpect(jsonPath("$[0].zoneId").value("z1"))
-                .andExpect(jsonPath("$[0].cameraId").value("cam-1"))
                 .andExpect(jsonPath("$[0].reason").value("wrong_permit"))
-                .andExpect(jsonPath("$[0].reasonCode").value("WP"))
-                .andExpect(jsonPath("$[0].reasonText").value("Missing permit"))
                 .andExpect(jsonPath("$[0].amountSek").value(700.0))
                 .andExpect(jsonPath("$[0].issuedAt").value("2026-10-09T10:00:00Z"))
                 .andExpect(jsonPath("$[0].paid").value(false))
@@ -148,7 +142,7 @@ class FineControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reason").value("wrong_permit"))
                 .andExpect(jsonPath("$.userId").doesNotExist())
-                .andExpect(jsonPath("$.length()").value(16));
+                .andExpect(jsonPath("$.length()").value(13));
     }
 
     // ---- GET /plate/{plate} ----

@@ -65,13 +65,39 @@ class ViolationRepositoryTest {
 
     @BeforeEach
     void clean() {
-        jdbc.update("delete from spot_violations");
-        jdbc.update("delete from fines");
+        jdbc.execute("truncate fine_evidence, fines cascade");
         tx = new TransactionTemplate(transactionManager);
     }
 
     private Violation open(String plate, UUID spotId, ViolationType type, Instant detectedAt, Instant graceUntil) {
         return violations.saveAndFlush(Violation.open(spotId, "z1", "z1", plate, null, type, detectedAt, graceUntil));
+    }
+
+    /** Gives each violation a fine of its own, the way markFined does: fine_id and fine_issued_at together. */
+    private void markFinedInDatabase(UUID... violationIds) {
+        for (UUID violationId : violationIds) {
+            UUID fineId = UUID.randomUUID();
+            jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450)",
+                    fineId);
+            jdbc.update("update spot_violations set fine_id = ?, fine_issued_at = now() where id = ?", fineId, violationId);
+        }
+    }
+
+    @Test
+    void oneFineBelongsToOneViolationAndFineIdAndIssuedAtComeTogether() {
+        Violation first = due("PAIR11");
+        Violation second = due("PAIR22");
+        UUID fineId = UUID.randomUUID();
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'PAIR11', 'z1', 'z1', 'overstay', 450)", fineId);
+        jdbc.update("update spot_violations set fine_id = ?, fine_issued_at = now() where id = ?", fineId, first.getId());
+
+        assertThatThrownBy(() -> jdbc.update("update spot_violations set fine_id = ?, fine_issued_at = now() where id = ?", fineId, second.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("spot_violations_fine_uq");
+        assertThatThrownBy(() -> jdbc.update("update spot_violations set fine_issued_at = now() where id = ?", second.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("spot_violations_fine_paired_check");
+        assertThatThrownBy(() -> jdbc.update("update spot_violations set fine_id = ?, fine_issued_at = now() where id = ?",
+                UUID.randomUUID(), second.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class).hasMessageContaining("spot_violations_fine_fk");
     }
 
     private Violation due(String plate) {
@@ -114,7 +140,7 @@ class ViolationRepositoryTest {
     @Test
     void aFinedViolationDoesNotBlockANewOneEither() {
         Violation first = open("ABC123", spot, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600));
-        jdbc.update("update spot_violations set fine_issued_at = now() where id = ?", first.getId());
+        markFinedInDatabase(first.getId());
 
         open("ABC123", spot, ViolationType.WRONG_PERMIT, NOW, NOW.plusSeconds(600));
     }
@@ -133,7 +159,7 @@ class ViolationRepositoryTest {
         assertThat(loaded.getResolvedAt()).isEqualTo(NOW);
 
         Violation fined = due("FINED1");
-        jdbc.update("update spot_violations set fine_issued_at = now() where id = ?", fined.getId());
+        markFinedInDatabase(fined.getId());
         assertThat(resolve(fined.getId(), ResolutionReason.MANUAL)).isZero();
     }
 
@@ -229,7 +255,7 @@ class ViolationRepositoryTest {
     void recentlyFinedLookupIgnoresOldAndResolvedRows() {
         Violation recent = due("FRESH1");
         Violation old = due("OLD111");
-        jdbc.update("update spot_violations set fine_issued_at = now() where id in (?, ?)", recent.getId(), old.getId());
+        markFinedInDatabase(recent.getId(), old.getId());
         jdbc.update("update spot_violations set last_seen_at = ? where id = ?",
                 java.sql.Timestamp.from(NOW.minus(Duration.ofHours(1))), old.getId());
 

@@ -63,7 +63,7 @@ class DisputeRepositoryTest {
 
     @BeforeEach
     void clean() {
-        jdbc.update("delete from fines");
+        jdbc.execute("truncate fine_evidence, fines cascade");
     }
 
     private Fine fine(String zone) {
@@ -154,16 +154,17 @@ class DisputeRepositoryTest {
     }
 
     @Test
-    void aDisputeNeedsAnExistingFineAndGoesWithIt() {
+    void aDisputeNeedsAnExistingFineAndPinsIt() {
         Fine unknown = fine("z1");
         ReflectionTestUtils.setField(unknown, "id", UUID.randomUUID());
         assertThatThrownBy(() -> open(unknown, T)).isInstanceOf(DataIntegrityViolationException.class);
 
         Fine fine = fine("z1");
         Dispute dispute = open(fine, T);
-        jdbc.update("delete from fines where id = ?", fine.getId());
 
-        assertThat(disputes.findById(dispute.getId())).isEmpty();
+        assertThatThrownBy(() -> jdbc.update("delete from fines where id = ?", fine.getId()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(disputes.findById(dispute.getId())).isPresent();
     }
 
     @Test

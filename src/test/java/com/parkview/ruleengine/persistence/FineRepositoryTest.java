@@ -52,15 +52,16 @@ class FineRepositoryTest {
 
     @BeforeEach
     void clean() {
-        jdbc.update("delete from fines");
+        jdbc.execute("truncate fine_evidence, fines cascade");
     }
 
     private UUID insert(String plate, String zone, Instant issuedAt, boolean paid) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
-                insert into fines (id, plate, site_id, zone_id, camera_id, reason, reason_code, reason_text, amount_sek, issued_at, paid, user_id)
-                values (?, ?, ?, ?, 'cam-1', 'wrong_vehicle_type', 'WVT', 'Not electric', 700, ?, ?, ?)
-                """, id, plate, zone, zone, Timestamp.from(issuedAt), paid, UUID.randomUUID());
+                insert into fines (id, plate, site_id, zone_id, reason, amount_sek, issued_at, paid, paid_at, paid_method, user_id)
+                values (?, ?, ?, ?, 'wrong_vehicle_type', 700, ?, ?, ?, ?, ?)
+                """, id, plate, zone, zone, Timestamp.from(issuedAt), paid, paid ? Timestamp.from(issuedAt) : null,
+                paid ? "cash" : null, UUID.randomUUID());
         return id;
     }
 
@@ -95,15 +96,12 @@ class FineRepositoryTest {
     }
 
     @Test
-    void camerasAndReasonDetailAreReadFromTheTable() {
+    void theReasonIsReadFromTheTable() {
         UUID id = insert("ABC123", "z1", NOW, false);
 
         Fine fine = fines.findById(id).orElseThrow();
 
-        assertThat(fine.getCameraId()).isEqualTo("cam-1");
         assertThat(fine.getReason()).isEqualTo(ViolationType.WRONG_VEHICLE_TYPE);
-        assertThat(fine.getReasonCode()).isEqualTo("WVT");
-        assertThat(fine.getReasonText()).isEqualTo("Not electric");
     }
 
     // ---- voided fines ----
@@ -176,7 +174,7 @@ class FineRepositoryTest {
         UUID inZ1 = insert("ABC123", "z1", NOW, false);
         insert("ABC123", "z2", NOW.minusSeconds(10), false);
         UUID voidedInZ1 = insert("ABC123", "z1", NOW.minusSeconds(20), false);
-        jdbc.update("update fines set voided_at = now() where id = ?", voidedInZ1);
+        jdbc.update("update fines set voided_at = now(), voided_by = gen_random_uuid() where id = ?", voidedInZ1);
 
         assertThat(fines.findByPlateAndZoneIdInAndVoidedAtIsNull("ABC123", java.util.List.of("z1"), PageRequest.of(0, 10, NEWEST_FIRST))
                 .getContent()).extracting(Fine::getId).containsExactly(inZ1);
