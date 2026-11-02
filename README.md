@@ -133,6 +133,7 @@ Services:
 * `FineIssuingService`: creates the fine of a due violation and freezes its evidence (inside the sweep transaction). `FineEvidenceService`: writes and reads the frozen evidence, builds the driver's explanation. `FineManagementService`: operator void and mark-paid. `FineSettlementService`: online payment. `FineQueryService`: reads, audit trail and the dispute state of fines. `FineEvents`: payload and routing key of the fine events.
 * `DisputeService`: open, withdraw and decide a dispute (the void of a decision goes through `FineManagementService.voidFine`). `DisputeCloser`: the one place that ends a dispute (status, audit row, `fine.dispute.decided`). `DisputeQueryService`: reads and the operator list.
 * `OutboxService`: writes an event to the outbox (refuses to run without a transaction). `OutboxRelay` / `OutboxCleanup`: publish the rows, remove old ones.
+* `RetentionJob`, `RuleRetention`, `PostgresRetentionLock` (package `service.retention`): the data-retention job, its batch work and its advisory lock, see "Data retention".
 * `PermitService`: permits (the engine question `holdsAll` and operator CRUD). `Plates`, `ZoneIds`: normal forms of ids from requests.
 
 Every fine command locks the row (`select ... for update`), writes its `fine_actions` row and its outbox event in the same transaction; the relay publishes the event after commit (see "Transactional outbox").
@@ -261,11 +262,10 @@ a present claim, even an empty list, is never overridden. By default an operator
 | `POST /api/v1/disputes/{id}/decision` | `fine:manage` + zone of the dispute (admin: any zone) | body `{outcome: upheld\|voided, note}` (note 10-1000 characters, mandatory); 200 + the dispute; 404 outside the caller's zones; 409 when already decided or withdrawn |
 | `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid, voided, disputed}`; payment-service must not charge a voided fine nor start a payment while `disputed` |
 
-Fine JSON (read API and the response of the two commands; online payment goes through payment-service): `id, plate, zoneId, cameraId, reason, reasonCode, reasonText, amountSek,
+Fine JSON (read API and the response of the two commands; online payment goes through payment-service): `id, plate, siteId, zoneId, reason, amountSek,
 issuedAt, paid, imagePath, paidAt, voided, voidedAt, disputed, disputeStatus`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
-`amountSek` a number, `issuedAt`, `paidAt` and `voidedAt` ISO-8601 instants; `cameraId`, `reasonCode`, `reasonText`, `imagePath`, `paidAt` and `voidedAt` may be null
-(`paidAt` is also null for fines paid before it was recorded). `disputed` is true while a dispute is open, `disputeStatus` is the status of the latest dispute (`open | upheld | voided | withdrawn`) or null. The owner's `userId`, the void reason and the actors are never returned here. The lists are served from
-the indexes `fines_plate_issued_idx` and `fines_zone_issued_idx` (changeset 007). These endpoints replace the frontend's direct read of the `fines` table, so the row level
+`amountSek` a number, `issuedAt`, `paidAt` and `voidedAt` ISO-8601 instants; `zoneId`, `imagePath`, `paidAt` and `voidedAt` may be null. `disputed` is true while a dispute is open, `disputeStatus` is the status of the latest dispute (`open | upheld | voided | withdrawn`) or null. The owner's `userId`, the void reason and the actors are never returned here. The lists are served from
+the indexes `fines_plate_issued_idx`, `fines_site_issued_idx` and `fines_zone_issued_idx`. These endpoints replace the frontend's direct read of the `fines` table, so the row level
 security policy that lets every signed-in user read all fines can be dropped.
 
 Void and mark-paid (permission `fine:manage`, an admin default; an operator needs it granted):
@@ -402,30 +402,79 @@ Schema `rules`, owned by the role `svc_rule` (ADR 0010). Everything is created b
 `db/changelog/001-baseline.sql` (the schema, the role and its `search_path = rules, public` are created by the infrastructure;
 Liquibase's tracking tables `databasechangelog*` live in the same schema). Owned tables: `spot_violations`, `fines`,
 `plate_permits`, `fine_actions`, `fine_evidence`, `fine_disputes`, `outbox_events`, and the published views `rules.v_fines` and `rules.v_fine_evidence`.
-No foreign key leaves the schema: `spot_violations.spot_id/zone_id/user_id`, `fines.zone_id/camera_id/user_id` and the ids in the
-other tables are plain columns. Read only: the catalogue views of other services (see "Data read from other services").
+No foreign key leaves the schema: `spot_violations.spot_id/zone_id/user_id`, `fines.zone_id/user_id` and the ids in the
+other tables are plain columns. Inside the schema every foreign key restricts: nothing is deleted by a cascade, only by the retention job.
+Read only: the catalogue views of other services (see "Data read from other services").
 
-* `spot_violations.violation_type` is upper-case; `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`); both
+* `spot_violations.violation_type` and `fine_evidence.violation_type` are upper-case, `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`); all
   are limited by a check constraint.
-* `fines` also carries `paid_at`, `paid_method` (`online | cash | transfer | other`), `paid_by`, `voided_at`, `void_reason`, `voided_by`
-  (constraints `fines_paid_method_check` and `fines_not_paid_and_voided_check`).
-* `rules.v_fines` and `rules.v_fine_evidence` publish all columns of `fines` and `fine_evidence`; they are granted (`usage` on the schema,
-  `select` on the views) to `service_role` when that role exists, so that ingestion-service can authorise the picture of a fine and
-  find the snapshots (`detection_ids`, `image_paths`) that a fine still needs, through PostgREST (`Accept-Profile: rules`). Nothing else of
-  this schema is readable by other services.
-* `fine_actions(id, fine_id -> fines on delete cascade, at, actor_id null, action void|mark_paid|paid_online|dispute_opened|dispute_upheld|dispute_voided|dispute_withdrawn|payment_needs_review, reason null, details jsonb)` with the index
+* `fines(id, plate, site_id, zone_id null, reason, amount_sek, issued_at, paid, user_id null, image_path null, created_at, paid_at, paid_method, paid_by, voided_at, void_reason, voided_by)`. Constraints:
+  `fines_reason_check`, `fines_paid_method_check` (`online | cash | transfer | other`), `fines_not_paid_and_voided_check` (never both),
+  `fines_amount_check` (`amount_sek >= 0`), `fines_paid_consistent_check` (`paid`, `paid_at` and `paid_method` are set together, as `Fine.markPaid` does) and
+  `fines_voided_consistent_check` (`voided_at` and `voided_by` are set together, `void_reason` only on a voided fine; it may be null there because the retention job clears it).
+  Indexes `fines_plate_issued_idx`, `fines_site_issued_idx`, `fines_zone_issued_idx`.
+* One fine per violation, enforced by the database: `fine_evidence.violation_id` is unique, `spot_violations.fine_id` has the foreign key `spot_violations_fine_fk -> fines` and the partial unique
+  index `spot_violations_fine_uq (fine_id) where fine_id is not null`, and the check `spot_violations_fine_paired_check` says that `fine_id` and `fine_issued_at` are set together
+  (`Violation.markFined` sets both). The claim with `FOR UPDATE SKIP LOCKED` already makes a second fine unlikely; should one be attempted anyway (`ViolationJobs`), its transaction
+  fails on the constraint, rolls back as a whole (no second fine, evidence or event) and is logged as "fined already" instead of as an error.
+* `fine_actions(id, fine_id -> fines on delete restrict, at, actor_id null, action void|mark_paid|paid_online|dispute_opened|dispute_upheld|dispute_voided|dispute_withdrawn|payment_needs_review, reason null, details jsonb)` with the index
   `fine_actions_fine_at_idx (fine_id, at desc)`.
-* `fine_evidence(fine_id pk -> fines, plate, site_id, site_address, zone_id, zone_address, spot_id, spot_number, violation_type, violation_id, rule_summary, grace_minutes, violation_detected_at, grace_expired_at, issued_at,
-  detection_ids jsonb, image_paths jsonb, min_confidence numeric(5,4), decision_basis 'automatic', created_at)` (no cascade; trigger `fine_evidence_immutable` rejects UPDATE and DELETE),
-  and `spot_violations.rule_summary` (the rule text frozen into it).
-* `fine_disputes(id, fine_id -> fines on delete cascade, plate, site_id, zone_id, opened_by_user_id null, channel driver|operator, message, status open|upheld|voided|withdrawn, opened_at, decided_by_user_id null,
+* `fine_evidence(fine_id pk -> fines, plate, site_id, site_address, zone_id, zone_address, spot_id, spot_number, violation_type, violation_id unique, rule_summary, grace_minutes, violation_detected_at, grace_expired_at, issued_at,
+  detection_ids jsonb, image_paths jsonb, min_confidence numeric(5,4), decision_basis 'automatic', created_at)` (no cascade) and `spot_violations.rule_summary` (the rule text frozen into it).
+  The trigger `fine_evidence_immutable` rejects every DELETE and every UPDATE, with the single exception of the retention job (see "Data retention"). Indexes: `gin (detection_ids jsonb_path_ops)` and
+  `gin (image_paths jsonb_path_ops)`, because ingestion-service asks through `v_fine_evidence` with jsonb containment which detections and pictures are evidence.
+* `fine_disputes(id, fine_id -> fines on delete restrict, plate, site_id, zone_id, opened_by_user_id null, channel driver|operator, message, status open|upheld|voided|withdrawn, opened_at, decided_by_user_id null,
   decided_at null, decision_note null)` with the partial unique index `fine_disputes_one_open_uq (fine_id) where status = 'open'`, `fine_disputes_fine_opened_idx`,
   `fine_disputes_site_opened_idx` and `fine_disputes_zone_opened_idx`.
-* `outbox_events(id, seq identity, aggregate_type, aggregate_id, exchange, routing_key, payload text, request_id, created_at, published_at, attempts, next_attempt_at, last_error)` with
-  partial indexes on the unpublished rows (`outbox_events_due_idx`, `outbox_events_pending_aggregate_idx`), one on the published ones and `outbox_events_aggregate_idx (aggregate_id, created_at)`.
-* One open violation per plate, spot and type: partial unique index `spot_violations_open_uq`.
+* `outbox_events(id, seq identity unique, aggregate_type, aggregate_id, exchange, routing_key, payload text, request_id, created_at, published_at, attempts, next_attempt_at, last_error)` with exactly the standard
+  indexes: `outbox_events_due_idx (seq)` and `outbox_events_pending_aggregate_idx (aggregate_id, seq)` on the unpublished rows, `outbox_events_published_idx (published_at)` on the published ones.
+* One open violation per plate, spot and type: partial unique index `spot_violations_open_uq`. Other `spot_violations` indexes: `spot_violations_active_idx`, `_stale_idx`, `_site_active_idx`, `_zone_active_idx`
+  (the sweeps and the read API look at active rows only), `spot_violations_plate_detected_idx`, and `spot_violations_resolved_idx (resolved_at)` for the retention job.
 * `plate_permits(plate, permit_type, site_id null = every site, zone_id null = whole site, valid_from, valid_to null = open ended, created_by)`.
   Permit types are compared case-insensitively against `mapping.v_parking_spots.permit_type`.
+
+**Published views** (changeset `3-published-views`, `runOnChange:true`: dropped and created again whenever it changes, separate from the tables). They carry only the columns that the readers use, no
+free text and no personal data. The only reader is ingestion-service through PostgREST (role `service_role`, `Accept-Profile: rules`); the grants (`usage` on the schema, `select` on the two
+views) are made when that role exists and go to no other role:
+
+| View | Columns | Used for |
+|---|---|---|
+| `rules.v_fines` | `id`, `site_id`, `image_path` | authorise the picture of a fine (the site of the fine, the key of the picture) |
+| `rules.v_fine_evidence` | `detection_ids`, `image_paths` | ingestion's retention keeps the detections and pictures that a fine still needs |
+
+Nothing else of this schema is readable by other services. A new reader column means a change of the view in that changeset.
+
+### Data retention
+
+A scheduled job (`service.retention.RetentionJob`, properties `parkview.retention.*`) limits how long personal data of fines and violations stays. **It is a mechanism only: no legal period is
+decided here.** It is disabled (`enabled=false`) and a dry run (`dry-run=true`) by default, and the three periods have no default: with `enabled=true` the service refuses to start unless all three are set.
+Do not switch it on before the product owner and legal have decided the periods (accounting rules for paid fines, the period for appeals and disputes, GDPR storage limitation).
+
+| Step (period) | Counted from | What happens |
+|---|---|---|
+| `evidence` | `fine_evidence.issued_at` | plate replaced by `ANONYMISED`, `image_paths` and `detection_ids` emptied (not for a fine with an open dispute). The rest of the evidence stays as frozen. Without the references, ingestion's retention no longer keeps those detections and pictures. |
+| `closed-records` | decision of a dispute, payment or void of a fine | `fine_disputes`: plate anonymised, `opened_by_user_id` and `decided_by_user_id` cleared, `message` emptied, `decision_note` cleared. `fines`: plate anonymised, `user_id`, `image_path` and `void_reason` cleared. `fine_actions.reason` cleared (of closed fines and of decided disputes). Amounts, times, states and the ids of operators stay. |
+| `violations` | `spot_violations.resolved_at` | resolved violations that never became a fine are deleted. A violation with a fine is kept, the evidence points to it. |
+
+* `fine_evidence_immutable` allows exactly this path: an UPDATE of `plate`, `image_paths` and `detection_ids` is accepted when the transaction did `set_config('parkview.retention', 'on', true)` (the job does
+  that inside each evidence batch, the setting ends with the transaction); every other column and every DELETE stays rejected.
+* Each step runs in batches (`batch-size` rows, one short transaction each, `FOR UPDATE SKIP LOCKED`, at most `max-batches` per step and run; the rest waits for the next run). The statements are idempotent.
+  One instance at a time runs (Postgres advisory lock, key `PVRULE`). A dry run only counts. Logs carry table names and counts, never a plate, an id or a text; each run writes `AUDIT retention run started/finished/failed`.
+* Metrics: `retention_rows_total{service="rule-service",table=...,action="anonymised"|"would_anonymise"|"deleted"|"would_delete"}`, `retention_run_seconds`, `retention_last_success_timestamp_seconds`.
+* Switch on: set the three periods, run with `dry-run=true` and read the `would_*` counts, then set `RETENTION_DRY_RUN=false`.
+
+| Property (env) | Default | Description |
+|---|---|---|
+| `enabled` (`RETENTION_ENABLED`) | `false` | switch the job on |
+| `dry-run` (`RETENTION_DRY_RUN`) | `true` | only count and log |
+| `cron` (`RETENTION_CRON`) | `0 25 3 * * *` | schedule (Spring cron, server time zone) |
+| `batch-size` (`RETENTION_BATCH_SIZE`) | `1000` | rows per transaction |
+| `max-batches` (`RETENTION_MAX_BATCHES`) | `200` | batches per step and run |
+| `evidence` (`PARKVIEW_RETENTION_EVIDENCE`) | none, required when enabled | period of the evidence step |
+| `closed-records` (`PARKVIEW_RETENTION_CLOSED_RECORDS`) | none, required when enabled | period of the closed-records step |
+| `violations` (`PARKVIEW_RETENTION_VIOLATIONS`) | none, required when enabled | period of the violations step |
+
+Periods are Spring period values (`25m` = 25 months, `760d`, `2y1m`). Example values for a test environment, **not a recommendation and not a decision**: `evidence=13m`, `closed-records=25m`, `violations=3m`.
 
 ## Data read from other services
 
