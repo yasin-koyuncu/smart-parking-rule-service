@@ -29,7 +29,7 @@ session-service --session.ended--> [ rule-service ]
 parking-mapping-service --map.updated--> [ rule-service ]
 payment-service --GET /internal/v1/fines/{id}--> [ rule-service ]
 frontend --JWT via api-gateway--> [ rule-service ]  (violations, fines, permits)
-rule-service reads parking_spots, zones, zone_rules, sessions, user_plates, detections (owned by other services, behind the ports in client/)
+rule-service reads the published views mapping.v_zones/v_sites/v_zone_rules/v_parking_spots, sessions.v_sessions, identity.v_user_plates, ingestion.v_detections (owned by other services, behind the ports in client/)
 rule-service --GET /internal/v1/vehicles/{plate}?country=--> lookup-service   (only when a decision needs vehicle data)
 ```
 
@@ -54,7 +54,7 @@ Flow for one observation (`DetectionService`):
    (`last_seen_at` is refreshed at most every `touch-interval-seconds`). A vehicle that was already fined and is
    still there does not get a second violation, and neither does one that was fined for the same reason in the same zone
    within `refine-block-hours`, even when its spot was deleted and drawn again meanwhile (re-scan, "Töm ytan", rollback: the
-   violation is gone with the spot and the new spot has a new id, so the fine itself is what remembers the stay; a voided
+   violation of the old spot is closed, see `map.updated`, and the new spot has a new id, so the fine itself is what remembers the stay; a voided
    fine counts too). Every other open violation of the plate in the zone (another type on
    the same spot, or another spot) is resolved as `CORRECTED`.
 5. No violation: the plate's open violations in the zone are resolved as `CORRECTED`; the vehicle is in no spot:
@@ -75,16 +75,17 @@ Jobs (safe on several instances):
   at once (the same resolve path as the stale sweep, `violation.resolved` is published). A violation that already has a fine
   stays, one that a detection confirmed after the session ended is left alone (the vehicle is still there), a redelivered
   event finds nothing open.
-* `map.updated` (parking-mapping-service): the spots of that zone (legacy and every view) are evicted from the cache, so a
+* `map.updated` (parking-mapping-service): the spots and rules of that site (legacy and every view) are evicted from the cache, so a
   re-scan, rollback or "empty the area" applies to the next observation. Every instance has its own queue for this event
   (`map.updated.rule-engine.instance-<uuid>`: not durable, exclusive, deleted with its connection, dead-lettered like the others), so every
   instance evicts its own cache; with one shared queue only the instance that got the message would, and the others kept the old spots
-  for the whole TTL. An event published while an instance is down is not needed: its cache starts empty. The durable shared queue
-  `map.updated.rule-engine` of earlier releases is no longer declared; at start each instance deletes it if it has no consumer (a queue that is
-  gone from the code is not gone from a broker, and it would otherwise collect every event for ever). During a rolling deployment an older instance may
-  still read it: the delete is then refused, logged at INFO, and the next start removes it. A zone without spots is cached for
-  `spot-cache-negative-ttl-seconds` only. An observation for a spot that was deleted meanwhile (foreign key failure on
-  `spot_id`) is dropped and acknowledged, the zone evicted, instead of being retried into the dead-letter queue.
+  for the whole TTL. An event published while an instance is down is not needed: its cache starts empty. A site without spots is cached for
+  `spot-cache-negative-ttl-seconds` only.
+  After the eviction the listener closes the active violations of the site whose spot is no longer in `mapping.v_parking_spots`
+  (`ViolationService.resolveOfRemovedSpots`, resolved as `LEFT`, `violation.resolved` is published): no foreign key to the spots of
+  another service takes them along (ADR 0010). A violation that already has a fine stays as it is. A violation opened from a stale
+  cache in the instant before the eviction is closed by the stale sweep, since no detection can confirm it any more. A violation
+  whose zone is deleted needs nothing: it belongs to its site and is still valid.
 
 ## Sites (ADR 0009)
 
@@ -100,17 +101,16 @@ and disputes belong to a site (`site_id`) and only optionally to a zone (`zone_i
   `zoneId` evicts the zone's site). Sessions match on plate + site (+ zone when the spot has one); evidence is read per site.
 * Permits: `site_id` null = every site, `zone_id` null = the whole site. A permit for a zone also stores the zone's site
   (`zone.otherSite`, 422, when `siteId` names another site).
-* Scope: `app_metadata.sites` (else `app_metadata.zones`, read as site ids). A record is reachable when its `site_id` is in the
-  scope; a zone-keyed endpoint checks the zone's site (an unknown zone counts as its own site, true for every zone from before
-  sites).
+* Scope: the token claim `app_metadata.sites` (list of site ids). A record is reachable when its `site_id` is in the
+  scope; a zone-keyed endpoint resolves the zone's site through `mapping.v_zones` and checks it (an unknown zone is reachable by
+  administrators only; granting a permit for an unknown zone is a 404).
 * Consumed events accept `siteId` next to `zoneId` and need at least one of them (else invalid, dead-lettered); without `siteId`
   the zone's site is used. Published violation, fine and dispute events carry `siteId` (and `siteAddress` where `zoneAddress`
   exists); `zoneId`/`zoneAddress` are null without a zone.
-* Schema (changeset 013): `site_id NOT NULL` on `spot_violations`, `fines`, `fine_disputes`, `fine_evidence` (+ `site_address`),
-  nullable on `plate_permits`; `zone_id` nullable; a fill trigger sets `site_id` from the zone for writers that do not (removed in
-  phase 5). The read models map `site_id` of `parking_spots`, `sessions`, `detections`, `zones`, `zone_rules` and the `sites`
-  table directly: deploy rule-service after parking-mapping-service, session-service and the Supabase migration of phase 2
-  (startup schema validation fails on a database without those columns).
+* Schema: `site_id NOT NULL` on `spot_violations`, `fines`, `fine_disputes`, `fine_evidence` (+ `site_address`), nullable on
+  `plate_permits`; `zone_id` nullable. No fill trigger: rule-service writes `site_id` itself. The read models map the `site_id`
+  columns of the catalogue views of parking-mapping-service, session-service and ingestion-service; the startup schema validation
+  fails when a view is missing, so deploy rule-service after them.
 
 ## Structure
 
@@ -398,57 +398,62 @@ with publisher confirms and marks them published after the ack; consumers get wh
 
 ## Data
 
-Owned: `spot_violations`, `fines`, `plate_permits`, `fine_actions`, `fine_evidence`, `fine_disputes`, `rule_outbox_events` (Liquibase `db/changelog`, idempotent and reconciling because the
-Supabase migrations created older shapes of the first two). Read only: `parking_spots`, `zones`, `zone_rules`, `sessions`, `user_plates`, `detections`
-(see "Data read from other services").
+Schema `rules`, owned by the role `svc_rule` (ADR 0010). Everything is created by the one baseline changelog
+`db/changelog/001-baseline.sql` (the schema, the role and its `search_path = rules, public` are created by the infrastructure;
+Liquibase's tracking tables `databasechangelog*` live in the same schema). Owned tables: `spot_violations`, `fines`,
+`plate_permits`, `fine_actions`, `fine_evidence`, `fine_disputes`, `rule_outbox_events`, and the published views `rules.v_fines` and `rules.v_fine_evidence`.
+No foreign key leaves the schema: `spot_violations.spot_id/zone_id/user_id`, `fines.zone_id/camera_id/user_id` and the ids in the
+other tables are plain columns. Read only: the catalogue views of other services (see "Data read from other services").
 
-* `spot_violations.violation_type` is upper-case; `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`).
-  Changeset 006 widens `spot_violations_violation_type_check` and `fines_reason_check` idempotently.
-* `fines` also carries `paid_at`, `paid_method` (`online | cash | transfer | other`), `paid_by`, `voided_at`, `void_reason`, `voided_by` (changeset 008, add-if-missing;
-  constraints `fines_paid_method_check` and `fines_not_paid_and_voided_check`). Fines paid before 008 have `paid_at` / `paid_method` null.
+* `spot_violations.violation_type` is upper-case; `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`); both
+  are limited by a check constraint.
+* `fines` also carries `paid_at`, `paid_method` (`online | cash | transfer | other`), `paid_by`, `voided_at`, `void_reason`, `voided_by`
+  (constraints `fines_paid_method_check` and `fines_not_paid_and_voided_check`).
+* `rules.v_fines` and `rules.v_fine_evidence` publish all columns of `fines` and `fine_evidence`; they are granted (`usage` on the schema,
+  `select` on the views) to `service_role` when that role exists, so that ingestion-service can authorise the picture of a fine and
+  find the snapshots (`detection_ids`, `image_paths`) that a fine still needs, through PostgREST (`Accept-Profile: rules`). Nothing else of
+  this schema is readable by other services.
 * `fine_actions(id, fine_id -> fines on delete cascade, at, actor_id null, action void|mark_paid|paid_online|dispute_opened|dispute_upheld|dispute_voided|dispute_withdrawn|payment_needs_review, reason null, details jsonb)` with the index
-  `fine_actions_fine_at_idx (fine_id, at desc)`; row level security is on without policies (as for `plate_permits`): not reachable through PostgREST.
-* `fine_evidence(fine_id pk -> fines, plate, zone_id, zone_address, spot_id, spot_number, violation_type, violation_id, rule_summary, grace_minutes, violation_detected_at, grace_expired_at, issued_at,
-  detection_ids jsonb, image_paths jsonb, min_confidence numeric(5,4), decision_basis 'automatic', created_at)` (changeset 009; no cascade; trigger `fine_evidence_immutable` rejects UPDATE and DELETE),
+  `fine_actions_fine_at_idx (fine_id, at desc)`.
+* `fine_evidence(fine_id pk -> fines, plate, site_id, site_address, zone_id, zone_address, spot_id, spot_number, violation_type, violation_id, rule_summary, grace_minutes, violation_detected_at, grace_expired_at, issued_at,
+  detection_ids jsonb, image_paths jsonb, min_confidence numeric(5,4), decision_basis 'automatic', created_at)` (no cascade; trigger `fine_evidence_immutable` rejects UPDATE and DELETE),
   and `spot_violations.rule_summary` (the rule text frozen into it).
-* `fine_disputes(id, fine_id -> fines on delete cascade, plate, zone_id, opened_by_user_id null, channel driver|operator, message, status open|upheld|voided|withdrawn, opened_at, decided_by_user_id null,
-  decided_at null, decision_note null)` (changeset 010) with the partial unique index `fine_disputes_one_open_uq (fine_id) where status = 'open'`, `fine_disputes_fine_opened_idx` and
-  `fine_disputes_zone_opened_idx`; row level security on without policies, like `fine_actions`.
-* `rule_outbox_events(id, seq identity, aggregate_type, aggregate_id, exchange, routing_key, payload text, request_id, created_at, published_at, attempts, next_attempt_at, last_error)` (changeset 011) with
+* `fine_disputes(id, fine_id -> fines on delete cascade, plate, site_id, zone_id, opened_by_user_id null, channel driver|operator, message, status open|upheld|voided|withdrawn, opened_at, decided_by_user_id null,
+  decided_at null, decision_note null)` with the partial unique index `fine_disputes_one_open_uq (fine_id) where status = 'open'`, `fine_disputes_fine_opened_idx`,
+  `fine_disputes_site_opened_idx` and `fine_disputes_zone_opened_idx`.
+* `rule_outbox_events(id, seq identity, aggregate_type, aggregate_id, exchange, routing_key, payload text, request_id, created_at, published_at, attempts, next_attempt_at, last_error)` with
   partial indexes on the unpublished rows.
 * One open violation per plate, spot and type: partial unique index `spot_violations_open_uq`.
-* `plate_permits(plate, permit_type, zone_id null = all zones, valid_from, valid_to null = open ended, created_by)`.
-  Permit types are compared case-insensitively against `parking_spots.permit_type`.
+* `plate_permits(plate, permit_type, site_id null = every site, zone_id null = whole site, valid_from, valid_to null = open ended, created_by)`.
+  Permit types are compared case-insensitively against `mapping.v_parking_spots.permit_type`.
 
 ## Data read from other services
 
-Tables owned by other services are read through small read-only JPA read models owned by this service
-(package `com.parkview.ruleengine.readmodel`): `@Entity @Immutable` classes that map only the columns used, with
-getters only, and Spring Data repositories that extend `Repository` (no save or delete API). The ports in `client/`
-are implemented on top of them. Extra columns in the owner's table do not matter; `ddl-auto: validate` only checks
-the mapped ones. Liquibase never creates or alters these tables and this service never writes to them.
+Data of other services is read only through their published views (ADR 0010, section 4), with small read-only JPA read models owned by
+this service (package `com.parkview.ruleengine.readmodel`): `@Entity @Immutable @Table(schema = ..., name = "v_...")` classes that map only the columns
+used, with getters only, and Spring Data repositories that extend `Repository` (no save or delete API). The ports in `client/`
+are implemented on top of them. Extra columns in the view do not matter; `ddl-auto: validate` only checks
+the mapped ones. Liquibase never creates or alters these views and this service never writes to them. The owners grant `select` on them to `svc_rule`.
 
-| Table | Owner | Columns used | Read model class |
+| View | Owner | Columns used | Read model class |
 |---|---|---|---|
-| `zones` | Supabase schema / parking-mapping-service | `id`, `address`, `max_minutes`, `country`, `timezone` (null: `0` / `SE` / `Europe/Stockholm`) | `ZoneView` |
-| `zone_rules` | Supabase schema / parking-mapping-service | `id`, `zone_id`, `label`, `priority`, `enabled`, `vehicle_types` (`text[]`), `permit_required`, `weekdays` (`int[]`), `start_time`, `end_time` (`time`, read as text and parsed), `applies_holidays`, `max_minutes`, `no_parking` | `ZoneRuleView` |
-| `sessions` | session-service | `id`, `plate`, `zone_id`, `started_at`, `ended_at`; `voided_at` (not mapped: a voided session is not active, so it never causes an `OVERSTAY`; read through a native query when the column exists, probed at most once a minute while it does not, so rule-service may start before session-service migrated) | `SessionView` |
-| `user_plates` | Supabase schema (driver plates) | `id`, `user_id`, `plate` | `PlateOwnerView` |
-| `parking_spots` | parking-mapping-service | `id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read for legacy spots), `permit_type`, `coordinates` (jsonb, null for a spot that only has a geo polygon: skipped), `boundary_grace_min`, `permit_grace_min`, `max_minutes` | `ParkingSpotView` |
-| `parking_spots` (camera views) | parking-mapping-service | `view_id` (uuid, null = legacy spot), `image_polygon` (jsonb, polygon in the view's corrected image) | `SpotPlacementView` (a `@Subselect`, see below) |
-| `detections` | ingestion-service | `id`, `plate`, `corrected_plate`, `zone_id`, `image_path`, `confidence`, `review_status`, `at` (the snapshots that go into the evidence of a fine; rejected detections are left out) | `DetectionView` |
+| `mapping.v_zones` | parking-mapping-service | `id`, `site_id`, `address`, `allows_parking`, `max_minutes`, `country`, `timezone` (null: `0` / `SE` / `Europe/Stockholm`) | `ZoneView` |
+| `mapping.v_sites` | parking-mapping-service | `id`, `address`, `country`, `currency`, `timezone`, `price_per_hour`, `max_minutes`, `allows_parking` | `SiteView` |
+| `mapping.v_zone_rules` | parking-mapping-service | `id`, `site_id`, `zone_id` (null = site rule), `label`, `priority`, `enabled`, `vehicle_types` (`text[]`), `permit_required`, `weekdays` (`int[]`), `start_time`, `end_time` (`time`, read as text and parsed), `applies_holidays`, `max_minutes`, `no_parking` | `ZoneRuleView` |
+| `mapping.v_parking_spots` | parking-mapping-service | `id`, `site_id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read for legacy spots), `permit_type`, `coordinates` (jsonb, null for a spot that only has a geo polygon: skipped), `boundary_grace_min`, `permit_grace_min`, `max_minutes` | `ParkingSpotView` |
+| `mapping.v_parking_spots` (camera views) | parking-mapping-service | `id`, `view_id` (uuid, null = legacy spot), `image_polygon` (jsonb, polygon in the view's corrected image) | `SpotPlacementView` |
+| `sessions.v_sessions` | session-service | `id`, `plate`, `site_id`, `zone_id`, `started_at`, `ended_at`, `voided_at` (a voided session is not active, so it never causes an `OVERSTAY`) | `SessionView` |
+| `identity.v_user_plates` | authentication-service | `id`, `user_id`, `plate` | `PlateOwnerView` |
+| `ingestion.v_detections` | ingestion-service | `id`, `plate`, `corrected_plate`, `site_id`, `zone_id`, `image_path`, `confidence`, `review_status`, `at` (the snapshots that go into the evidence of a fine; rejected detections are left out) | `DetectionView` |
 
 **Camera views.** A spot is either a legacy spot (`view_id` null, polygon in `coordinates`) or drawn on a camera view
-(`view_id` set, polygon in `image_polygon`). `SpotDirectory` has `polygonSpotsOf(zone)` for the first kind and
-`polygonSpotsOfView(zone, viewId)` for the second; `SpotCacheService` caches each separately (key: zone and view id,
-the same TTL; `map.updated` evicts a zone at once, the TTL is the safety net).
-The two columns are read through `SpotPlacementView`, a `@Subselect` entity and not a `@Table` one, because
-`ddl-auto: validate` would refuse to start against a database that has not got the migration yet; `SpotViewSchema`
-asks `information_schema` whether both columns exist each time a zone is loaded. In a database without them every
-polygon spot is a legacy spot and there are no view spots (no error, and the migration is noticed without a restart).
-A view query also filters on the zone of the event, so a view id never yields spots of another zone.
-The test schema (`src/test/resources/test-schema.sql`) has the new columns and `camera_views`;
-`test-schema-before-views.sql` takes it back to the old shape for `SpotsBeforeViewsMigrationTest`.
+(`view_id` set, polygon in `image_polygon`). `SpotDirectory` has `polygonSpotsOf(site)` for the first kind and
+`polygonSpotsOfView(site, viewId)` for the second; `SpotCacheService` caches each separately (key: site and view id,
+the same TTL; `map.updated` evicts a site at once, the TTL is the safety net).
+The two columns are read through `SpotPlacementView`, a second read model of `mapping.v_parking_spots`. A view query also filters
+on the site of the event, so a view id never yields spots of another site.
+The test schema (`src/test/resources/test-schema.sql`) creates the schemas of the other services, their base tables and the
+published views, and sets the `search_path` of the test role to `rules, public` like the infrastructure does.
 
 ## Configuration
 
@@ -456,8 +461,9 @@ The test schema (`src/test/resources/test-schema.sql`) has the new columns and `
 |---|---|---|---|
 | `PORT` | `8081` | no | HTTP port |
 | `DB_URL` | `jdbc:postgresql://localhost:5432/parkview` | no | JDBC URL |
-| `DB_USER` | `postgres` | no | database user |
+| `DB_USER` | `svc_rule` | no | database role of this service (owns schema `rules`, `search_path = rules, public`, `select` on the catalogue views of the other services) |
 | `DB_PASS` | none | yes | database password |
+| `DB_SCHEMA` | `rules` | no | the service's schema: Liquibase default and tracking schema (`spring.liquibase.default-schema` / `liquibase-schema`) and `hibernate.default_schema` |
 | `DB_POOL_SIZE` | `10` | no | Hikari pool size |
 | `RABBIT_HOST` / `RABBIT_PORT` | `localhost` / `5672` | no | broker |
 | `RABBIT_USER` / `RABBIT_PASS` | `guest` / `guest` | no | broker credentials (set real ones outside local use) |
@@ -542,14 +548,14 @@ mvn -B -ntp verify        # unit, web-layer and Testcontainers tests (needs a Do
 docker build -t rule-service . && docker run --rm -p 8081:8081 -e DB_URL=... -e DB_PASS=... -e SUPABASE_URL=... rule-service
 ```
 
-The `local` profile only sets a database password and an internal API key for development.
+The `local` profile only sets a database password and an internal API key for development; the database needs the role `svc_rule` and the schema `rules` (created by the infrastructure, e.g. the e2e stack), and the schemas of the other services with their published views.
 Tests: geometry table tests (clockwise and counter-clockwise polygons, crossing edges), table-driven rule engine tests (time windows
 incl. midnight crossing, holidays and Europe/Stockholm DST dates; priority and first match wins; every violation type and
 fail-open case; vehicle-code mapping; grace values; overstay with a fixed clock), the Jollyday calendar for the Swedish
 2026 holidays, the lookup client (MockRestServiceServer), violation lifecycle (type change, grace per type), fine issuing,
 MockMvc security tests (401/403/404/409/400, problem+json), listener payloads, Testcontainers tests (unique index,
-`SKIP LOCKED` claim, permit queries, read models against Supabase-style tables with extra columns, `time`/array columns,
-Liquibase 006 and 008 on the legacy `fines` shape) and a full flow test against real Postgres and RabbitMQ (incl. void, manual and online payment events, and a void racing a payment).
+`SKIP LOCKED` claim, permit queries, read models against catalogue views with extra columns, `time`/array columns)
+and a full flow test against real Postgres and RabbitMQ (incl. void, manual and online payment events, and a void racing a payment).
 Evidence and disputes: `FineEvidenceServiceTest` (what is frozen, snapshots, fallbacks), `RuleSummariesTest` (the rule text per violation type), `FineEvidenceRepositoryTest` (round trip, the trigger
 rejects UPDATE and DELETE, the entity cannot change a row, no update/delete API), `FineIssuingTransactionTest` (fine, evidence and outbox row commit together, a rollback leaves none), `DisputeServiceTest`
 (rules, audit rows, events, void through the existing logic, payment hold, system upheld after a race, nothing logged), `DisputeRepositoryTest` (unique open index, constraints, latest status, list queries),
@@ -581,5 +587,3 @@ idempotency, voided fines hidden from lists and drivers, audit rows and event pa
 * lookup-service down: decisions that need vehicle data are skipped (fail open) and `ruleengine_vehicle_lookups_failed_total`
   rises; after `negative-cache-ttl-seconds` the next observation asks again.
 * Rules are read through a cache: after an operator edit in the UI allow `rule-cache-ttl-seconds` before it is enforced.
-* The Supabase migration `20260512_spot_violations.sql` schedules a `pg_cron` job that also fines expired
-  violations; it must be unscheduled (`select cron.unschedule('process-spot-violations')`) so this service is the only issuer.
