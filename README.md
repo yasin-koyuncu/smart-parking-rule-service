@@ -29,7 +29,7 @@ session-service --session.ended--> [ rule-service ]
 parking-mapping-service --map.updated--> [ rule-service ]
 payment-service --GET /internal/v1/fines/{id}--> [ rule-service ]
 frontend --JWT via api-gateway--> [ rule-service ]  (violations, fines, permits)
-rule-service reads the published views mapping.v_zones/v_sites/v_zone_rules/v_parking_spots, sessions.v_sessions, identity.v_user_plates, ingestion.v_detections (owned by other services, behind the ports in client/)
+rule-service reads the published views mapping.v_zones/v_sites/v_zone_rules/v_parking_spots, sessions.v_sessions, identity.v_user_plates, identity.v_user_sites, ingestion.v_detections (owned by other services, behind the ports in client/)
 rule-service --GET /internal/v1/vehicles/{plate}?country=--> lookup-service   (only when a decision needs vehicle data)
 ```
 
@@ -101,7 +101,8 @@ and disputes belong to a site (`site_id`) and only optionally to a zone (`zone_i
   `zoneId` evicts the zone's site). Sessions match on plate + site (+ zone when the spot has one); evidence is read per site.
 * Permits: `site_id` null = every site, `zone_id` null = the whole site. A permit for a zone also stores the zone's site
   (`zone.otherSite`, 422, when `siteId` names another site).
-* Scope: the token claim `app_metadata.sites` (list of site ids). A record is reachable when its `site_id` is in the
+* Scope: the operator's current sites, looked up through `OperatorSites` (`identity.v_user_sites`, not in the token, see "Plates of a driver"
+  and ADR 0011). A record is reachable when its `site_id` is in the
   scope; a zone-keyed endpoint resolves the zone's site through `mapping.v_zones` and checks it (an unknown zone is reachable by
   administrators only; granting a permit for an unknown zone is a 404).
 * Consumed events accept `siteId` next to `zoneId` and need at least one of them (else invalid, dead-lettered); without `siteId`
@@ -216,7 +217,7 @@ registry data can be resolved and reopened (with a new grace period) when lookup
 
 Used only when a decision needs it (spot type `ev`, or an applicable rule with a vehicle filter while the detector class
 is unknown), at most once per observation. `GET {LOOKUP_SERVICE_URL}/internal/v1/vehicles/{plate}?country=<zones.country>`
-with `X-Internal-Api-Key`; only `vehicleType` and `fuelType` are read (never owner data). Found vehicles are cached
+with `X-Internal-Api-Key` (`LOOKUP_INTERNAL_API_KEY`, the key of lookup-service); only `vehicleType` and `fuelType` are read (never owner data). Found vehicles are cached
 `parkview.lookup.cache-ttl-minutes`; "not found" and failed lookups for `negative-cache-ttl-seconds`.
 Explicit connect/read timeouts, no retries. `parkview.rule-engine.vehicle-lookup-enabled=false` switches it off.
 
@@ -231,7 +232,7 @@ Interactive docs: `/swagger-ui.html` and `/v3/api-docs` when `DOCS_ENABLED=true`
 `application/problem+json`. Lists are plain JSON arrays, bounded by `?page=0&size=100` (max 500), total in `X-Total-Count`.
 
 Authorization uses the permissions in `app_metadata.permissions` (string[], one authority per permission, named exactly like it;
-ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the zone scope in `app_metadata.zones` (`AccessPolicy`, unchanged).
+ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the operator's site scope looked up through `OperatorSites` (`AccessPolicy`); there is no `plates` and no `sites` claim, see "Plates of a driver".
 A token WITHOUT the claim gets the default permissions of its role while `parkview.security.legacy-role-fallback` is true (default);
 a present claim, even an empty list, is never overridden. By default an operator holds `violation:read`, `violation:resolve` and
 `permit:manage`, an admin everything (`fine:manage` is an admin default only; an operator needs it granted).
@@ -239,22 +240,22 @@ a present claim, even an empty list, is never overridden. By default an operator
 | Endpoint | Access | Notes |
 |---|---|---|
 | `GET /api/v1/violations/site/{siteId}` | `violation:read` + site in the scope (admin: any) | active violations of the site, in its zones and outside them, newest first |
-| `GET /api/v1/violations/zone/{zoneId}` | `violation:read` + zone in `zones` claim (admin: any zone) | active (not resolved, not fined) violations, newest first |
+| `GET /api/v1/violations/zone/{zoneId}` | `violation:read` + site of the zone is one of the operator's sites (admin: any zone) | active (not resolved, not fined) violations, newest first |
 | `GET /api/v1/violations/plate/{plate}` | driver (own plate), or `violation:read` | all violations of the plate, newest first; an operator sees only those in their `zones`, an administrator all; `imagePath` only with `violation:read` |
 | `PATCH /api/v1/violations/{id}/resolve` | `violation:resolve` + zone of the violation (admin: any zone) | 204; 404 unknown; 409 when already fined; publishes `violation.resolved` (`MANUAL`) |
 | `POST /api/v1/permits` | `permit:manage` + zone (global permit: admin) | 201 + `Location`; a permit without `zoneId` is valid everywhere and needs an admin |
 | `GET /api/v1/permits?plate=&zoneId=` | `permit:manage` | operators see their zones and global permits |
 | `GET /api/v1/permits/{id}` | `permit:manage` + zone of the permit | |
 | `DELETE /api/v1/permits/{id}` | `permit:manage` + zone of the permit (global: admin) | 204 |
-| `GET /api/v1/fines/plate/{plate}?includeVoided=` | driver (own plate in `plates` claim), or `violation:read` | fines of the plate, newest first; another driver's plate is 403; an operator sees only the fines in their `zones` (a plate with fines elsewhere gives an empty list), an administrator all; voided fines only for staff with `includeVoided=true` (drivers never see them); `imagePath` only with `violation:read` |
+| `GET /api/v1/fines/plate/{plate}?includeVoided=` | driver (own plate: registered for the user, see "Plates of a driver"), or `violation:read` | fines of the plate, newest first; another driver's plate is 403; an operator sees only the fines in their `sites` (a plate with fines elsewhere gives an empty list), an administrator all; voided fines only for staff with `includeVoided=true` (drivers never see them); `imagePath` only with `violation:read` |
 | `GET /api/v1/fines/site/{siteId}?paid=&includeVoided=` | `violation:read` + site in the scope (admin: any) | fines of the site, in its zones and outside them; filters as for a zone |
-| `GET /api/v1/fines/zone/{zoneId}?paid=&includeVoided=` | `violation:read` + zone in `zones` claim (admin: any zone) | fines of the zone, newest first; optional `paid=true\|false` filter; voided fines left out unless `includeVoided=true` |
-| `GET /api/v1/fines/{id}` | driver (plate of the fine in `plates` claim), or `violation:read` + zone of the fine (admin: any zone) | 404 unknown, 403 for someone else's fine; a driver gets 404 for a voided fine |
+| `GET /api/v1/fines/zone/{zoneId}?paid=&includeVoided=` | `violation:read` + site of the zone is one of the operator's sites (admin: any zone) | fines of the zone, newest first; optional `paid=true\|false` filter; voided fines left out unless `includeVoided=true` |
+| `GET /api/v1/fines/{id}` | driver (plate of the fine is registered for the user), or `violation:read` + zone of the fine (admin: any zone) | 404 unknown, 403 for someone else's fine; a driver gets 404 for a voided fine |
 | `GET /api/v1/fines/{id}/history` | `violation:read` + zone of the fine (admin: any zone) | audit trail, newest first, paged; 404 unknown |
 | `POST /api/v1/fines/{id}/void` | `fine:manage` + zone of the fine (admin: any zone) | body `{reason}`; 200 + the fine; 409 when the fine is paid; idempotent (already voided: 200, same body, nothing new); publishes `fine.voided` |
 | `POST /api/v1/fines/{id}/mark-paid` | `fine:manage` + zone of the fine (admin: any zone) | body `{reason, method}`; 200 + the fine; 409 when the fine is voided; idempotent (already paid: 200, nothing new); publishes `fine.paid` |
 | `GET /api/v1/fines/{id}/evidence` | `violation:read` + zone of the fine (admin: any zone) | the frozen evidence incl. snapshot keys; `{recorded:false, fineId}` for fines issued before evidence was recorded; **404** for an unknown fine and for a fine outside the caller's zones |
-| `GET /api/v1/fines/{id}/explanation` | driver (plate of the fine in `plates` claim), or `violation:read` + zone | plain-language view, never snapshots or detection ids; 404 for someone else's fine; also for voided fines (the driver can see how a dispute ended) |
+| `GET /api/v1/fines/{id}/explanation` | driver (plate of the fine is registered for the user), or `violation:read` + zone | plain-language view, never snapshots or detection ids; 404 for someone else's fine; also for voided fines (the driver can see how a dispute ended) |
 | `POST /api/v1/fines/{id}/dispute` | driver (own plate, channel `driver`), or `fine:manage` + zone (channel `operator`, "customer called") | body `{message}` (10-1000 characters after trimming); 201 + `Location` + the dispute; 404 for someone else's fine; 409 when the fine is paid or voided, already has an open dispute or was already upheld |
 | `GET /api/v1/fines/{id}/dispute` | driver (own plate), or `violation:read` / `fine:manage` + zone | the latest dispute of the fine; 404 when there is none |
 | `POST /api/v1/disputes/{id}/withdraw` | driver (own plate) | 200 + the dispute; 404 for someone else's; 409 when not open any more |
@@ -284,6 +285,22 @@ Audit trail `GET /api/v1/fines/{id}/history`: `[{id, at, actorId, action, reason
 for a dispute the system upheld); `reason` is null for `paid_online` and a withdrawal (for a dispute it is the message or the decision note); `details` is `{}` for void,
 `{"method": "cash"}` for mark-paid, `{"method": "online", "paymentId": "..."}` for the online payment, `{"disputeId", "channel"}` for `dispute_opened` and `{"disputeId"}` for the other
 dispute actions. Each command writes its row in the same transaction as the change.
+
+### Plates of a driver
+
+The access token carries identity and coarse authorisation only: `sub`, `app_metadata.role` and `permissions`.
+**There is no `plates` claim**: plates are personal data, would be stale until the token is renewed (a newly added plate invisible for up to
+the token lifetime) and have no size bound. Whenever a driver addresses a plate (`AccessPolicy.canAccessPlate`) the service asks
+`PlateDirectory.platesOf(userId)`; `ReadModelPlateDirectory` reads `identity.v_user_plates` (`PlateOwnerView.findByUserId`) and caches the
+set per user for `parkview.access.plates-cache-ttl` (default 30 s, at most `plates-cache-max` users): a plate registered by the driver is
+accepted within that time, and no cache entry outlives it. Staff (operator, admin) do not need the directory.
+
+**There is no `sites` claim either** (an access-control list inside a bearer token stays valid after an administrator removed a site and grows
+without bound). `CurrentUser` resolves the sites of an **operator** once per request through `OperatorSites.sitesOf(userId)`;
+`ReadModelOperatorSites` reads `identity.v_user_sites` (`UserSiteView.findByUserId`) and caches the set per user for
+`parkview.access.sites-cache-ttl` (default 30 s, at most `sites-cache-max` users): a removed site stops working and a new one starts
+within that time, with no new token. Admins mean every site and drivers none, neither triggers a lookup. A database error refuses the
+request (never an empty or cached-forever answer).
 
 ### Error texts and languages
 
@@ -493,6 +510,7 @@ the mapped ones. Liquibase never creates or alters these views and this service 
 | `mapping.v_parking_spots` (camera views) | parking-mapping-service | `id`, `view_id` (uuid, null = legacy spot), `image_polygon` (jsonb, polygon in the view's corrected image) | `SpotPlacementView` |
 | `sessions.v_sessions` | session-service | `id`, `plate`, `site_id`, `zone_id`, `started_at`, `ended_at`, `voided_at` (a voided session is not active, so it never causes an `OVERSTAY`) | `SessionView` |
 | `identity.v_user_plates` | authentication-service | `id`, `user_id`, `plate` | `PlateOwnerView` |
+| `identity.v_user_sites` | authentication-service | `user_id`, `site_id` | `UserSiteView` |
 | `ingestion.v_detections` | ingestion-service | `id`, `plate`, `corrected_plate`, `site_id`, `zone_id`, `image_path`, `confidence`, `review_status`, `at` (the snapshots that go into the evidence of a fine; rejected detections are left out) | `DetectionView` |
 
 **Camera views.** A spot is either a legacy spot (`view_id` null, polygon in `coordinates`) or drawn on a camera view
@@ -519,7 +537,12 @@ published views, and sets the `search_path` of the test role to `rules, public` 
 | `SUPABASE_URL` | none | yes | JWT issuer is `${SUPABASE_URL}/auth/v1`, keys from its `.well-known/jwks.json` |
 | `SUPABASE_AUDIENCE` | `authenticated` | no | required `aud` claim |
 | `LEGACY_ROLE_FALLBACK` | `true` | no | `parkview.security.legacy-role-fallback`: tokens without `app_metadata.permissions` get their role's default permissions; set `false` once every token carries the claim |
-| `INTERNAL_API_KEY` | empty | no | secret for `/internal/**` and non-health actuator endpoints; empty disables them. Also sent as `X-Internal-Api-Key` to lookup-service |
+| `INTERNAL_API_KEY` | empty | no | the OWN key of this service: `/internal/**` (except retention) accepts it as `X-Internal-Api-Key` (`ROLE_INTERNAL`); callers hold it as `RULE_INTERNAL_API_KEY`. Not sent anywhere |
+| `INTERNAL_API_KEY_PREVIOUS` | empty | no | the key before a rotation, accepted as well while it is set (see "Rotating a key") |
+| `OPS_API_KEY` | empty | no | key of the operations endpoints: every non-health `/actuator/**` (prometheus) and `/internal/v1/retention/**` (`ROLE_OPS`). With none of the three keys set the internal API and actuator are disabled |
+| `LOOKUP_INTERNAL_API_KEY` | empty | no | the key of lookup-service, sent as `X-Internal-Api-Key` on the vehicle lookup; no fallback to `INTERNAL_API_KEY` (the `local` profile sets `local-internal-key`); empty sends no key and every lookup fails |
+| `SITES_CACHE_TTL` / `SITES_CACHE_MAX` | `30s` / `10000` | no | `parkview.access.sites-cache-ttl` / `sites-cache-max`: how long the sites of an operator are cached (a site added or removed applies within it) and how many users |
+| `PLATES_CACHE_TTL` / `PLATES_CACHE_MAX` | `30s` / `10000` | no | `parkview.access.plates-cache-ttl` / `plates-cache-max`: how long the registered plates of a driver are cached (a new plate is visible within it) and how many users |
 | `LOOKUP_SERVICE_URL` | `http://localhost:8089` | no | lookup-service base URL for vehicle registry data |
 | `DOCS_ENABLED` | `false` | no | Swagger UI and OpenAPI spec |
 
@@ -566,6 +589,22 @@ Lookup client, Spring property `parkview.lookup.*` (env `LOOKUP_SERVICE_URL` set
 | `cache-ttl-minutes` | `60` | cache of found vehicles |
 | `negative-cache-ttl-seconds` | `60` | cache of "not found" and failed lookups |
 | `cache-max-size` | `10000` | cached plates |
+| `internal-api-key` | `${LOOKUP_INTERNAL_API_KEY:}` | key of lookup-service (`X-Internal-Api-Key`) |
+
+### Internal keys and rotation
+
+Service-to-service calls use one secret per CALLEE (header `X-Internal-Api-Key`):
+
+* This service as callee: `INTERNAL_API_KEY` is its own key (callers hold it as `RULE_INTERNAL_API_KEY`) and grants `ROLE_INTERNAL` on
+  `/internal/**`; `INTERNAL_API_KEY_PREVIOUS` is accepted as well while it is set; `OPS_API_KEY` grants `ROLE_OPS`, which is required for
+  `/internal/v1/retention/**` and every non-health `/actuator/**` (prometheus). Comparisons take constant time, an unset key never matches,
+  and with none of the three set the internal API and actuator are denied entirely.
+* This service as caller: it calls lookup-service with `LOOKUP_INTERNAL_API_KEY`. There is no fallback to its own `INTERNAL_API_KEY`; only the
+  `local` profile defaults the keys to `local-internal-key`.
+
+Rotating this service's key: on rule-service set `INTERNAL_API_KEY_PREVIOUS` to the old key and `INTERNAL_API_KEY` to the new one, roll the
+callers (payment-service, file-service) to the new value of their `RULE_INTERNAL_API_KEY`, then unset `INTERNAL_API_KEY_PREVIOUS`.
+Rotating the key of lookup-service is the mirror image: lookup-service accepts old and new, this service gets the new `LOOKUP_INTERNAL_API_KEY`.
 
 ## Tracing
 
@@ -597,12 +636,12 @@ mvn -B -ntp verify        # unit, web-layer and Testcontainers tests (needs a Do
 docker build -t rule-service . && docker run --rm -p 8081:8081 -e DB_URL=... -e DB_PASS=... -e SUPABASE_URL=... rule-service
 ```
 
-The `local` profile only sets a database password and an internal API key for development; the database needs the role `svc_rule` and the schema `rules` (created by the infrastructure, e.g. the e2e stack), and the schemas of the other services with their published views.
+The `local` profile only sets a database password and the internal, ops and lookup keys (`local-internal-key`) for development; the database needs the role `svc_rule` and the schema `rules` (created by the infrastructure, e.g. the e2e stack), and the schemas of the other services with their published views.
 Tests: geometry table tests (clockwise and counter-clockwise polygons, crossing edges), table-driven rule engine tests (time windows
 incl. midnight crossing, holidays and Europe/Stockholm DST dates; priority and first match wins; every violation type and
 fail-open case; vehicle-code mapping; grace values; overstay with a fixed clock), the Jollyday calendar for the Swedish
 2026 holidays, the lookup client (MockRestServiceServer), violation lifecycle (type change, grace per type), fine issuing,
-MockMvc security tests (401/403/404/409/400, problem+json), listener payloads, Testcontainers tests (unique index,
+MockMvc security tests (401/403/404/409/400, problem+json), internal and ops key matrix (own, previous, ops), `ReadModelPlateDirectoryTest` (normalised plates, cache TTL), `ReadModelOperatorSitesTest`, `CurrentUserTest` (sites looked up for operators only), listener payloads, Testcontainers tests (unique index,
 `SKIP LOCKED` claim, permit queries, read models against catalogue views with extra columns, `time`/array columns)
 and a full flow test against real Postgres and RabbitMQ (incl. void, manual and online payment events, and a void racing a payment).
 Evidence and disputes: `FineEvidenceServiceTest` (what is frozen, snapshots, fallbacks), `RuleSummariesTest` (the rule text per violation type), `FineEvidenceRepositoryTest` (round trip, the trigger
@@ -616,7 +655,7 @@ idempotency, voided fines hidden from lists and drivers, audit rows and event pa
 
 ## Operations
 
-* Health: `/actuator/health/liveness` and `/readiness` (public); metrics: `/actuator/prometheus` (internal key). Logs carry `requestId`; plates are masked.
+* Health: `/actuator/health/liveness` and `/readiness` (public); metrics: `/actuator/prometheus` (ops key, `OPS_API_KEY`). Logs carry `requestId`; plates are masked.
 * Several instances may run: inserts are protected by the unique index, fines by `SKIP LOCKED`.
 * Messages in `parkview.dlq` are invalid payloads or exhausted retries; inspect `x-death` headers.
 * Fines are never issued while the database is unreachable; the sweep retries every `expire-sweep-ms`. A broker outage no longer blocks anything: events wait in `outbox_events`
