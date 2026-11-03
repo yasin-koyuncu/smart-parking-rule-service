@@ -15,9 +15,9 @@ import java.util.Optional;
  *
  * <ul>
  *   <li>admin: everything</li>
- *   <li>operator: only the sites in their {@code sites} claim (ADR 0009); a zone is reachable when its site is, and a record
+ *   <li>operator: only the sites they are assigned to ({@link OperatorSites}, looked up, not in the token, ADR 0011); a zone is reachable when its site is, and a record
  *       when its {@code site_id} is. A record without a site is for administrators only.</li>
- *   <li>driver: only the plates in their {@code plates} claim, only their own user id</li>
+ *   <li>driver: only the plates registered for their user id ({@link PlateDirectory}, not a token claim), only their own user id</li>
  * </ul>
  */
 @Component
@@ -25,6 +25,7 @@ import java.util.Optional;
 public class AccessPolicy {
 
     private final ZoneDirectory zones;
+    private final PlateDirectory plateDirectory;
 
     public void requireSite(AuthenticatedUser user, String siteId) {
         if (!canAccessSite(user, siteId)) {
@@ -82,7 +83,7 @@ public class AccessPolicy {
             return true;
         }
         String normalized = AuthenticatedUser.normalizePlate(plate);
-        return normalized != null && user.plates().contains(normalized);
+        return normalized != null && plateDirectory.platesOf(user.userId()).contains(normalized);
     }
 
     /** The record's owner (drivers) or any operator/admin. */

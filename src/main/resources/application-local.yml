@@ -5,3 +5,6 @@ spring:
 parkview:
   security:
     internal-api-key: local-internal-key
+    ops-api-key: local-internal-key
+  lookup:
+    internal-api-key: local-internal-key

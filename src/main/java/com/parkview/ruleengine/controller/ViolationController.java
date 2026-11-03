@@ -44,7 +44,7 @@ public class ViolationController {
     @PreAuthorize("hasAuthority('violation:read')")
     @Operation(summary = "Active violations of a site",
             description = "Violations that are neither resolved nor fined, in the zones of the site and outside them, newest first. Needs "
-                    + "permission violation:read and, for operators, the site in their sites claim.")
+                    + "permission violation:read and, for operators, one of their sites.")
     @ApiResponse(responseCode = "200", description = "A page of violations; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "Not an operator of this site")
     public ResponseEntity<List<ViolationResponse>> getBySite(
@@ -61,7 +61,7 @@ public class ViolationController {
     @PreAuthorize("hasAuthority('violation:read')")
     @Operation(summary = "Active violations of a zone",
             description = "Violations that are neither resolved nor fined, newest first. Needs permission violation:read and, for operators, "
-                    + "the site of the zone in their sites claim.")
+                    + "the site of the zone one of their sites.")
     @ApiResponse(responseCode = "200", description = "A page of violations; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "Not an operator of the site of this zone")
     public ResponseEntity<List<ViolationResponse>> getByZone(
@@ -77,7 +77,7 @@ public class ViolationController {
     @GetMapping("/plate/{plate}")
     @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read')")
     @Operation(summary = "All violations of a plate",
-            description = "Newest first. Drivers may only query plates in their plates claim; operators and administrators holding "
+            description = "Newest first. Drivers may only query plates they have registered; operators and administrators holding "
                     + "violation:read any plate, an operator seeing only the violations at their sites. Only callers with violation:read get imagePath.")
     @ApiResponse(responseCode = "200", description = "A page of violations; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "A driver asked for a plate that is not theirs")

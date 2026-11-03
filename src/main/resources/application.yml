@@ -125,7 +125,10 @@ parkview:
   security:
     issuer: ${SUPABASE_URL}/auth/v1
     audience: ${SUPABASE_AUDIENCE:authenticated}
+    # the OWN key of this service (callers hold it as RULE_INTERNAL_API_KEY); the previous one is accepted too during a rotation
     internal-api-key: ${INTERNAL_API_KEY:}
+    internal-api-key-previous: ${INTERNAL_API_KEY_PREVIOUS:}
+    ops-api-key: ${OPS_API_KEY:}                  # non-health actuator (prometheus) and retention endpoints
     public-paths: []
     legacy-role-fallback: ${LEGACY_ROLE_FALLBACK:true}
   rule-engine:
@@ -161,6 +164,12 @@ parkview:
     cache-ttl-minutes: 60
     negative-cache-ttl-seconds: 60
     cache-max-size: 10000
+    internal-api-key: ${LOOKUP_INTERNAL_API_KEY:}   # the key of lookup-service; no fallback to INTERNAL_API_KEY
+  access:
+    plates-cache-ttl: ${PLATES_CACHE_TTL:30s}        # registered plates of a driver (identity.v_user_plates)
+    plates-cache-max: ${PLATES_CACHE_MAX:10000}
+    sites-cache-ttl: ${SITES_CACHE_TTL:30s}          # sites of an operator (identity.v_user_sites); a change applies within this time
+    sites-cache-max: ${SITES_CACHE_MAX:10000}
   # Data retention of fines and violations (README, "Data retention"). Off and dry-run by default. The periods have NO default: they are a
   # legal and product decision, and all three are required once enabled=true (examples are in the README). 25m = 25 months, 760d, 2y1m.
   retention:

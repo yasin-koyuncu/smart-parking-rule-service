@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.security;
 
+import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -11,9 +12,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-/** Resolves the authenticated caller from the Spring Security context. */
+/**
+ * Resolves the authenticated caller from the Spring Security context. The token gives identity and role; the sites of an
+ * operator are not in it but looked up through {@link OperatorSites}, so they are current (ADR 0011). Admins mean every site
+ * and drivers none: neither triggers a lookup.
+ */
 @Component
+@RequiredArgsConstructor
 public class CurrentUser {
+
+    private final OperatorSites operatorSites;
 
     public Optional<AuthenticatedUser> get() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -34,7 +42,8 @@ public class CurrentUser {
         return auth != null && auth.getAuthorities().stream().anyMatch(a -> authority.equals(a.getAuthority()));
     }
 
-    public static Optional<AuthenticatedUser> from(Jwt jwt) {
+    /** The caller described by the token, with the current sites when the role is operator. */
+    public Optional<AuthenticatedUser> from(Jwt jwt) {
         Map<String, Object> appMetadata = jwt.getClaimAsMap("app_metadata");
         if (appMetadata == null) {
             return Optional.empty();
@@ -42,14 +51,6 @@ public class CurrentUser {
         return Role.parse(appMetadata.get("role")).map(role -> new AuthenticatedUser(
                 jwt.getSubject(),
                 role,
-                stringList(appMetadata.get("plates")).stream().map(AuthenticatedUser::normalizePlate).toList(),
-                stringList(appMetadata.get("sites"))));
-    }
-
-    private static List<String> stringList(Object value) {
-        if (value instanceof List<?> list) {
-            return list.stream().filter(java.util.Objects::nonNull).map(Object::toString).toList();
-        }
-        return List.of();
+                role == Role.OPERATOR ? List.copyOf(operatorSites.sitesOf(jwt.getSubject())) : List.of()));
     }
 }

@@ -3,6 +3,7 @@ package com.parkview.ruleengine.readmodel;
 import org.springframework.data.repository.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -11,4 +12,6 @@ import java.util.UUID;
 public interface PlateOwnerViewRepository extends Repository<PlateOwnerView, UUID> {
 
     Optional<PlateOwnerView> findFirstByPlate(String plate);
+
+    List<PlateOwnerView> findByUserId(UUID userId);
 }

@@ -39,8 +39,9 @@ import org.springframework.security.config.Customizer;
  * <ul>
  *   <li>stateless, CSRF off (bearer tokens only), no CORS (browsers only talk to the gateway)</li>
  *   <li>{@code /actuator/health/**}, {@code /actuator/info} and {@code parkview.security.public-paths} are public</li>
- *   <li>{@code /actuator/prometheus} and the rest of actuator: internal key only</li>
- *   <li>{@code /internal/**}: {@code X-Internal-Api-Key} (denied entirely when no key is configured)</li>
+ *   <li>{@code /actuator/prometheus} and the rest of actuator, {@code /internal/v1/retention/**}: the ops key ({@code ROLE_OPS})</li>
+ *   <li>the other {@code /internal/**}: the own key of the service or the previous one ({@code ROLE_INTERNAL}); all of it is
+ *       denied when no key is configured</li>
  *   <li>OpenAPI/Swagger is public only when {@code springdoc.api-docs.enabled=true}</li>
  * </ul>
  */
@@ -100,7 +101,8 @@ public class JwtSecurityConfig {
                         .accessDeniedHandler(ProblemJsonErrorHandlers.accessDeniedHandler(objectMapper, errorMessages)));
 
         if (props.internalApiEnabled()) {
-            http.addFilterBefore(new InternalApiKeyFilter(props.internalApiKey()), BearerTokenAuthenticationFilter.class);
+            http.addFilterBefore(new InternalApiKeyFilter(
+                    props.internalApiKey(), props.internalApiKeyPrevious(), props.opsApiKey()), BearerTokenAuthenticationFilter.class);
         }
 
         http.authorizeHttpRequests(auth -> {
@@ -110,7 +112,8 @@ public class JwtSecurityConfig {
                 auth.requestMatchers(props.publicPaths().toArray(String[]::new)).permitAll();
             }
             if (props.internalApiEnabled()) {
-                auth.requestMatchers("/internal/**", "/actuator/**").hasAuthority(InternalApiKeyFilter.AUTHORITY);
+                auth.requestMatchers("/internal/v1/retention/**", "/actuator/**").hasAuthority(InternalApiKeyFilter.OPS_AUTHORITY);
+                auth.requestMatchers("/internal/**").hasAuthority(InternalApiKeyFilter.AUTHORITY);
             } else {
                 auth.requestMatchers("/internal/**", "/actuator/**").denyAll();
             }

@@ -49,7 +49,7 @@ public class PermitController {
     @PostMapping
     @Operation(summary = "Grant a permit",
             description = "Valid in a zone (zoneId; its site is taken), in the whole of a site (siteId without zoneId) or, with neither, at "
-                    + "every site. Operators may grant permits for the sites in their sites claim; a permit for every site needs an administrator.")
+                    + "every site. Operators may grant permits for their sites; a permit for every site needs an administrator.")
     @ApiResponse(responseCode = "201", description = "Created; Location points to the new permit")
     @ApiResponse(responseCode = "400", description = "Invalid body")
     @ApiResponse(responseCode = "403", description = "Not allowed for this site")

@@ -30,7 +30,7 @@ class FineAccess {
         return fine;
     }
 
-    /** Staff: a fine of their sites. Driver: a fine of a plate in their {@code plates} claim, voided or not (it may be the outcome of their dispute). */
+    /** Staff: a fine of their sites. Driver: a fine of a plate registered for them, voided or not (it may be the outcome of their dispute). */
     Fine forOwnerOrStaff(UUID fineId, AuthenticatedUser user) {
         if (user.isOperatorOrAdmin()) {
             return forStaff(fineId, user);

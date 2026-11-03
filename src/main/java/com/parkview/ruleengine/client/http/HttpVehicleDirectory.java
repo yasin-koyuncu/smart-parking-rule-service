@@ -11,7 +11,6 @@ import com.parkview.ruleengine.domain.type.Fuel;
 import com.parkview.ruleengine.domain.type.VehicleClass;
 import com.parkview.ruleengine.domain.value.VehicleInfo;
 import com.parkview.ruleengine.engine.EngineMetrics;
-import com.parkview.ruleengine.security.SecurityProperties;
 import com.parkview.ruleengine.util.Plates;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +26,7 @@ import java.util.Optional;
 
 /**
  * Vehicle registry data from lookup-service ({@code GET /internal/v1/vehicles/{plate}?country=}), authenticated
- * with {@code X-Internal-Api-Key}. Explicit connect and read timeouts; no retries (a failed lookup means "cannot
+ * with {@code X-Internal-Api-Key} (the key of lookup-service, never the own key of this service). Explicit connect and read timeouts; no retries (a failed lookup means "cannot
  * judge" and the next observation of the plate asks again once the negative cache entry has expired).
  *
  * <p>Found vehicles are cached for {@code cache-ttl-minutes}; "not found" and failed lookups are cached for the
@@ -44,9 +43,8 @@ class HttpVehicleDirectory implements VehicleDirectory {
     private final Cache<String, Optional<VehicleInfo>> cache;
 
     @Autowired
-    HttpVehicleDirectory(LookupProperties properties, SecurityProperties security, EngineMetrics metrics,
-                         RestClient.Builder clientBuilder) {
-        this(buildClient(clientBuilder, properties, security), properties, metrics, Ticker.systemTicker());
+    HttpVehicleDirectory(LookupProperties properties, EngineMetrics metrics, RestClient.Builder clientBuilder) {
+        this(buildClient(clientBuilder, properties), properties, metrics, Ticker.systemTicker());
     }
 
     HttpVehicleDirectory(RestClient client, LookupProperties properties, EngineMetrics metrics, Ticker ticker) {
@@ -77,16 +75,18 @@ class HttpVehicleDirectory implements VehicleDirectory {
     }
 
     /** Built from Boot's builder so the call is observed and carries the {@code traceparent} when tracing is on. */
-    private static RestClient buildClient(RestClient.Builder clientBuilder, LookupProperties properties,
-                                          SecurityProperties security) {
+    private static RestClient buildClient(RestClient.Builder clientBuilder, LookupProperties properties) {
         var settings = ClientHttpRequestFactorySettings.defaults()
                 .withConnectTimeout(Duration.ofMillis(properties.connectTimeoutMs()))
                 .withReadTimeout(Duration.ofMillis(properties.readTimeoutMs()));
         RestClient.Builder builder = clientBuilder
                 .baseUrl(properties.baseUrl())
                 .requestFactory(ClientHttpRequestFactoryBuilder.simple().build(settings));
-        if (security.internalApiEnabled()) {
-            builder.defaultHeader(API_KEY_HEADER, security.internalApiKey());
+        String key = properties.internalApiKey();
+        if (key != null && !key.isBlank()) {
+            builder.defaultHeader(API_KEY_HEADER, key);
+        } else {
+            log.warn("LOOKUP_INTERNAL_API_KEY is not set: lookup-service will refuse every vehicle lookup");
         }
         return builder.build();
     }

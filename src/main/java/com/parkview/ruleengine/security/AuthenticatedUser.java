@@ -9,10 +9,10 @@ import java.util.UUID;
  *
  * @param userId the {@code sub} claim
  * @param role   single effective role (admin &gt; operator &gt; driver)
- * @param plates normalised plates the user owns (drivers)
- * @param sites  site ids the user may operate (operators): the {@code sites} claim
+ * @param sites  the site ids the user may operate right now: operators only, looked up through {@link OperatorSites} and not
+ *               read from the token (ADR 0011); empty for admins (every site) and drivers
  */
-public record AuthenticatedUser(String userId, Role role, List<String> plates, List<String> sites) {
+public record AuthenticatedUser(String userId, Role role, List<String> sites) {
 
     public boolean isAdmin() {
         return role == Role.ADMIN;

@@ -54,7 +54,7 @@ public class FineController {
     @GetMapping("/plate/{plate}")
     @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read')")
     @Operation(summary = "All fines of a plate",
-            description = "Newest first. Drivers may only query plates in their plates claim and never see voided fines; operators and "
+            description = "Newest first. Drivers may only query plates they have registered and never see voided fines; operators and "
                     + "administrators holding violation:read any plate, without voided fines unless includeVoided=true. An operator sees "
                     + "only the fines at their sites, an administrator those of every site. Only callers with violation:read get imagePath.")
     @ApiResponse(responseCode = "200", description = "A page of fines; the total is in the X-Total-Count header")
@@ -80,7 +80,7 @@ public class FineController {
     @PreAuthorize("hasAuthority('violation:read')")
     @Operation(summary = "Fines of a site",
             description = "In the zones of the site and outside them, newest first, without voided fines unless includeVoided=true. Needs "
-                    + "permission violation:read and, for operators, the site in their sites claim.")
+                    + "permission violation:read and, for operators, one of their sites.")
     @ApiResponse(responseCode = "200", description = "A page of fines; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "Not an operator of this site")
     public ResponseEntity<List<FineResponse>> getBySite(
@@ -100,7 +100,7 @@ public class FineController {
     @PreAuthorize("hasAuthority('violation:read')")
     @Operation(summary = "Fines of a zone",
             description = "Newest first, without voided fines unless includeVoided=true. Needs permission violation:read and, for operators, "
-                    + "the site of the zone in their sites claim.")
+                    + "the site of the zone one of their sites.")
     @ApiResponse(responseCode = "200", description = "A page of fines; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "403", description = "Not an operator of the site of this zone")
     public ResponseEntity<List<FineResponse>> getByZone(
