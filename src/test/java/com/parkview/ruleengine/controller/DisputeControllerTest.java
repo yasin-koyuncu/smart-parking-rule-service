@@ -59,7 +59,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** The dispute endpoints: who may open, read, withdraw, list and decide (anonymous, other plate, other zone, missing permission, admin), validation, conflicts. */
 @WebMvcTest(DisputeController.class)
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, FineAccess.class})
+@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class, FineAccess.class})
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})

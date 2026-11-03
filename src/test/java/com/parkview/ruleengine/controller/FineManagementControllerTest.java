@@ -57,7 +57,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Void, mark-paid and the audit trail: permission fine:manage / violation:read, zone scope, validation, conflicts. */
 @WebMvcTest({FineController.class, FineManagementController.class})
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class})
+@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class})
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})

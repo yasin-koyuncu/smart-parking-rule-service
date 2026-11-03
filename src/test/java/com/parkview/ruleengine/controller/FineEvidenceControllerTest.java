@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Evidence (operators, with snapshots) and explanation (driver and operators, plain language only). */
 @WebMvcTest(FineEvidenceController.class)
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, FineAccess.class})
+@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class, FineAccess.class})
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})

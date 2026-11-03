@@ -43,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ViolationController.class)
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class})
+@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class})
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})
@@ -106,6 +106,17 @@ class ViolationControllerTest {
         mvc.perform(get("/api/v1/violations/zone/z1").with(user("driver", List.of("ABC123"), List.of("z1"))))
                 .andExpect(status().isForbidden());
         verify(violationService, never()).activeByZone(any(), any());
+    }
+
+    @Test
+    void aSiteRemovedFromAnOperatorStopsWorkingWithoutANewToken() throws Exception {
+        when(violationService.activeByZone(eq("z1"), any())).thenReturn(new PageImpl<>(List.of()));
+
+        mvc.perform(get("/api/v1/violations/zone/z1").with(user("operator", List.of(), List.of("z1"))))
+                .andExpect(status().isOk());
+        // same subject and token claims, the directory now returns another site
+        mvc.perform(get("/api/v1/violations/zone/z1").with(user("operator", List.of(), List.of("z2"))))
+                .andExpect(status().isForbidden());
     }
 
     @Test

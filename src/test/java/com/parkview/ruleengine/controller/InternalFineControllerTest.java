@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.UUID;
 
 import static com.parkview.ruleengine.controller.WebTestSupport.INTERNAL_KEY;
+import static com.parkview.ruleengine.controller.WebTestSupport.OPS_KEY;
+import static com.parkview.ruleengine.controller.WebTestSupport.PREVIOUS_KEY;
 import static com.parkview.ruleengine.controller.WebTestSupport.user;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -34,10 +36,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(InternalFineController.class)
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class})
+@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class})
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
-        "parkview.security.internal-api-key=" + INTERNAL_KEY})
+        "parkview.security.internal-api-key=" + INTERNAL_KEY,
+        "parkview.security.internal-api-key-previous=" + PREVIOUS_KEY,
+        "parkview.security.ops-api-key=" + OPS_KEY})
 class InternalFineControllerTest {
 
     /** The access policy asks it for the site of a zone; the tests use zone ids that are their own site. */
@@ -115,6 +119,33 @@ class InternalFineControllerTest {
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/internal/v1/fines/{id}", id).with(user("admin", List.of(), List.of())))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void thePreviousKeyIsAcceptedDuringARotation() throws Exception {
+        Fine fine = fine();
+        when(fineService.get(fine.getId())).thenReturn(fine);
+
+        mvc.perform(get("/internal/v1/fines/{id}", fine.getId()).header(InternalApiKeyFilter.HEADER, PREVIOUS_KEY))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void theOpsKeyOpensOnlyTheOperationsEndpoints() throws Exception {
+        UUID id = UUID.randomUUID();
+
+        // not the internal API, and the internal key does not open the operations endpoints
+        mvc.perform(get("/internal/v1/fines/{id}", id).header(InternalApiKeyFilter.HEADER, OPS_KEY))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/actuator/prometheus").header(InternalApiKeyFilter.HEADER, INTERNAL_KEY))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/internal/v1/retention/status").header(InternalApiKeyFilter.HEADER, PREVIOUS_KEY))
+                .andExpect(status().isForbidden());
+        // authorised: the web slice has no such endpoint, so the answer is a 404 and not a 401 or 403
+        mvc.perform(get("/actuator/prometheus").header(InternalApiKeyFilter.HEADER, OPS_KEY))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/internal/v1/retention/status").header(InternalApiKeyFilter.HEADER, OPS_KEY))
+                .andExpect(status().isNotFound());
     }
 
     @Test

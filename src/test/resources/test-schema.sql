@@ -96,6 +96,12 @@ create table identity.user_plates (
   label      text,
   created_at timestamptz not null default now()
 );
+create table identity.user_sites (
+  user_id    uuid not null,
+  site_id    text not null,
+  created_at timestamptz not null default now(),
+  primary key (user_id, site_id)
+);
 create table sessions.sessions (
   id             uuid primary key default gen_random_uuid(),
   plate          text not null,
@@ -135,6 +141,7 @@ create view mapping.v_zones as select * from mapping.zones;
 create view mapping.v_zone_rules as select * from mapping.zone_rules;
 create view mapping.v_parking_spots as select * from mapping.parking_spots;
 create view identity.v_user_plates as select id, user_id, plate from identity.user_plates;
+create view identity.v_user_sites as select user_id, site_id from identity.user_sites;
 create view sessions.v_sessions as select * from sessions.sessions;
 create view ingestion.v_detections as
 select id, plate, corrected_plate, site_id, zone_id, image_path, confidence, review_status, at

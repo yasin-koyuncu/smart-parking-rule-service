@@ -41,9 +41,9 @@ class ReadModelsTest {
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16")
             .withInitScript("test-schema.sql");
 
-    private static final List<Class<?>> VIEWS = List.of(ZoneView.class, PlateOwnerView.class, ParkingSpotView.class, ZoneRuleView.class, SessionView.class);
+    private static final List<Class<?>> VIEWS = List.of(ZoneView.class, PlateOwnerView.class, UserSiteView.class, ParkingSpotView.class, ZoneRuleView.class, SessionView.class);
     private static final List<Class<?>> REPOSITORIES =
-            List.of(ZoneViewRepository.class, PlateOwnerViewRepository.class, ParkingSpotViewRepository.class,
+            List.of(ZoneViewRepository.class, PlateOwnerViewRepository.class, UserSiteViewRepository.class, ParkingSpotViewRepository.class,
                     ZoneRuleViewRepository.class, SessionViewRepository.class);
 
     @Autowired
@@ -57,6 +57,8 @@ class ReadModelsTest {
     @Autowired
     PlateOwnerViewRepository plates;
     @Autowired
+    UserSiteViewRepository userSites;
+    @Autowired
     ParkingSpotViewRepository spots;
     @Autowired
     ZoneRuleViewRepository zoneRules;
@@ -69,6 +71,7 @@ class ReadModelsTest {
         jdbc.update("delete from mapping.zone_rules");
         jdbc.update("delete from mapping.parking_spots");
         jdbc.update("delete from identity.user_plates");
+        jdbc.update("delete from identity.user_sites");
         jdbc.update("delete from mapping.zones");
     }
 
@@ -103,6 +106,18 @@ class ReadModelsTest {
         assertThat(zones.findById("missing")).isEmpty();
         assertThat(plates.findFirstByPlate("ABC123")).get().extracting(PlateOwnerView::getUserId).isEqualTo(user);
         assertThat(plates.findFirstByPlate("NOPE11")).isEmpty();
+        assertThat(plates.findByUserId(user)).extracting(PlateOwnerView::getPlate).containsExactly("ABC123");
+        assertThat(plates.findByUserId(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void userSitesViewLoadsDespiteExtraColumns() {
+        UUID user = UUID.randomUUID();
+        jdbc.update("insert into identity.user_sites (user_id, site_id) values (?, 's1'), (?, 's2')", user, user);
+
+        assertThat(columnCount("user_sites")).isGreaterThan(2);
+        assertThat(userSites.findByUserId(user)).extracting(UserSiteView::getSiteId).containsExactlyInAnyOrder("s1", "s2");
+        assertThat(userSites.findByUserId(UUID.randomUUID())).isEmpty();
     }
 
     @Test

@@ -47,7 +47,7 @@ class HttpVehicleDirectoryTest {
                 .baseUrl("http://lookup.test")
                 .defaultHeader(HttpVehicleDirectory.API_KEY_HEADER, "secret");
         server = MockRestServiceServer.bindTo(builder).build();
-        LookupProperties properties = new LookupProperties("http://lookup.test", 500, 1500, 60, 30, 100);
+        LookupProperties properties = new LookupProperties("http://lookup.test", 500, 1500, 60, 30, 100, "secret");
         directory = new HttpVehicleDirectory(builder.build(), properties, new EngineMetrics(registry), ticker);
     }
 
