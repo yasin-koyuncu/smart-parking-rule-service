@@ -52,8 +52,8 @@ final class WebTestSupport {
     }
 
     /**
-     * A verified JWT shaped like the access-token hook output (no plates, no sites), without the permissions claim: the real converter
-     * applies the legacy role fallback (default on), so the caller holds the default permissions of the role.
+     * A verified JWT shaped like the access-token hook output (no plates, no sites), without the permissions claim: the converter
+     * is built with the legacy role fallback switched on explicitly, so the caller holds the default permissions of the role.
      * {@code plates} are the plates and {@code zones} the sites the directories know for the subject of this token.
      */
     static RequestPostProcessor user(String role, List<String> plates, List<String> zones) {
