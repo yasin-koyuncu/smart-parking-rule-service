@@ -233,8 +233,8 @@ Interactive docs: `/swagger-ui.html` and `/v3/api-docs` when `DOCS_ENABLED=true`
 
 Authorization uses the permissions in `app_metadata.permissions` (string[], one authority per permission, named exactly like it;
 ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the operator's site scope looked up through `OperatorSites` (`AccessPolicy`); there is no `plates` and no `sites` claim, see "Plates of a driver".
-A token WITHOUT the claim gets the default permissions of its role while `parkview.security.legacy-role-fallback` is true (default);
-a present claim, even an empty list, is never overridden. By default an operator holds `violation:read`, `violation:resolve` and
+A token WITHOUT the claim gets no permissions (`parkview.security.legacy-role-fallback` is `false` by default, so a token with `role=admin` and no claim is not authorised);
+with the flag set to true it gets the default permissions of its role; a present claim, even an empty list, is never overridden. By default an operator holds `violation:read`, `violation:resolve` and
 `permit:manage`, an admin everything (`fine:manage` is an admin default only; an operator needs it granted).
 
 | Endpoint | Access | Notes |
@@ -536,7 +536,7 @@ published views, and sets the `search_path` of the test role to `rules, public` 
 | `RABBIT_USER` / `RABBIT_PASS` | `guest` / `guest` | no | broker credentials (set real ones outside local use) |
 | `SUPABASE_URL` | none | yes | JWT issuer is `${SUPABASE_URL}/auth/v1`, keys from its `.well-known/jwks.json` |
 | `SUPABASE_AUDIENCE` | `authenticated` | no | required `aud` claim |
-| `LEGACY_ROLE_FALLBACK` | `true` | no | `parkview.security.legacy-role-fallback`: tokens without `app_metadata.permissions` get their role's default permissions; set `false` once every token carries the claim |
+| `LEGACY_ROLE_FALLBACK` | `false` | no | `parkview.security.legacy-role-fallback`: `true` gives tokens without `app_metadata.permissions` their role's default permissions; off by default |
 | `INTERNAL_API_KEY` | empty | no | the OWN key of this service: `/internal/**` (except retention) accepts it as `X-Internal-Api-Key` (`ROLE_INTERNAL`); callers hold it as `RULE_INTERNAL_API_KEY`. Not sent anywhere |
 | `INTERNAL_API_KEY_PREVIOUS` | empty | no | the key before a rotation, accepted as well while it is set (see "Rotating a key") |
 | `OPS_API_KEY` | empty | no | key of the operations endpoints: every non-health `/actuator/**` (prometheus) and `/internal/v1/retention/**` (`ROLE_OPS`). With none of the three keys set the internal API and actuator are disabled |
