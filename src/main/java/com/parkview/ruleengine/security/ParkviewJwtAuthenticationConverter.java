@@ -22,7 +22,7 @@ public class ParkviewJwtAuthenticationConverter implements Converter<Jwt, Abstra
     private final boolean legacyRoleFallback;
 
     public ParkviewJwtAuthenticationConverter() {
-        this(true);
+        this(false);
     }
 
     public ParkviewJwtAuthenticationConverter(boolean legacyRoleFallback) {

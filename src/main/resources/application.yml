@@ -130,7 +130,7 @@ parkview:
     internal-api-key-previous: ${INTERNAL_API_KEY_PREVIOUS:}
     ops-api-key: ${OPS_API_KEY:}                  # non-health actuator (prometheus) and retention endpoints
     public-paths: []
-    legacy-role-fallback: ${LEGACY_ROLE_FALLBACK:true}
+    legacy-role-fallback: ${LEGACY_ROLE_FALLBACK:false}   # true: a token without app_metadata.permissions gets the defaults of its role
   rule-engine:
     iou-threshold: 0.85
     containment-threshold: 0.90
