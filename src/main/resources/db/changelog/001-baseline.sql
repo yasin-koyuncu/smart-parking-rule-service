@@ -21,7 +21,8 @@ create table fines (
   site_id      text          not null,
   zone_id      text,
   reason       text          not null,
-  amount_sek   numeric(10,2) not null,
+  amount       numeric(10,2) not null,
+  currency     text          not null,
   issued_at    timestamptz   not null default now(),
   paid         boolean       not null default false,
   user_id      uuid,
@@ -41,7 +42,9 @@ create table fines (
   constraint fines_not_paid_and_voided_check
     check (voided_at is null or not paid),
   constraint fines_amount_check
-    check (amount_sek >= 0),
+    check (amount >= 0),
+  constraint fines_currency_check
+    check (currency ~ '^[A-Z]{3}$'),
   constraint fines_paid_consistent_check
     check (paid = (paid_at is not null) and paid = (paid_method is not null)),
   constraint fines_voided_consistent_check
