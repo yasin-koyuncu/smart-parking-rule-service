@@ -271,7 +271,9 @@ class RuleServiceFlowTest {
         JsonNode fineEvent = awaitEvent("fine.issued", plate);
         UUID fineId = UUID.fromString(fineEvent.get("fineId").asText());
         assertThat(fineEvent.get("sessionId").asText()).isEqualTo(sessionId.toString());
-        assertThat(fineEvent.get("amountSek").decimalValue()).isEqualByComparingTo("700");
+        assertThat(fineEvent.get("amount").decimalValue()).isEqualByComparingTo("700");
+        assertThat(fineEvent.get("currency").asText()).isEqualTo("SEK");
+        assertThat(jdbc.queryForObject("select currency from fines where id = ?", String.class, fineId)).isEqualTo("SEK");
         assertThat(fineEvent.get("userId").asText()).isEqualTo(owner.toString());
         assertThat(fineEvent.get("zoneAddress").asText()).isEqualTo("Testgatan 1");
         assertThat(fineEvent.get("violationId").asText()).isEqualTo(violationRow(plate).get("id").toString());
@@ -285,7 +287,7 @@ class RuleServiceFlowTest {
 
         rabbit.convertAndSend("parkview.payment", "payment.completed.fine", Map.of(
                 "paymentId", UUID.randomUUID().toString(), "referenceId", fineId.toString(), "referenceType", "FINE",
-                "amountSek", 700, "timestamp", System.currentTimeMillis()));
+                "amount", 700, "currency", "SEK", "timestamp", System.currentTimeMillis()));
 
         await().atMost(15, TimeUnit.SECONDS).untilAsserted(() ->
                 assertThat(jdbc.queryForObject("select paid from fines where id = ?", Boolean.class, fineId)).isTrue());
@@ -294,11 +296,12 @@ class RuleServiceFlowTest {
         JsonNode paidEvent = awaitEvent("fine.paid", plate);
         assertThat(paidEvent.get("fineId").asText()).isEqualTo(fineId.toString());
         assertThat(paidEvent.get("zoneId").asText()).isEqualTo(zone);
-        assertThat(paidEvent.get("amountSek").decimalValue()).isEqualByComparingTo("700");
+        assertThat(paidEvent.get("amount").decimalValue()).isEqualByComparingTo("700");
+        assertThat(paidEvent.get("currency").asText()).isEqualTo("SEK");
         assertThat(paidEvent.get("method").asText()).isEqualTo("online");
         assertThat(paidEvent.get("occurredAt").asText()).isNotBlank();
         assertThat(paidEvent.fieldNames()).toIterable().containsExactlyInAnyOrder(
-                "fineId", "plate", "zoneId", "amountSek", "method", "occurredAt");
+                "fineId", "plate", "zoneId", "amount", "currency", "method", "occurredAt");
         Map<String, Object> paidFine = jdbc.queryForMap("select * from fines where id = ?", fineId);
         assertThat(paidFine.get("paid_method")).isEqualTo("online");
         assertThat(paidFine.get("paid_at")).isNotNull();
@@ -398,7 +401,7 @@ class RuleServiceFlowTest {
 
     private UUID insertFine(String plate, String zone) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, ?, ?, ?, 'overstay', 450)", id, plate, zone, zone);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, ?, ?, ?, 'overstay', 450, 'SEK')", id, plate, zone, zone);
         return id;
     }
 
@@ -413,7 +416,8 @@ class RuleServiceFlowTest {
     private void payOnline(UUID fineId, String paymentId) {
         rabbit.convertAndSend("parkview.payment", "payment.completed.fine", Map.of(
                 "paymentId", paymentId, "referenceId", fineId.toString(), "referenceType", "FINE",
-                "amountSek", jdbc.queryForObject("select amount_sek from fines where id = ?", java.math.BigDecimal.class, fineId),
+                "amount", jdbc.queryForObject("select amount from fines where id = ?", java.math.BigDecimal.class, fineId),
+                "currency", "SEK",
                 "timestamp", System.currentTimeMillis()));
     }
 
@@ -471,7 +475,8 @@ class RuleServiceFlowTest {
         awaitEvent("fine.paid", plateOf(marker));
         assertThat(event.get("method").asText()).isEqualTo("cash");
         assertThat(event.get("zoneId").asText()).isEqualTo(zone);
-        assertThat(event.get("amountSek").decimalValue()).isEqualByComparingTo("450");
+        assertThat(event.get("amount").decimalValue()).isEqualByComparingTo("450");
+        assertThat(event.get("currency").asText()).isEqualTo("SEK");
         assertThat(published("fine.paid", plateOf(fineId))).isEqualTo(1);
         Map<String, Object> fine = jdbc.queryForMap("select * from fines where id = ?", fineId);
         assertThat(fine.get("paid")).isEqualTo(true);
@@ -588,7 +593,7 @@ class RuleServiceFlowTest {
         for (int i = 0; i < 2; i++) {
             rabbit.convertAndSend("parkview.session", "session.ended", Map.of(
                     "sessionId", UUID.randomUUID().toString(), "plate", plate, "zoneId", zone,
-                    "endedAt", java.time.Instant.now().toString(), "occurredAt", java.time.Instant.now().toString(), "costSek", 0));
+                    "endedAt", java.time.Instant.now().toString(), "occurredAt", java.time.Instant.now().toString(), "cost", 0, "currency", "SEK"));
         }
 
         assertThat(awaitEvent("violation.resolved", plate).get("reason").asText()).isEqualTo("LEFT");
@@ -706,7 +711,7 @@ class RuleServiceFlowTest {
 
         assertThat(fine.get("violationType").asText()).isEqualTo("NO_PARKING");
         assertThat(fine.get("sessionId").isNull()).isTrue();
-        jdbc.update("insert into fines (plate, site_id, zone_id, reason, amount_sek) values (?, ?, ?, 'wrong_vehicle_type', 700)", plate, zone, zone);
+        jdbc.update("insert into fines (plate, site_id, zone_id, reason, amount, currency) values (?, ?, ?, 'wrong_vehicle_type', 700, 'SEK')", plate, zone, zone);
         jdbc.update("""
                 insert into spot_violations (spot_id, site_id, zone_id, plate, violation_type, grace_until)
                 values (gen_random_uuid(), ?, ?, ?, 'WRONG_VEHICLE_TYPE', now())""", zone, zone, plate);

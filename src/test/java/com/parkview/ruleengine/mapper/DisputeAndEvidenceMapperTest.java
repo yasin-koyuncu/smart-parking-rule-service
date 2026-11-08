@@ -43,7 +43,7 @@ class DisputeAndEvidenceMapperTest {
     void setUp() {
         violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.WRONG_PERMIT, DETECTED, DETECTED.plus(Duration.ofMinutes(10)));
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
-        fine = Fine.issue(violation, new BigDecimal("700"), null, ISSUED);
+        fine = Fine.issue(violation, new BigDecimal("700"), "SEK", null, ISSUED);
         ReflectionTestUtils.setField(fine, "id", UUID.randomUUID());
         evidence = FineEvidence.of(fine, violation, "Storgatan 1", "Storgatan 1", "A1", "A resident permit is required.",
                 List.of(UUID.randomUUID().toString()), List.of("snapshots/cam-1/a.jpg"), new BigDecimal("0.8700"));
@@ -69,7 +69,8 @@ class DisputeAndEvidenceMapperTest {
 
         assertThat(open.disputed()).isTrue();
         assertThat(none.disputed()).isFalse();
-        assertThat(open.amountSek()).isEqualByComparingTo("700");
+        assertThat(open.amount()).isEqualByComparingTo("700");
+        assertThat(open.currency()).isEqualTo("SEK");
         assertThat(open.voided()).isFalse();
     }
 
@@ -91,7 +92,8 @@ class DisputeAndEvidenceMapperTest {
         assertThat(response.channel()).isEqualTo("operator");
         assertThat(response.message()).isEqualTo("The customer called us");
         assertThat(response.status()).isEqualTo("voided");
-        assertThat(response.amountSek()).isEqualByComparingTo("700");
+        assertThat(response.amount()).isEqualByComparingTo("700");
+        assertThat(response.currency()).isEqualTo("SEK");
         assertThat(response.reasonCode()).isEqualTo("wrong_permit");
         assertThat(response.reasonText()).isEqualTo("The vehicle was parked in a spot that needs a permit, and no valid permit was registered for it.");
         assertThat(response.openedAt()).isEqualTo(ISSUED);
@@ -141,7 +143,7 @@ class DisputeAndEvidenceMapperTest {
         ExplanationResponse response = EvidenceMapper.toExplanation(new FineExplanation(fine, evidence, "Storgatan 1", "Storgatan 1", DisputeStatus.OPEN));
 
         JsonNode node = json.valueToTree(response);
-        assertThat(node.fieldNames()).toIterable().containsExactlyInAnyOrder("fineId", "issuedAt", "amountSek", "zoneAddress", "spotNumber",
+        assertThat(node.fieldNames()).toIterable().containsExactlyInAnyOrder("fineId", "issuedAt", "amount", "currency", "zoneAddress", "spotNumber",
                 "reasonCode", "reasonText", "ruleSummary", "detectedAt", "graceMinutes", "graceExpiredAt", "disputeStatus");
         assertThat(node.toString()).doesNotContain("snapshots/cam-1").doesNotContain(evidence.getDetectionIds().get(0)).doesNotContain("ABC123");
         assertThat(response.ruleSummary()).isEqualTo("A resident permit is required.");
@@ -153,7 +155,8 @@ class DisputeAndEvidenceMapperTest {
     void anExplanationOfAFineWithoutEvidenceKeepsWhatTheFineKnows() {
         ExplanationResponse response = EvidenceMapper.toExplanation(new FineExplanation(fine, null, "Storgatan 1", "Storgatan 1", null));
 
-        assertThat(response.amountSek()).isEqualByComparingTo("700");
+        assertThat(response.amount()).isEqualByComparingTo("700");
+        assertThat(response.currency()).isEqualTo("SEK");
         assertThat(response.issuedAt()).isEqualTo(ISSUED);
         assertThat(response.reasonCode()).isEqualTo("wrong_permit");
         assertThat(response.spotNumber()).isNull();

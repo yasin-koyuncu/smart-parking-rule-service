@@ -7,11 +7,13 @@ import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineAction;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.repository.DisputeRepository;
 import com.parkview.ruleengine.repository.FineActionRepository;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.service.TestFixtures;
 import com.parkview.ruleengine.service.outbox.OutboxService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -46,8 +48,10 @@ abstract class FineServiceTestBase {
     protected final FineEvents fineEvents = new FineEvents(events, zones, sites, owners);
     protected final DisputeCloser closer = new DisputeCloser(disputes, actions, fineEvents);
     protected final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+    protected final SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    protected final EngineMetrics metrics = new EngineMetrics(registry);
     protected final FineIssuingService issuing =
-            new FineIssuingService(fines, owners, fineEvents, evidence, TestFixtures.properties(), clock);
+            new FineIssuingService(fines, owners, sites, metrics, fineEvents, evidence, TestFixtures.properties(), clock);
 
     @BeforeEach
     void stubRepositories() {
@@ -58,12 +62,14 @@ abstract class FineServiceTestBase {
         });
         when(owners.ownerOf(any())).thenReturn(Optional.empty());
         when(zones.addressOf(any())).thenReturn(Optional.empty());
+        when(sites.currencyOf(any())).thenReturn(Optional.of("SEK"));
         when(disputes.findByFineIdAndStatus(any(), any())).thenReturn(Optional.empty());
     }
 
     /** An issued, unpaid fine of 700 SEK that the repository hands out (and locks) by id; issuing events are forgotten. */
     protected Fine unpaidFine() {
-        Fine fine = issuing.issueFine(TestFixtures.violation(ViolationType.WRONG_PERMIT, NOW.minusSeconds(900), NOW.minusSeconds(60)));
+        Fine fine = issuing.issueFine(TestFixtures.violation(ViolationType.WRONG_PERMIT, NOW.minusSeconds(900), NOW.minusSeconds(60)))
+                .orElseThrow();
         when(fines.findByIdForUpdate(fine.getId())).thenReturn(Optional.of(fine));
         clearInvocations(events);
         return fine;

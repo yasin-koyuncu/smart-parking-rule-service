@@ -77,7 +77,7 @@ class ViolationRepositoryTest {
     private void markFinedInDatabase(UUID... violationIds) {
         for (UUID violationId : violationIds) {
             UUID fineId = UUID.randomUUID();
-            jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450)",
+            jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, 'SEK')",
                     fineId);
             jdbc.update("update spot_violations set fine_id = ?, fine_issued_at = now() where id = ?", fineId, violationId);
         }
@@ -88,7 +88,7 @@ class ViolationRepositoryTest {
         Violation first = due("PAIR11");
         Violation second = due("PAIR22");
         UUID fineId = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'PAIR11', 'z1', 'z1', 'overstay', 450)", fineId);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, 'PAIR11', 'z1', 'z1', 'overstay', 450, 'SEK')", fineId);
         jdbc.update("update spot_violations set fine_id = ?, fine_issued_at = now() where id = ?", fineId, first.getId());
 
         assertThatThrownBy(() -> jdbc.update("update spot_violations set fine_id = ?, fine_issued_at = now() where id = ?", fineId, second.getId()))
@@ -225,7 +225,7 @@ class ViolationRepositoryTest {
 
         tx.executeWithoutResult(s -> {
             Violation claimed = violations.claimDue(v.getId(), NOW, SEEN_SINCE).orElseThrow();
-            Fine fine = fines.save(Fine.issue(claimed, new BigDecimal("700"), null, NOW));
+            Fine fine = fines.save(Fine.issue(claimed, new BigDecimal("700"), "SEK", null, NOW));
             claimed.markFined(fine.getId(), NOW);
         });
 
@@ -239,11 +239,11 @@ class ViolationRepositoryTest {
     @Test
     void fineReasonIsStoredLowercaseAndAmountWithTwoDecimals() {
         Violation v = due("FINE11");
-        Fine fine = tx.execute(s -> fines.save(Fine.issue(v, new BigDecimal("700"), UUID.randomUUID(), NOW)));
+        Fine fine = tx.execute(s -> fines.save(Fine.issue(v, new BigDecimal("700"), "SEK", UUID.randomUUID(), NOW)));
 
         assertThat(jdbc.queryForObject("select reason from fines where id = ?", String.class, fine.getId()))
                 .isEqualTo("wrong_permit");
-        assertThat(jdbc.queryForObject("select amount_sek from fines where id = ?", BigDecimal.class, fine.getId()))
+        assertThat(jdbc.queryForObject("select amount from fines where id = ?", BigDecimal.class, fine.getId()))
                 .isEqualByComparingTo("700.00");
 
         Fine loaded = fines.findById(fine.getId()).orElseThrow();

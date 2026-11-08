@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.repository.ViolationRepository;
@@ -47,6 +48,7 @@ class ViolationJobsTest {
     private Violation due() {
         Violation v = TestFixtures.violation(ViolationType.WRONG_PERMIT, NOW.minusSeconds(3600), NOW.minusSeconds(60));
         when(violations.claimDue(v.getId(), NOW, SEEN_SINCE)).thenReturn(Optional.of(v));
+        when(fineService.issueFine(v)).thenReturn(Optional.of(mock(Fine.class)));
         return v;
     }
 
@@ -61,6 +63,19 @@ class ViolationJobsTest {
         assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 2));
         verify(fineService).issueFine(a);
         verify(fineService).issueFine(b);
+    }
+
+    @Test
+    void aViolationWhoseFineCannotBeIssuedIsNotCountedAndDoesNotBlockTheOthers() {
+        Violation unissuable = due();
+        Violation healthy = due();
+        when(fineService.issueFine(unissuable)).thenReturn(Optional.empty());
+        when(violations.findDueForFine(any(), any(), any(Pageable.class))).thenReturn(List.of(unissuable.getId(), healthy.getId()));
+
+        ViolationJobs.BatchResult result = jobs.issueBatch();
+
+        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1));
+        verify(fineService).issueFine(healthy);
     }
 
     @Test

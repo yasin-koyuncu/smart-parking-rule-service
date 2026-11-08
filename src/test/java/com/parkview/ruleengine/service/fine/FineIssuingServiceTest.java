@@ -1,6 +1,7 @@
 package com.parkview.ruleengine.service.fine;
 
 import com.parkview.ruleengine.config.RabbitConfig;
+import com.parkview.ruleengine.config.RuleEngineProperties;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
@@ -15,6 +16,7 @@ import org.mockito.InOrder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -36,10 +39,11 @@ class FineIssuingServiceTest extends FineServiceTestBase {
     void fineAmountFollowsTheViolationType(ViolationType type, String amount) {
         Violation violation = TestFixtures.violation(type, NOW.minusSeconds(900), NOW.minusSeconds(60));
 
-        Fine fine = service.issueFine(violation);
+        Fine fine = service.issueFine(violation).orElseThrow();
 
-        assertThat(fine.getAmountSek()).isEqualByComparingTo(amount);
-        assertThat(fine.getAmountSek().scale()).isEqualTo(2);
+        assertThat(fine.getAmount()).isEqualByComparingTo(amount);
+        assertThat(fine.getAmount().scale()).isEqualTo(2);
+        assertThat(fine.getCurrency()).isEqualTo("SEK");
         assertThat(fine.getReason()).isEqualTo(type);
         assertThat(fine.isPaid()).isFalse();
         assertThat(fine.isVoided()).isFalse();
@@ -53,7 +57,7 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         when(owners.ownerOf(TestFixtures.PLATE)).thenReturn(Optional.of(owner));
         when(zones.addressOf(TestFixtures.ZONE)).thenReturn(Optional.of("Storgatan 1"));
 
-        Fine fine = service.issueFine(violation);
+        Fine fine = service.issueFine(violation).orElseThrow();
 
         assertThat(violation.getFineId()).isEqualTo(fine.getId());
         assertThat(violation.getFineIssuedAt()).isEqualTo(NOW);
@@ -70,7 +74,8 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         assertThat(event.userId()).isEqualTo(owner);
         assertThat(event.zoneId()).isEqualTo(TestFixtures.ZONE);
         assertThat(event.zoneAddress()).isEqualTo("Storgatan 1");
-        assertThat(event.amountSek()).isEqualByComparingTo(BigDecimal.valueOf(700));
+        assertThat(event.amount()).isEqualByComparingTo(BigDecimal.valueOf(700));
+        assertThat(event.currency()).isEqualTo("SEK");
         assertThat(event.timestamp()).isEqualTo(NOW.toEpochMilli());
         assertThat(event.violationType()).isEqualTo(ViolationType.WRONG_PERMIT);
         assertThat(event.sessionId()).isNull();
@@ -83,7 +88,7 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         Violation violation = TestFixtures.violation(ViolationType.WRONG_PERMIT, NOW.minusSeconds(900), NOW.minusSeconds(60));
         ReflectionTestUtils.setField(violation, "sessionId", sessionId);
 
-        Fine fine = service.issueFine(violation);
+        Fine fine = service.issueFine(violation).orElseThrow();
 
         assertThat(fine.getSessionId()).isEqualTo(sessionId);
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
@@ -96,7 +101,7 @@ class FineIssuingServiceTest extends FineServiceTestBase {
     void theEvidenceIsFrozenForTheFineBeforeItsEventIsQueued() {
         Violation violation = TestFixtures.violation(ViolationType.OVERSTAY, NOW.minusSeconds(900), NOW.minusSeconds(60));
 
-        Fine fine = service.issueFine(violation);
+        Fine fine = service.issueFine(violation).orElseThrow();
 
         InOrder order = inOrder(evidence, events);
         order.verify(evidence).record(fine, violation);
@@ -119,7 +124,73 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         Violation violation = Violation.open(UUID.randomUUID(), TestFixtures.ZONE, TestFixtures.ZONE, TestFixtures.PLATE, owner,
                 ViolationType.NO_PARKING, NOW.minusSeconds(900), NOW.minusSeconds(60));
 
-        assertThat(service.issueFine(violation).getUserId()).isEqualTo(owner);
+        assertThat(service.issueFine(violation).orElseThrow().getUserId()).isEqualTo(owner);
         verifyNoInteractions(owners);
+    }
+
+    // ---- the currency of the site ----
+
+    private FineIssuingService issuingWith(Map<String, Map<ViolationType, BigDecimal>> fineAmounts) {
+        RuleEngineProperties properties = TestFixtures.properties(fineAmounts);
+        return new FineIssuingService(fines, owners, sites, metrics, fineEvents, evidence, properties, clock);
+    }
+
+    @Test
+    void theFineTakesTheCurrencyOfItsSiteAndTheAmountConfiguredForIt() {
+        when(sites.currencyOf(TestFixtures.ZONE)).thenReturn(Optional.of("NOK"));
+        FineIssuingService norwegian = issuingWith(Map.of("NOK", Map.of(ViolationType.OVERSTAY, new BigDecimal("1100"))));
+        Violation violation = TestFixtures.violation(ViolationType.OVERSTAY, NOW.minusSeconds(900), NOW.minusSeconds(60));
+
+        Fine fine = norwegian.issueFine(violation).orElseThrow();
+
+        assertThat(fine.getCurrency()).isEqualTo("NOK");
+        assertThat(fine.getAmount()).isEqualByComparingTo("1100.00");
+        FineIssuedEvent event = (FineIssuedEvent) publishedPayload("fine.issued");
+        assertThat(event.currency()).isEqualTo("NOK");
+        assertThat(event.amount()).isEqualByComparingTo("1100");
+        assertThat(registry.getMeters()).isEmpty();
+    }
+
+    @Test
+    void aCurrencyWithoutConfiguredAmountsGetsNoFineTheViolationStaysOpenAndTheErrorIsCounted() {
+        when(sites.currencyOf(TestFixtures.ZONE)).thenReturn(Optional.of("USD"));
+        Violation violation = TestFixtures.violation(ViolationType.OVERSTAY, NOW.minusSeconds(900), NOW.minusSeconds(60));
+
+        Optional<Fine> fine = service.issueFine(violation);
+
+        assertThat(fine).isEmpty();
+        assertThat(violation.isActive()).isTrue();
+        assertThat(violation.getFineId()).isNull();
+        verify(fines, never()).save(any(Fine.class));
+        verifyNoInteractions(events, evidence);
+        assertThat(registry.counter("ruleengine.fines.not_issued", "cause", "no_fine_amount", "currency", "USD", "type", "OVERSTAY").count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void aViolationTypeWithoutAnAmountInAConfiguredCurrencyGetsNoFine() {
+        when(sites.currencyOf(TestFixtures.ZONE)).thenReturn(Optional.of("NOK"));
+        FineIssuingService norwegian = issuingWith(Map.of("NOK", Map.of(ViolationType.OVERSTAY, new BigDecimal("1100"))));
+        Violation violation = TestFixtures.violation(ViolationType.NO_PARKING, NOW.minusSeconds(900), NOW.minusSeconds(60));
+
+        assertThat(norwegian.issueFine(violation)).isEmpty();
+
+        verify(fines, never()).save(any(Fine.class));
+        assertThat(registry.counter("ruleengine.fines.not_issued", "cause", "no_fine_amount", "currency", "NOK", "type", "NO_PARKING").count())
+                .isEqualTo(1.0);
+    }
+
+    @Test
+    void aSiteWithoutAValidCurrencyGetsNoFineAndThereIsNoDefaultCurrency() {
+        when(sites.currencyOf(TestFixtures.ZONE)).thenReturn(Optional.empty());
+        Violation violation = TestFixtures.violation(ViolationType.WRONG_PERMIT, NOW.minusSeconds(900), NOW.minusSeconds(60));
+
+        assertThat(service.issueFine(violation)).isEmpty();
+
+        assertThat(violation.isActive()).isTrue();
+        verify(fines, never()).save(any(Fine.class));
+        verifyNoInteractions(events, evidence);
+        assertThat(registry.counter("ruleengine.fines.not_issued", "cause", "no_site_currency", "currency", "unknown", "type", "WRONG_PERMIT")
+                .count()).isEqualTo(1.0);
     }
 }

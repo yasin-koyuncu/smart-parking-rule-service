@@ -77,7 +77,7 @@ class FineControllerTest {
         org.mockito.Mockito.when(zoneDirectory.siteOf(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(inv -> java.util.Optional.of(inv.getArgument(0)));
         Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
-        fine = Fine.issue(violation, new BigDecimal("700"), OWNER, T);
+        fine = Fine.issue(violation, new BigDecimal("700"), "SEK", OWNER, T);
         ReflectionTestUtils.setField(fine, "id", UUID.fromString("11111111-2222-3333-4444-555555555555"));
         ReflectionTestUtils.setField(fine, "imagePath", "fines/1.jpg");
     }
@@ -99,7 +99,8 @@ class FineControllerTest {
                 .andExpect(jsonPath("$[0].plate").value("ABC123"))
                 .andExpect(jsonPath("$[0].zoneId").value("z1"))
                 .andExpect(jsonPath("$[0].reason").value("wrong_permit"))
-                .andExpect(jsonPath("$[0].amountSek").value(700.0))
+                .andExpect(jsonPath("$[0].amount").value(700.0))
+                .andExpect(jsonPath("$[0].currency").value("SEK"))
                 .andExpect(jsonPath("$[0].issuedAt").value("2026-10-09T10:00:00Z"))
                 .andExpect(jsonPath("$[0].paid").value(false))
                 .andExpect(jsonPath("$[0].imagePath").value(nullValue()))
@@ -224,7 +225,7 @@ class FineControllerTest {
 
     @Test
     void staffWithoutViolationReadAndUnknownRolesAreForbiddenOnThePlateList() throws Exception {
-        for (var denied : List.of(userWith("operator", List.of("mapping:view", "violation:resolve"), List.of(), List.of("z1")),
+        for (var denied : List.of(userWith("operator", List.of("zone:read", "violation:resolve"), List.of(), List.of("z1")),
                 userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")),
                 userWithoutFallback("admin", List.of(), List.of()), user("hacker", List.of("ABC123"), List.of()))) {
             mvc.perform(get("/api/v1/fines/plate/ABC123").with(denied)).andExpect(status().isForbidden());
@@ -253,10 +254,10 @@ class FineControllerTest {
     @Test
     void paidAndVoidedStateIsPartOfTheJson() throws Exception {
         Fine paid = Fine.issue(Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.NO_PARKING, T, T),
-                new BigDecimal("900"), OWNER, T);
+                new BigDecimal("900"), "SEK", OWNER, T);
         paid.markPaid(T.plusSeconds(60), PaidMethod.CASH, null);
         Fine voided = Fine.issue(Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.NO_PARKING, T, T),
-                new BigDecimal("900"), OWNER, T);
+                new BigDecimal("900"), "SEK", OWNER, T);
         voided.voidFine(T.plusSeconds(120), "misread plate", null);
         when(fineService.byPlateInSites(eq("ABC123"), eq(true), eq(List.of("z1")), any())).thenReturn(page(paid, voided));
 

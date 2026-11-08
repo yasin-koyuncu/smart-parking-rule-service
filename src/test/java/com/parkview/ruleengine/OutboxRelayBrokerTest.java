@@ -97,7 +97,7 @@ class OutboxRelayBrokerTest {
         String key = "fine.voided." + UUID.randomUUID();
         Queue queue = bind("relay-test-" + UUID.randomUUID(), key);
         String aggregate = UUID.randomUUID().toString();
-        OutboxEvent routed = enqueue(aggregate, key, "{\"zzz\":1,\"fineId\":\"" + aggregate + "\",\"amountSek\":700.00}");
+        OutboxEvent routed = enqueue(aggregate, key, "{\"zzz\":1,\"fineId\":\"" + aggregate + "\",\"amount\":700.00,\"currency\":\"SEK\"}");
 
         assertThat(run(relay(Duration.ofMinutes(5)))).isGreaterThanOrEqualTo(1);
 
@@ -111,9 +111,10 @@ class OutboxRelayBrokerTest {
         assertThat((String) props.getHeader("x-event-type")).isEqualTo(key);
         assertThat((String) props.getHeader("x-source")).isEqualTo("rule-service");
         assertThat((String) props.getHeader("x-request-id")).isEqualTo("req-" + aggregate);
-        assertThat(new String(delivered.getBody())).isEqualTo("{\"zzz\":1,\"fineId\":\"" + aggregate + "\",\"amountSek\":700.00}");
+        assertThat(new String(delivered.getBody())).isEqualTo("{\"zzz\":1,\"fineId\":\"" + aggregate + "\",\"amount\":700.00,\"currency\":\"SEK\"}");
         JsonNode body = objectMapper.readTree(delivered.getBody());
-        assertThat(body.get("amountSek").decimalValue()).isEqualByComparingTo("700");
+        assertThat(body.get("amount").decimalValue()).isEqualByComparingTo("700");
+        assertThat(body.get("currency").asText()).isEqualTo("SEK");
         assertThat(jdbc.queryForObject("select published_at is not null from outbox_events where id = ?", Boolean.class, routed.getId())).isTrue();
     }
 

@@ -63,12 +63,12 @@ class FineEvidenceRepositoryTest {
     void setUp() {
         jdbc.execute("truncate fine_evidence, fines cascade");
         fineId = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek, issued_at) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, ?)",
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency, issued_at) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, 'SEK', ?)",
                 fineId, java.sql.Timestamp.from(ISSUED));
         violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.OVERSTAY, DETECTED,
                 DETECTED.plus(Duration.ofMinutes(5)));
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
-        fine = Fine.issue(violation, new BigDecimal("450"), null, ISSUED);
+        fine = Fine.issue(violation, new BigDecimal("450"), "SEK", null, ISSUED);
         ReflectionTestUtils.setField(fine, "id", fineId);
     }
 
@@ -166,7 +166,7 @@ class FineEvidenceRepositoryTest {
     void aViolationHasAtMostOneEvidenceRow() {
         save(List.of(), List.of(), null);
         UUID other = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450)", other);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, 'SEK')", other);
         ReflectionTestUtils.setField(fine, "id", other);
 
         assertThatThrownBy(() -> save(List.of(), List.of(), null)).isInstanceOf(DataIntegrityViolationException.class);
@@ -175,7 +175,7 @@ class FineEvidenceRepositoryTest {
     @Test
     void onlyAKnownViolationTypeIsAccepted() {
         UUID other = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450)", other);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450, 'SEK')", other);
 
         assertThatThrownBy(() -> jdbc.update("insert into fine_evidence (fine_id, plate, site_id, zone_id, violation_type, violation_id, rule_summary, "
                 + "grace_minutes, violation_detected_at, grace_expired_at, issued_at) "
@@ -219,7 +219,7 @@ class FineEvidenceRepositoryTest {
     @Test
     void onlyAutomaticIsAKnownDecisionBasis() {
         UUID other = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450)", other);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450, 'SEK')", other);
 
         assertThatThrownBy(() -> jdbc.update("insert into fine_evidence (fine_id, plate, site_id, zone_id, violation_type, violation_id, rule_summary, "
                 + "grace_minutes, violation_detected_at, grace_expired_at, issued_at, decision_basis) "

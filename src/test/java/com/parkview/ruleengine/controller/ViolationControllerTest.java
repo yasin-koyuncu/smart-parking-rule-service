@@ -219,7 +219,7 @@ class ViolationControllerTest {
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/violations/plate/XYZ999").with(token(false, "admin", List.of("violation:read"), List.of(), List.of())))
                 .andExpect(status().isOk());
-        for (var denied : List.of(userWith("operator", List.of("mapping:view", "violation:resolve"), List.of(), List.of("z1")),
+        for (var denied : List.of(userWith("operator", List.of("zone:read", "violation:resolve"), List.of(), List.of("z1")),
                 userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")))) {
             mvc.perform(get("/api/v1/violations/plate/XYZ999").with(denied)).andExpect(status().isForbidden());
         }
@@ -242,7 +242,7 @@ class ViolationControllerTest {
                 .andExpect(status().isNoContent());
         verify(violationService, org.mockito.Mockito.times(2)).resolveManually(violation.getId());
 
-        for (var denied : List.of(userWith("operator", List.of("violation:read", "mapping:view"), List.of(), List.of("z1")),
+        for (var denied : List.of(userWith("operator", List.of("violation:read", "zone:read"), List.of(), List.of("z1")),
                 userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")),
                 userWithoutFallback("admin", List.of(), List.of()),
                 userWith("operator", List.of("violation:resolve"), List.of(), List.of("z2")))) {

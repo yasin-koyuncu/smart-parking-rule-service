@@ -137,7 +137,7 @@ class PermitControllerTest {
     }
 
     @Test
-    void permitsNeedThePermitManagePermission() throws Exception {
+    void permitsNeedThePermitReadOrManagePermission() throws Exception {
         when(permitService.get(zonePermit.getId())).thenReturn(zonePermit);
         for (var denied : List.of(userWith("operator", List.of("violation:read", "violation:resolve"), List.of(), List.of("z1")),
                 userWith("operator", List.of(), List.of(), List.of("z1")),
@@ -150,6 +150,32 @@ class PermitControllerTest {
         }
         verify(permitService, never()).grant(any(), anyString());
         verify(permitService, never()).revoke(any());
+    }
+
+    @Test
+    void permitReadIsEnoughToReadAndNotToWrite() throws Exception {
+        when(permitService.get(zonePermit.getId())).thenReturn(zonePermit);
+        when(permitService.search(any(), any(), any(), any(), any())).thenReturn(new PageImpl<>(List.of(zonePermit)));
+        var reader = userWith("operator", List.of("permit:read"), List.of(), List.of("z1"));
+
+        mvc.perform(get("/api/v1/permits").with(reader)).andExpect(status().isOk());
+        mvc.perform(get("/api/v1/permits/{id}", zonePermit.getId()).with(reader)).andExpect(status().isOk());
+        mvc.perform(post("/api/v1/permits").contentType(MediaType.APPLICATION_JSON).content(BODY).with(reader)).andExpect(status().isForbidden());
+        mvc.perform(delete("/api/v1/permits/{id}", zonePermit.getId()).with(reader)).andExpect(status().isForbidden());
+        verify(permitService, never()).grant(any(), anyString());
+        verify(permitService, never()).revoke(any());
+    }
+
+    @Test
+    void permitManageDoesNotImplyReadingPermits() throws Exception {
+        when(permitService.get(zonePermit.getId())).thenReturn(zonePermit);
+        var writer = userWith("operator", List.of("permit:manage"), List.of(), List.of("z1"));
+
+        mvc.perform(get("/api/v1/permits").with(writer)).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/permits/{id}", zonePermit.getId()).with(writer)).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/permits").contentType(MediaType.APPLICATION_JSON).content(BODY).with(writer)).andExpect(status().isCreated());
+        mvc.perform(delete("/api/v1/permits/{id}", zonePermit.getId()).with(writer)).andExpect(status().isNoContent());
+        verify(permitService, never()).search(any(), any(), any(), any(), any());
     }
 
     @Test

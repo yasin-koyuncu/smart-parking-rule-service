@@ -56,9 +56,9 @@ class ListenersTest {
         UUID fineId = UUID.randomUUID();
 
         new PaymentEventListener(fines).onPaymentCompleted(
-                new PaymentCompletedEvent("p-1", fineId, "FINE", null, BigDecimal.TEN, 1L));
+                new PaymentCompletedEvent("p-1", fineId, "FINE", null, BigDecimal.TEN, "SEK", 1L));
 
-        verify(fines).markPaidOnline(fineId, "p-1", BigDecimal.TEN);
+        verify(fines).markPaidOnline(fineId, "p-1", BigDecimal.TEN, "SEK");
     }
 
     @Test
@@ -125,7 +125,7 @@ class ListenersTest {
     void paymentPayloadNeedsAReferenceId() throws Exception {
         PaymentCompletedEvent valid = mapper.readValue("""
                 {"paymentId":"p1","referenceId":"7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11","referenceType":"FINE",
-                 "userId":"u1","amountSek":700.00,"timestamp":1}
+                 "userId":"u1","amount":700.00,"currency":"SEK","timestamp":1}
                 """, PaymentCompletedEvent.class);
         PaymentCompletedEvent missing = mapper.readValue("{\"paymentId\":\"p1\"}", PaymentCompletedEvent.class);
 
@@ -141,7 +141,7 @@ class ListenersTest {
         var resolved = mapper.readTree(mapper.writeValueAsString(new ViolationResolvedEvent(
                 id, "ABC123", "z1", "z1", ResolutionReason.CORRECTED, Instant.parse("2026-10-09T10:00:00Z"))));
         var fine = mapper.readTree(mapper.writeValueAsString(new FineIssuedEvent(
-                id, id, "ABC123", null, "z1", null, "z1", null, new BigDecimal("700.00"), 1L, ViolationType.WRONG_VEHICLE_TYPE, id)));
+                id, id, "ABC123", null, "z1", null, "z1", null, new BigDecimal("700.00"), "SEK", 1L, ViolationType.WRONG_VEHICLE_TYPE, id)));
 
         assertThat(created.fieldNames()).toIterable().containsExactlyInAnyOrder("violationId", "plate", "zoneId",
                 "zoneAddress", "siteId", "siteAddress", "cameraId", "userId", "spotId", "spotNumber", "violationType", "graceMinutes",
@@ -153,24 +153,26 @@ class ListenersTest {
         assertThat(resolved.get("reason").asText()).isEqualTo("CORRECTED");
         assertThat(resolved.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
         assertThat(fine.fieldNames()).toIterable().containsExactlyInAnyOrder(
-                "fineId", "violationId", "plate", "userId", "zoneId", "zoneAddress", "siteId", "siteAddress", "amountSek", "timestamp",
+                "fineId", "violationId", "plate", "userId", "zoneId", "zoneAddress", "siteId", "siteAddress", "amount", "currency", "timestamp",
                 "violationType", "sessionId");
         assertThat(fine.get("sessionId").asText()).isEqualTo(id.toString());
         assertThat(fine.get("violationType").asText()).isEqualTo("WRONG_VEHICLE_TYPE");
-        assertThat(fine.get("amountSek").decimalValue()).isEqualByComparingTo("700");
+        assertThat(fine.get("amount").decimalValue()).isEqualByComparingTo("700");
+        assertThat(fine.get("currency").asText()).isEqualTo("SEK");
     }
 
     @Test
     void fineLifecycleEventsHaveExactlyTheAgreedFieldsAndNoFreeTextOrActor() throws Exception {
         UUID id = UUID.randomUUID();
         Instant at = Instant.parse("2026-10-09T10:00:00Z");
-        var paid = mapper.readTree(mapper.writeValueAsString(new FinePaidEvent(id, "ABC123", "z1", "z1", new BigDecimal("700.00"), "cash", at)));
+        var paid = mapper.readTree(mapper.writeValueAsString(new FinePaidEvent(id, "ABC123", "z1", "z1", new BigDecimal("700.00"), "SEK", "cash", at)));
         var voided = mapper.readTree(mapper.writeValueAsString(new FineVoidedEvent(id, "ABC123", "z1", "z1", at)));
 
         assertThat(paid.fieldNames()).toIterable().containsExactlyInAnyOrder(
-                "fineId", "plate", "zoneId", "siteId", "amountSek", "method", "occurredAt");
+                "fineId", "plate", "zoneId", "siteId", "amount", "currency", "method", "occurredAt");
         assertThat(paid.get("fineId").asText()).isEqualTo(id.toString());
-        assertThat(paid.get("amountSek").decimalValue()).isEqualByComparingTo("700");
+        assertThat(paid.get("amount").decimalValue()).isEqualByComparingTo("700");
+        assertThat(paid.get("currency").asText()).isEqualTo("SEK");
         assertThat(paid.get("method").asText()).isEqualTo("cash");
         assertThat(paid.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
         assertThat(voided.fieldNames()).toIterable().containsExactlyInAnyOrder("fineId", "plate", "zoneId", "siteId", "occurredAt");
@@ -195,7 +197,7 @@ class ListenersTest {
         String json = """
                 {"sessionId":"7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11","plate":"ABC123","zoneId":"z1","zoneAddress":"Storgatan 1",
                  "cameraId":"cam-1","userId":null,"startedAt":"2026-10-09T09:00:00Z","endedAt":"2026-10-09T09:55:00Z",
-                 "durationMinutes":55,"costSek":12.50,"occurredAt":"2026-10-09T09:55:01Z","somethingNew":true}
+                 "durationMinutes":55,"cost":12.50,"currency":"SEK","occurredAt":"2026-10-09T09:55:01Z","somethingNew":true}
                 """;
 
         SessionEndedEvent event = mapper.readValue(json, SessionEndedEvent.class);

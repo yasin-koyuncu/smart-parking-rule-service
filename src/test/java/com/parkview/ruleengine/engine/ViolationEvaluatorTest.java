@@ -19,7 +19,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -55,8 +54,7 @@ class ViolationEvaluatorTest {
 
     private static RuleEngineProperties properties(boolean lookupEnabled) {
         return new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30, 5, 5, 10,
-                BigDecimal.valueOf(900), BigDecimal.valueOf(450), BigDecimal.valueOf(700), BigDecimal.valueOf(900),
-                BigDecimal.valueOf(700), 60000, 20, 15, 120, 60000, 10, 5, 15, 600, 6, 60, lookupEnabled);
+                java.util.Map.of(), 60000, 20, 15, 120, 60000, 10, 5, 15, 600, 6, 60, lookupEnabled);
     }
 
     @BeforeEach

@@ -2,11 +2,13 @@ package com.parkview.ruleengine.service.fine;
 
 import com.parkview.ruleengine.client.DetectionDirectory;
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
+import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.config.RuleEngineProperties;
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
+import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.domain.value.ParkingSpot;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.service.TestFixtures;
@@ -75,6 +77,11 @@ class FineIssuingTransactionTest {
         }
 
         @Bean
+        EngineMetrics engineMetrics() {
+            return new EngineMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+        }
+
+        @Bean
         RuleEngineProperties ruleEngineProperties() {
             return TestFixtures.properties();
         }
@@ -96,6 +103,8 @@ class FineIssuingTransactionTest {
     @MockitoBean
     PlateOwnerDirectory owners;
     @MockitoBean
+    SiteDirectory sites;
+    @MockitoBean
     ZoneDirectory zones;
     @MockitoBean
     SpotCacheService spots;
@@ -109,6 +118,7 @@ class FineIssuingTransactionTest {
         jdbc.execute("truncate fine_evidence, fines, spot_violations, outbox_events cascade");
         spot = TestFixtures.spot("permit", "resident", 0, 30);
         when(owners.ownerOf(any())).thenReturn(Optional.empty());
+        when(sites.currencyOf(any())).thenReturn(Optional.of("SEK"));
         when(zones.addressOf(any())).thenReturn(Optional.of("Storgatan 1"));
         when(spots.spotNumberOf(spot.id())).thenReturn(Optional.of("A1"));
         when(detections.involvedIn(any(), any(), any(), any(), anyInt())).thenReturn(List.of(
@@ -129,9 +139,11 @@ class FineIssuingTransactionTest {
     void theFineItsEvidenceAndItsEventAreCommittedTogether() {
         Violation violation = dueViolation();
 
-        Fine fine = tx.execute(status -> issuing.issueFine(violations.findById(violation.getId()).orElseThrow()));
+        Fine fine = tx.execute(status -> issuing.issueFine(violations.findById(violation.getId()).orElseThrow())).orElseThrow();
 
         assertThat(count("fines")).isEqualTo(1);
+        assertThat(jdbc.queryForMap("select amount, currency from fines where id = ?", fine.getId()))
+                .containsEntry("currency", "SEK").containsEntry("amount", new BigDecimal("700.00"));
         Map<String, Object> row = jdbc.queryForMap("select * from fine_evidence where fine_id = ?", fine.getId());
         assertThat(row).containsEntry("plate", "ABC123").containsEntry("zone_id", "zone-1").containsEntry("zone_address", "Storgatan 1")
                 .containsEntry("spot_number", "A1").containsEntry("violation_type", "WRONG_PERMIT").containsEntry("decision_basis", "automatic")

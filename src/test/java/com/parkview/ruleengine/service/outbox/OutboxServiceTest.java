@@ -73,13 +73,13 @@ class OutboxServiceTest {
     @Test
     void thePayloadIsByteIdenticalToWhatTheAmqpJsonConverterProducedBefore() {
         FineIssuedEvent payload = new FineIssuedEvent(UUID.randomUUID(), UUID.randomUUID(), "ABC123", null, "z1", "Storgatan 1", "z1", "Storgatan 1",
-                new BigDecimal("700.00"), NOW.toEpochMilli(), ViolationType.WRONG_PERMIT, null);
+                new BigDecimal("700.00"), "SEK", NOW.toEpochMilli(), ViolationType.WRONG_PERMIT, null);
         Message before = new Jackson2JsonMessageConverter(mapper).toMessage(payload, new MessageProperties());
 
         OutboxEvent row = enqueue(payload);
 
         assertThat(row.getPayload()).isEqualTo(new String(before.getBody(), java.nio.charset.StandardCharsets.UTF_8));
-        assertThat(row.getPayload()).contains("\"amountSek\":700.00").contains("\"userId\":null").contains("\"violationType\":\"WRONG_PERMIT\"").contains("\"sessionId\":null");
+        assertThat(row.getPayload()).contains("\"amount\":700.00").contains("\"currency\":\"SEK\"").contains("\"userId\":null").contains("\"violationType\":\"WRONG_PERMIT\"").contains("\"sessionId\":null");
     }
 
     @Test

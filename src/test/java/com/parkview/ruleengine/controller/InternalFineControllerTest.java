@@ -57,7 +57,7 @@ class InternalFineControllerTest {
     private Fine fine() {
         Instant t = Instant.parse("2026-10-09T10:00:00Z");
         Violation v = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.WRONG_PERMIT, t, t);
-        Fine fine = Fine.issue(v, new BigDecimal("700"), UUID.fromString("7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11"), t);
+        Fine fine = Fine.issue(v, new BigDecimal("700"), "SEK", UUID.fromString("7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11"), t);
         ReflectionTestUtils.setField(fine, "id", UUID.fromString("11111111-2222-3333-4444-555555555555"));
         return fine;
     }
@@ -75,8 +75,9 @@ class InternalFineControllerTest {
                 .andExpect(jsonPath("$.zoneId").value("z1"))
                 // payment-service lets an operator pay a fine only at one of their sites
                 .andExpect(jsonPath("$.siteId").value("z1"))
-                .andExpect(jsonPath("$.amountSek").value(700.0))
+                .andExpect(jsonPath("$.amount").value(700.0))
                 .andExpect(jsonPath("$.currency").value("SEK"))
+                .andExpect(jsonPath("$.amountSek").doesNotExist())
                 .andExpect(jsonPath("$.paid").value(false))
                 .andExpect(jsonPath("$.voided").value(false))
                 .andExpect(jsonPath("$.disputed").value(false))
@@ -87,7 +88,7 @@ class InternalFineControllerTest {
     void aFineAtASpotWithoutAZoneStillNamesItsSite() throws Exception {
         Instant t = Instant.parse("2026-10-09T10:00:00Z");
         Violation v = Violation.open(UUID.randomUUID(), "site-1", null, "ABC123", null, ViolationType.NO_PARKING, t, t);
-        Fine fine = Fine.issue(v, new BigDecimal("900"), null, t);
+        Fine fine = Fine.issue(v, new BigDecimal("900"), "SEK", null, t);
         ReflectionTestUtils.setField(fine, "id", UUID.randomUUID());
         when(fineService.get(fine.getId())).thenReturn(fine);
 
@@ -108,7 +109,7 @@ class InternalFineControllerTest {
                 .andExpect(jsonPath("$.disputed").value(true))
                 .andExpect(jsonPath("$.paid").value(false))
                 .andExpect(jsonPath("$.voided").value(false))
-                .andExpect(jsonPath("$.amountSek").value(700.0));
+                .andExpect(jsonPath("$.amount").value(700.0));
     }
 
     @Test
@@ -122,7 +123,7 @@ class InternalFineControllerTest {
                 .andExpect(jsonPath("$.voided").value(true))
                 .andExpect(jsonPath("$.paid").value(false))
                 // the amount rule stays: always the stored amount
-                .andExpect(jsonPath("$.amountSek").value(700.0))
+                .andExpect(jsonPath("$.amount").value(700.0))
                 .andExpect(jsonPath("$.voidReason").doesNotExist());
     }
 

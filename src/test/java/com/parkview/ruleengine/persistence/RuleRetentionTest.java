@@ -76,15 +76,15 @@ class RuleRetentionTest {
 
     private UUID paidFine(Instant paidAt) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek, issued_at, paid, paid_at, paid_method, user_id, image_path) "
-                + "values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, ?, true, ?, 'cash', gen_random_uuid(), 'snapshots/a.jpg')", id, ts(paidAt), ts(paidAt));
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency, issued_at, paid, paid_at, paid_method, user_id, image_path) "
+                + "values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, 'SEK', ?, true, ?, 'cash', gen_random_uuid(), 'snapshots/a.jpg')", id, ts(paidAt), ts(paidAt));
         return id;
     }
 
     private UUID voidedFine(Instant voidedAt) {
         UUID id = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek, issued_at, voided_at, void_reason, voided_by, user_id) "
-                + "values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, ?, ?, 'free text', gen_random_uuid(), gen_random_uuid())", id, ts(voidedAt), ts(voidedAt));
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency, issued_at, voided_at, void_reason, voided_by, user_id) "
+                + "values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, 'SEK', ?, ?, 'free text', gen_random_uuid(), gen_random_uuid())", id, ts(voidedAt), ts(voidedAt));
         return id;
     }
 

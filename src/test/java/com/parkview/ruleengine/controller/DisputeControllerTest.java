@@ -78,6 +78,7 @@ class DisputeControllerTest {
     private static final String BODY = "{\"message\":\"" + MESSAGE + "\"}";
     private static final String DECISION = "{\"outcome\":\"voided\",\"note\":\"" + NOTE + "\"}";
     private static final List<String> MANAGE = List.of("fine:manage");
+    private static final List<String> READ = List.of("fine:read");
 
     @Autowired
     MockMvc mvc;
@@ -97,7 +98,7 @@ class DisputeControllerTest {
         org.mockito.Mockito.when(zoneDirectory.siteOf(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(inv -> java.util.Optional.of(inv.getArgument(0)));
         Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", null, ViolationType.OVERSTAY, T, T);
-        fine = Fine.issue(violation, new BigDecimal("450"), null, T);
+        fine = Fine.issue(violation, new BigDecimal("450"), "SEK", null, T);
         ReflectionTestUtils.setField(fine, "id", FINE_ID);
         dispute = Dispute.open(fine, UUID.randomUUID(), DisputeChannel.DRIVER, MESSAGE, T);
         ReflectionTestUtils.setField(dispute, "id", DISPUTE_ID);
@@ -139,7 +140,8 @@ class DisputeControllerTest {
                 .andExpect(jsonPath("$.channel").value("driver"))
                 .andExpect(jsonPath("$.message").value(MESSAGE))
                 .andExpect(jsonPath("$.status").value("open"))
-                .andExpect(jsonPath("$.amountSek").value(450.0))
+                .andExpect(jsonPath("$.amount").value(450.0))
+                .andExpect(jsonPath("$.currency").value("SEK"))
                 .andExpect(jsonPath("$.reasonCode").value("overstay"))
                 .andExpect(jsonPath("$.reasonText").value("The vehicle stayed longer than the time allowed here."))
                 .andExpect(jsonPath("$.openedAt").value("2026-10-09T10:00:00Z"))
@@ -252,7 +254,7 @@ class DisputeControllerTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("open"));
         mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(operator(List.of("violation:read"), "z1")))
                 .andExpect(status().isOk());
-        mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(operator(MANAGE, "z1")))
+        mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(operator(READ, "z1")))
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(actor("admin", null, List.of())))
                 .andExpect(status().isOk());
@@ -278,6 +280,9 @@ class DisputeControllerTest {
     @Test
     void latest_anOperatorWithoutAnyRelevantPermissionIsForbidden() throws Exception {
         mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(operator(List.of("permit:manage"), "z1")))
+                .andExpect(status().isForbidden());
+        // fine:manage is the write permission; it does not imply reading
+        mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(operator(MANAGE, "z1")))
                 .andExpect(status().isForbidden());
     }
 
@@ -330,10 +335,12 @@ class DisputeControllerTest {
     }
 
     @Test
-    void list_anonymousIsUnauthorizedAndDriversAndOperatorsWithoutFineManageAreForbidden() throws Exception {
+    void list_anonymousIsUnauthorizedAndDriversAndOperatorsWithoutFineReadAreForbidden() throws Exception {
         mvc.perform(get("/api/v1/disputes")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/disputes").with(driver("ABC123"))).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/disputes").with(operator(List.of("violation:read"), "z1"))).andExpect(status().isForbidden());
+        // fine:manage is the write permission; it does not imply reading
+        mvc.perform(get("/api/v1/disputes").with(operator(MANAGE, "z1"))).andExpect(status().isForbidden());
         verifyNoInteractions(disputes);
     }
 
@@ -341,7 +348,7 @@ class DisputeControllerTest {
     void list_anOperatorSeesOnlyTheZonesOfTheTokenAndTheTotalIsInTheHeader() throws Exception {
         pageOfOne();
 
-        mvc.perform(get("/api/v1/disputes").with(operator(MANAGE, "z1", "z3")))
+        mvc.perform(get("/api/v1/disputes").with(operator(READ, "z1", "z3")))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Total-Count", "1"))
                 .andExpect(jsonPath("$[0].id").value(DISPUTE_ID.toString()))
@@ -362,11 +369,11 @@ class DisputeControllerTest {
     void list_theZoneFilterMustBeAZoneOfTheCaller() throws Exception {
         pageOfOne();
 
-        mvc.perform(get("/api/v1/disputes").param("zoneId", "z1").param("status", "decided").with(operator(MANAGE, "z1", "z3")))
+        mvc.perform(get("/api/v1/disputes").param("zoneId", "z1").param("status", "decided").with(operator(READ, "z1", "z3")))
                 .andExpect(status().isOk());
         verify(disputes).list(eq(DisputeQueryService.Filter.DECIDED), eq(List.of("z1", "z3")), eq("z1"), any(Pageable.class));
 
-        mvc.perform(get("/api/v1/disputes").param("zoneId", "z2").with(operator(MANAGE, "z1")))
+        mvc.perform(get("/api/v1/disputes").param("zoneId", "z2").with(operator(READ, "z1")))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/disputes").param("zoneId", "z2").with(actor("admin", null, List.of())))
                 .andExpect(status().isOk());
@@ -374,7 +381,7 @@ class DisputeControllerTest {
 
     @Test
     void list_anUnknownStatusIsABadRequest() throws Exception {
-        mvc.perform(get("/api/v1/disputes").param("status", "pending").with(operator(MANAGE, "z1")))
+        mvc.perform(get("/api/v1/disputes").param("status", "pending").with(operator(READ, "z1")))
                 .andExpect(status().isBadRequest())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
         verify(disputes, never()).list(any(), anyCollection(), any(), any());
@@ -384,7 +391,7 @@ class DisputeControllerTest {
     void list_pagingFollowsTheOtherListsAndIsNewestFirst() throws Exception {
         pageOfOne();
 
-        mvc.perform(get("/api/v1/disputes").param("page", "2").param("size", "9999").with(operator(MANAGE, "z1")))
+        mvc.perform(get("/api/v1/disputes").param("page", "2").param("size", "9999").with(operator(READ, "z1")))
                 .andExpect(status().isOk());
 
         org.mockito.ArgumentCaptor<Pageable> page = org.mockito.ArgumentCaptor.forClass(Pageable.class);
@@ -403,6 +410,9 @@ class DisputeControllerTest {
         mvc.perform(post("/api/v1/disputes/{id}/decision", DISPUTE_ID).with(driver("ABC123"))
                         .contentType(MediaType.APPLICATION_JSON).content(DECISION)).andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/disputes/{id}/decision", DISPUTE_ID).with(operator(List.of("violation:read"), "z1"))
+                        .contentType(MediaType.APPLICATION_JSON).content(DECISION)).andExpect(status().isForbidden());
+        // reading disputes (fine:read) does not allow deciding them
+        mvc.perform(post("/api/v1/disputes/{id}/decision", DISPUTE_ID).with(operator(READ, "z1"))
                         .contentType(MediaType.APPLICATION_JSON).content(DECISION)).andExpect(status().isForbidden());
         verifyNoInteractions(disputeService);
     }

@@ -8,6 +8,7 @@ import com.parkview.ruleengine.domain.value.ZoneRule;
 import com.parkview.ruleengine.readmodel.ParkingSpotViewRepository;
 import com.parkview.ruleengine.readmodel.PlateOwnerViewRepository;
 import com.parkview.ruleengine.readmodel.SessionViewRepository;
+import com.parkview.ruleengine.readmodel.SiteViewRepository;
 import com.parkview.ruleengine.readmodel.ZoneRuleViewRepository;
 import com.parkview.ruleengine.readmodel.ZoneViewRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +54,8 @@ class JpaDirectoriesTest {
     ZoneRuleViewRepository ruleViews;
     @Autowired
     SessionViewRepository sessionViews;
+    @Autowired
+    SiteViewRepository siteViews;
 
     private JpaSpotDirectory spots;
     private JpaPlateOwnerDirectory owners;
@@ -188,6 +191,20 @@ class JpaDirectoriesTest {
         assertThat(zones.addressOf("z2")).isEmpty();
         assertThat(zones.addressOf("z3")).isEmpty();
         assertThat(zones.addressOf("z9")).isEmpty();
+    }
+
+    @Test
+    void theCurrencyOfASiteIsReadUpperCaseAndAMissingOrInvalidOneIsEmpty() {
+        jdbc.update("delete from mapping.sites where id like 'cur-%'");
+        jdbc.update("insert into mapping.sites (id, currency) values ('cur-nok', 'NOK'), ('cur-low', ' eur '), ('cur-bad', 'XXQ'), ('cur-blank', '')");
+        JpaSiteDirectory sites = new JpaSiteDirectory(siteViews);
+
+        assertThat(sites.currencyOf("cur-nok")).contains("NOK");
+        assertThat(sites.currencyOf("cur-low")).contains("EUR");
+        assertThat(sites.currencyOf("cur-bad")).isEmpty();
+        assertThat(sites.currencyOf("cur-blank")).isEmpty();
+        assertThat(sites.currencyOf("cur-unknown")).isEmpty();
+        assertThat(sites.currencyOf(null)).isEmpty();
     }
 
     @Test

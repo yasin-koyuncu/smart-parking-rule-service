@@ -53,7 +53,7 @@ class FineActionRepositoryTest {
     void setUp() {
         jdbc.execute("truncate fine_evidence, fines cascade");
         fineId = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450)", fineId);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, 'ABC123', 'z1', 'z1', 'overstay', 450, 'SEK')", fineId);
     }
 
     @Test
@@ -82,7 +82,7 @@ class FineActionRepositoryTest {
     @Test
     void historyIsNewestFirstPagedAndNeverContainsOtherFines() {
         UUID other = UUID.randomUUID();
-        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount_sek) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450)", other);
+        jdbc.update("insert into fines (id, plate, site_id, zone_id, reason, amount, currency) values (?, 'XYZ999', 'z1', 'z1', 'overstay', 450, 'SEK')", other);
         FineAction oldest = actions.save(FineAction.of(fineId, NOW.minusSeconds(100), null, FineActionType.PAID_ONLINE, null, Map.of()));
         FineAction newest = actions.save(FineAction.of(fineId, NOW, UUID.randomUUID(), FineActionType.VOID, "misread", Map.of()));
         FineAction middle = actions.save(FineAction.of(fineId, NOW.minusSeconds(50), UUID.randomUUID(), FineActionType.MARK_PAID, "cash", Map.of()));
@@ -118,7 +118,7 @@ class FineActionRepositoryTest {
     @Test
     void thePaymentReviewActionIsAcceptedByTheConstraintAndFoundPerPayment() {
         actions.save(FineAction.of(fineId, NOW, null, FineActionType.PAYMENT_NEEDS_REVIEW, "Payment completed but needs review: voided",
-                Map.of("paymentId", "pay-1", "causes", java.util.List.of("voided"), "fineAmountSek", "450.00")));
+                Map.of("paymentId", "pay-1", "causes", java.util.List.of("voided"), "fineAmount", "450.00", "fineCurrency", "SEK")));
         actions.save(FineAction.of(fineId, NOW, null, FineActionType.PAID_ONLINE, null, Map.of("method", "online")));
 
         assertThat(actions.existsForPayment(fineId, "payment_needs_review", "pay-1")).isTrue();

@@ -90,7 +90,7 @@ class FineManagementControllerTest {
         org.mockito.Mockito.when(zoneDirectory.siteOf(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(inv -> java.util.Optional.of(inv.getArgument(0)));
         Violation violation = Violation.open(UUID.randomUUID(), "z1", "z1", "ABC123", OWNER, ViolationType.WRONG_PERMIT, T, T);
-        fine = Fine.issue(violation, new BigDecimal("700"), OWNER, T);
+        fine = Fine.issue(violation, new BigDecimal("700"), "SEK", OWNER, T);
         ReflectionTestUtils.setField(fine, "id", FINE_ID);
         when(fineQuery.get(FINE_ID)).thenReturn(fine);
         when(fineManagement.voidFine(eq(FINE_ID), anyString(), any())).thenAnswer(inv -> {

@@ -5,9 +5,7 @@ import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineAction;
 import com.parkview.ruleengine.domain.type.PaidMethod;
 import com.parkview.ruleengine.dto.event.FinePaidEvent;
-import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.service.TestFixtures;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -27,8 +25,6 @@ import static org.mockito.Mockito.when;
 
 class FineSettlementServiceTest extends FineServiceTestBase {
 
-    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
-    private final EngineMetrics metrics = new EngineMetrics(registry);
     private final FineSettlementService service = new FineSettlementService(fines, actions, closer, fineEvents, metrics, clock);
     private final FineManagementService management = new FineManagementService(fines, actions, disputes, closer, fineEvents, clock);
 
@@ -53,7 +49,7 @@ class FineSettlementServiceTest extends FineServiceTestBase {
 
         FinePaidEvent event = (FinePaidEvent) publishedPayload("fine.paid");
         assertThat(event).isEqualTo(new FinePaidEvent(fine.getId(), TestFixtures.PLATE, TestFixtures.ZONE, TestFixtures.ZONE,
-                new BigDecimal("700.00"), "online", NOW));
+                new BigDecimal("700.00"), "SEK", "online", NOW));
     }
 
     @Test
@@ -157,7 +153,7 @@ class FineSettlementServiceTest extends FineServiceTestBase {
     void aPaymentOfAnotherAmountStillSettlesTheFineButIsFlagged() {
         Fine fine = unpaidFine();   // 700 SEK
 
-        service.markPaidOnline(fine.getId(), "pay-1", new BigDecimal("450.00"));
+        service.markPaidOnline(fine.getId(), "pay-1", new BigDecimal("450.00"), "SEK");
 
         assertThat(fine.isPaid()).isTrue();
         verify(events, times(1)).enqueue(any(), any(), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.paid"), any());
@@ -166,17 +162,43 @@ class FineSettlementServiceTest extends FineServiceTestBase {
         assertThat(saved.getAllValues()).extracting(FineAction::getAction).containsExactly("paid_online", "payment_needs_review");
         FineAction review = saved.getAllValues().get(1);
         assertThat(review.getReason()).contains("amount mismatch");
-        assertThat(review.getDetails()).containsEntry("paidAmountSek", "450.00").containsEntry("fineAmountSek", "700.00")
+        assertThat(review.getDetails()).containsEntry("paidAmount", "450.00").containsEntry("paidCurrency", "SEK")
+                .containsEntry("fineAmount", "700.00").containsEntry("fineCurrency", "SEK")
                 .containsEntry("causes", List.of("amount_mismatch"));
+        assertThat(registry.counter("ruleengine.payments.needs_review", "cause", "amount_mismatch").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void aPaymentInAnotherCurrencyIsFlaggedEvenWithTheSameAmount() {
+        Fine fine = unpaidFine();   // 700 SEK
+
+        service.markPaidOnline(fine.getId(), "pay-1", new BigDecimal("700.00"), "EUR");
+
+        assertThat(fine.isPaid()).isTrue();
+        org.mockito.ArgumentCaptor<FineAction> saved = org.mockito.ArgumentCaptor.forClass(FineAction.class);
+        verify(actions, times(2)).save(saved.capture());
+        FineAction review = saved.getAllValues().get(1);
+        assertThat(review.getAction()).isEqualTo("payment_needs_review");
+        assertThat(review.getDetails()).containsEntry("paidCurrency", "EUR").containsEntry("fineCurrency", "SEK")
+                .containsEntry("causes", List.of("amount_mismatch"));
+        assertThat(registry.counter("ruleengine.payments.needs_review", "cause", "amount_mismatch").count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void anAmountWithoutACurrencyIsFlagged() {
+        Fine fine = unpaidFine();
+
+        service.markPaidOnline(fine.getId(), "pay-1", new BigDecimal("700.00"), null);
+
         assertThat(registry.counter("ruleengine.payments.needs_review", "cause", "amount_mismatch").count()).isEqualTo(1.0);
     }
 
     @Test
     void aPaymentOfTheRightAmountOrWithoutAnAmountIsNotFlagged() {
         Fine fine = unpaidFine();
-        service.markPaidOnline(fine.getId(), "pay-1", new BigDecimal("700"));
+        service.markPaidOnline(fine.getId(), "pay-1", new BigDecimal("700"), "SEK");
         Fine other = unpaidFine();
-        service.markPaidOnline(other.getId(), "pay-2", null);
+        service.markPaidOnline(other.getId(), "pay-2", null, null);
 
         verify(actions, times(2)).save(any(FineAction.class));   // the two paid_online rows only
         assertThat(registry.counter("ruleengine.payments.needs_review", "cause", "amount_mismatch").count()).isZero();
@@ -187,7 +209,7 @@ class FineSettlementServiceTest extends FineServiceTestBase {
         UUID id = UUID.randomUUID();
         when(fines.findByIdForUpdate(id)).thenReturn(Optional.empty());
 
-        service.markPaidOnline(id, "pay-1", BigDecimal.TEN);
+        service.markPaidOnline(id, "pay-1", BigDecimal.TEN, "SEK");
 
         assertThat(registry.counter("ruleengine.payments.needs_review", "cause", "unknown_fine").count()).isEqualTo(1.0);
     }

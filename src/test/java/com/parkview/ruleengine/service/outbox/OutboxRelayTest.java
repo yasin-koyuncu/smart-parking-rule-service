@@ -45,7 +45,7 @@ class OutboxRelayTest {
 
     private static final Instant NOW = Instant.parse("2026-10-09T12:00:00Z");
     private static final Duration UNROUTABLE_WINDOW = Duration.ofMinutes(5);
-    private static final String PAYLOAD = "{\"fineId\":\"f-1\",\"amountSek\":700.00}";
+    private static final String PAYLOAD = "{\"fineId\":\"f-1\",\"amount\":700.00,\"currency\":\"SEK\"}";
 
     @Mock OutboxEventRepository repository;
     @Mock RabbitTemplate rabbit;

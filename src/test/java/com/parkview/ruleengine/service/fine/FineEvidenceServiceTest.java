@@ -58,7 +58,7 @@ class FineEvidenceServiceTest {
         violation = Violation.open(spot.id(), TestFixtures.ZONE, TestFixtures.ZONE, TestFixtures.PLATE, null, ViolationType.WRONG_PERMIT, DETECTED,
                 DETECTED.plus(Duration.ofMinutes(10)), "No valid permit was registered for the plate: the spot requires a resident permit.");
         ReflectionTestUtils.setField(violation, "id", UUID.randomUUID());
-        fine = Fine.issue(violation, new BigDecimal("700"), null, ISSUED);
+        fine = Fine.issue(violation, new BigDecimal("700"), "SEK", null, ISSUED);
         ReflectionTestUtils.setField(fine, "id", UUID.randomUUID());
         when(zones.addressOf(TestFixtures.ZONE)).thenReturn(Optional.of("Storgatan 1"));
         when(spots.spotNumberOf(spot.id())).thenReturn(Optional.of("A1"));

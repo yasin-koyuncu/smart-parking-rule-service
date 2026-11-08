@@ -11,6 +11,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class TestFixtures {
@@ -21,10 +22,15 @@ public final class TestFixtures {
     private TestFixtures() {
     }
 
+    /** The defaults: fine amounts for SEK only. */
     public static RuleEngineProperties properties() {
+        return properties(Map.of());
+    }
+
+    /** The defaults, plus the given fine amounts per currency (SEK keeps its defaults unless it is listed). */
+    public static RuleEngineProperties properties(Map<String, Map<ViolationType, BigDecimal>> fineAmounts) {
         return new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30, 5, 5, 10,
-                BigDecimal.valueOf(900), BigDecimal.valueOf(450), BigDecimal.valueOf(700), BigDecimal.valueOf(900),
-                BigDecimal.valueOf(700), 60000, 20, 15, 120, 60000, 30, 5, 15, 600, 6, 60, true);
+                fineAmounts, 60000, 20, 15, 120, 60000, 30, 5, 15, 600, 6, 60, true);
     }
 
     public static Polygon rect(double x0, double y0, double x1, double y1) {

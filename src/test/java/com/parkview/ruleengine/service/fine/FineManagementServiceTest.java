@@ -121,7 +121,8 @@ class FineManagementServiceTest extends FineServiceTestBase {
         assertThat(event.fineId()).isEqualTo(fine.getId());
         assertThat(event.plate()).isEqualTo(TestFixtures.PLATE);
         assertThat(event.zoneId()).isEqualTo(TestFixtures.ZONE);
-        assertThat(event.amountSek()).isEqualByComparingTo("700");
+        assertThat(event.amount()).isEqualByComparingTo("700");
+        assertThat(event.currency()).isEqualTo("SEK");
         assertThat(event.method()).isEqualTo(wire);
         assertThat(event.occurredAt()).isEqualTo(NOW);
     }

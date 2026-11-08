@@ -112,7 +112,8 @@ create table sessions.sessions (
   started_at     timestamptz not null default now(),
   ended_at       timestamptz,
   voided_at      timestamptz,
-  cost_sek       numeric(10,2),
+  cost           numeric(10,2),
+  currency       text,
   user_id        uuid,
   payment_status text not null default 'UNPAID',
   created_at     timestamptz not null default now()

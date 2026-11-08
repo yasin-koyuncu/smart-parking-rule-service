@@ -36,8 +36,8 @@ class PermissionTest {
 
     @Test
     void presentClaimBecomesOneAuthorityPerPermissionNextToTheRole() {
-        assertThat(authorities(true, claims("operator", List.of("zone:write", "mapping:view"))))
-                .containsExactlyInAnyOrder("ROLE_OPERATOR", "zone:write", "mapping:view");
+        assertThat(authorities(true, claims("operator", List.of("zone:write", "zone:read"))))
+                .containsExactlyInAnyOrder("ROLE_OPERATOR", "zone:write", "zone:read");
     }
 
     @Test
