@@ -40,13 +40,13 @@ class FineEvents {
         String zoneAddress = fine.getZoneId() == null ? null : zones.addressOf(fine.getZoneId()).orElse(null);
         publish(fine.getId(), RabbitConfig.FINE_ISSUED_KEY,
                 new FineIssuedEvent(fine.getId(), violation.getId(), fine.getPlate(), owner, fine.getZoneId(), zoneAddress,
-                        fine.getSiteId(), sites.addressOf(fine.getSiteId()).orElse(null), fine.getAmountSek(), at.toEpochMilli(),
+                        fine.getSiteId(), sites.addressOf(fine.getSiteId()).orElse(null), fine.getAmount(), fine.getCurrency(), at.toEpochMilli(),
                         violation.getViolationType(), fine.getSessionId()));
     }
 
     void paid(Fine fine, PaidMethod method, Instant at) {
         publish(fine.getId(), RabbitConfig.FINE_PAID_KEY,
-                new FinePaidEvent(fine.getId(), fine.getPlate(), fine.getZoneId(), fine.getSiteId(), fine.getAmountSek(), method.wire(), at));
+                new FinePaidEvent(fine.getId(), fine.getPlate(), fine.getZoneId(), fine.getSiteId(), fine.getAmount(), fine.getCurrency(), method.wire(), at));
     }
 
     void voided(Fine fine, Instant at) {

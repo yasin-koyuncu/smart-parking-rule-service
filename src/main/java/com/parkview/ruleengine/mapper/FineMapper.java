@@ -9,15 +9,13 @@ import java.util.Locale;
 
 public final class FineMapper {
 
-    public static final String CURRENCY = "SEK";
-
     private FineMapper() {
     }
 
     /** @param disputed whether a dispute is open: payment-service must not start a payment for the fine */
     public static InternalFineResponse toInternalResponse(Fine f, boolean disputed) {
         return new InternalFineResponse(f.getId(), f.getPlate(), f.getUserId(), f.getZoneId(), f.getSiteId(),
-                f.getAmountSek(), CURRENCY, f.isPaid(), f.isVoided(), disputed);
+                f.getAmount(), f.getCurrency(), f.isPaid(), f.isVoided(), disputed);
     }
 
     /**
@@ -30,7 +28,7 @@ public final class FineMapper {
     public static FineResponse toResponse(Fine f, DisputeStatus disputeStatus, boolean withImagePath) {
         return new FineResponse(f.getId(), f.getPlate(), f.getZoneId(), f.getSiteId(),
                 f.getReason().name().toLowerCase(Locale.ROOT),
-                f.getAmountSek(), f.getIssuedAt(), f.isPaid(), withImagePath ? f.getImagePath() : null, f.getPaidAt(), f.isVoided(), f.getVoidedAt(),
+                f.getAmount(), f.getCurrency(), f.getIssuedAt(), f.isPaid(), withImagePath ? f.getImagePath() : null, f.getPaidAt(), f.isVoided(), f.getVoidedAt(),
                 disputeStatus == DisputeStatus.OPEN, disputeStatus == null ? null : disputeStatus.wire());
     }
 }

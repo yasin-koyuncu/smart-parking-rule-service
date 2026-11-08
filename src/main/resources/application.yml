@@ -142,11 +142,15 @@ parkview:
     no-parking-grace-minutes: 5
     overstay-grace-minutes: 5
     wrong-vehicle-type-grace-minutes: 10
-    fine-amount-no-parking-sek: 900
-    fine-amount-overstay-sek: 450
-    fine-amount-wrong-permit-sek: 700
-    fine-amount-boundary-exceeded-sek: 900
-    fine-amount-wrong-vehicle-type-sek: 700
+    # fine amounts per currency (ISO 4217) and violation type; a fine is issued in the currency of its site, and a currency without
+    # amounts here gets no fine (the violation stays open, ERROR log and counter ruleengine.fines.not_issued)
+    fine-amounts:
+      SEK:
+        no-parking: 900
+        overstay: 450
+        wrong-permit: 700
+        boundary-exceeded: 900
+        wrong-vehicle-type: 700
     expire-sweep-ms: 60000
     expire-batch-size: 20
     stale-minutes: 15

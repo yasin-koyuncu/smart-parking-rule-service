@@ -10,6 +10,7 @@ import java.util.UUID;
  *
  * @param zoneId null for a fine at a spot without a zone (ADR 0009)
  * @param siteId always set
+ * @param currency ISO 4217 code, the currency of {@code amount} (the fine's)
  * @param method {@code online | cash | transfer | other}
  */
 public record FinePaidEvent(
@@ -17,7 +18,8 @@ public record FinePaidEvent(
         String plate,
         String zoneId,
         String siteId,
-        BigDecimal amountSek,
+        BigDecimal amount,
+        String currency,
         String method,
         Instant occurredAt
 ) {

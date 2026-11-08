@@ -30,7 +30,7 @@ public final class EvidenceMapper {
     public static ExplanationResponse toExplanation(FineExplanation x) {
         Fine fine = x.fine();
         FineEvidence e = x.evidence();
-        return new ExplanationResponse(fine.getId(), fine.getIssuedAt(), fine.getAmountSek(), x.zoneAddress(), x.siteAddress(),
+        return new ExplanationResponse(fine.getId(), fine.getIssuedAt(), fine.getAmount(), fine.getCurrency(), x.zoneAddress(), x.siteAddress(),
                 e == null ? null : e.getSpotNumber(), fine.getReason().name().toLowerCase(Locale.ROOT),
                 DisputeMapper.reasonText(fine), e == null ? null : e.getRuleSummary(),
                 e == null ? null : e.getViolationDetectedAt(), e == null ? null : e.getGraceMinutes(),

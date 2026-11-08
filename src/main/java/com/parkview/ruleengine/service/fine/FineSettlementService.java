@@ -50,7 +50,7 @@ public class FineSettlementService {
     /** Same without the paid amount: nothing to compare it with. */
     @Transactional
     public void markPaidOnline(UUID fineId, String paymentId) {
-        markPaidOnline(fineId, paymentId, null);
+        markPaidOnline(fineId, paymentId, null, null);
     }
 
     /**
@@ -60,14 +60,15 @@ public class FineSettlementService {
      *
      * <p>Money was taken in every one of these cases, so the ones a person has to act on leave an audit row
      * {@code payment_needs_review} (and count in {@code ruleengine.payments.needs_review}) instead of only a log line: the
-     * fine is voided, or already paid (by hand, or by another payment), or the paid amount is not the amount of the fine. The
+     * fine is voided, or already paid (by hand, or by another payment), or the paid amount or currency is not that of the fine. The
      * row is written once per payment, so a redelivery adds nothing. A first payment of another amount still settles an
      * unpaid fine: it is flagged, not refused.
      *
-     * @param amountSek the amount payment-service charged, null when the event did not say
+     * @param amount   the amount payment-service charged, null when the event did not say (then nothing is compared)
+     * @param currency the currency it charged it in (ISO 4217); with an amount, a missing or different currency is a mismatch
      */
     @Transactional
-    public void markPaidOnline(UUID fineId, String paymentId, BigDecimal amountSek) {
+    public void markPaidOnline(UUID fineId, String paymentId, BigDecimal amount, String currency) {
         Fine fine = fines.findByIdForUpdate(fineId).orElse(null);
         if (fine == null) {
             log.warn("payment.completed.fine for unknown fine {}", fineId);
@@ -89,8 +90,9 @@ public class FineSettlementService {
         } else {
             settles = true;
         }
-        if (amountSek != null && (settles || !causes.isEmpty()) && amountSek.compareTo(fine.getAmountSek()) != 0) {
-            log.warn("Payment {} for fine {} has another amount than the fine", paymentId, fineId);
+        if (amount != null && (settles || !causes.isEmpty())
+                && (amount.compareTo(fine.getAmount()) != 0 || !fine.getCurrency().equals(currency))) {
+            log.warn("Payment {} for fine {} has another amount or currency than the fine", paymentId, fineId);
             causes.add(AMOUNT_MISMATCH);
         }
 
@@ -105,7 +107,7 @@ public class FineSettlementService {
         if (!causes.isEmpty()
                 && !actions.existsForPayment(fineId, FineActionType.PAYMENT_NEEDS_REVIEW.wire(), paymentId)) {
             actions.save(FineAction.of(fineId, now, null, FineActionType.PAYMENT_NEEDS_REVIEW, reasonOf(causes),
-                    reviewDetails(paymentId, causes, amountSek, fine.getAmountSek())));
+                    reviewDetails(paymentId, causes, amount, currency, fine)));
             causes.forEach(metrics::paymentNeedsReview);
         }
     }
@@ -114,16 +116,20 @@ public class FineSettlementService {
         return "Payment completed but needs review: " + String.join(", ", causes.stream().map(c -> c.replace('_', ' ')).toList());
     }
 
-    private static Map<String, Object> reviewDetails(String paymentId, List<String> causes, BigDecimal paid, BigDecimal fineAmount) {
+    private static Map<String, Object> reviewDetails(String paymentId, List<String> causes, BigDecimal paid, String paidCurrency, Fine fine) {
         Map<String, Object> details = new LinkedHashMap<>();
         if (paymentId != null) {
             details.put("paymentId", paymentId);
         }
         details.put("causes", List.copyOf(causes));
         if (paid != null) {
-            details.put("paidAmountSek", paid.toPlainString());
+            details.put("paidAmount", paid.toPlainString());
+            if (paidCurrency != null) {
+                details.put("paidCurrency", paidCurrency);
+            }
         }
-        details.put("fineAmountSek", fineAmount.toPlainString());
+        details.put("fineAmount", fine.getAmount().toPlainString());
+        details.put("fineCurrency", fine.getCurrency());
         return details;
     }
 

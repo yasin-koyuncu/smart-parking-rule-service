@@ -6,8 +6,6 @@ import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
@@ -15,6 +13,13 @@ import org.springframework.validation.annotation.Validated;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Collections;
+import java.util.Currency;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Business thresholds and job tuning ({@code parkview.rule-engine.*}).
@@ -27,7 +32,9 @@ import java.time.Duration;
  * @param noParkingGraceMinutes       grace before a no-parking fine
  * @param overstayGraceMinutes        grace before an overstay fine
  * @param wrongVehicleTypeGraceMinutes grace before a wrong-vehicle-type fine
- * @param fineAmountNoParkingSek      fine amounts per violation type, SEK
+ * @param fineAmounts                 fine amounts per currency (ISO 4217) and violation type, {@code fine-amounts.<CURRENCY>.<violation-type>}. SEK has defaults
+ *                                    ({@link #DEFAULT_SEK_FINE_AMOUNTS}); every other currency must be configured, and a currency listed here replaces
+ *                                    the amounts of that currency as a whole. A fine for a currency or a type without an amount is not issued.
  * @param expireSweepMs               delay between runs of the fine-issuing sweep
  * @param expireBatchSize             violations fined per batch (each in its own transaction)
  * @param staleMinutes                a violation not re-confirmed by a detection for this long is resolved as LEFT and is not fined
@@ -54,11 +61,7 @@ public record RuleEngineProperties(
         @DefaultValue("5") @PositiveOrZero int noParkingGraceMinutes,
         @DefaultValue("5") @PositiveOrZero int overstayGraceMinutes,
         @DefaultValue("10") @PositiveOrZero int wrongVehicleTypeGraceMinutes,
-        @DefaultValue("900") @NotNull @Positive BigDecimal fineAmountNoParkingSek,
-        @DefaultValue("450") @NotNull @Positive BigDecimal fineAmountOverstaySek,
-        @DefaultValue("700") @NotNull @Positive BigDecimal fineAmountWrongPermitSek,
-        @DefaultValue("900") @NotNull @Positive BigDecimal fineAmountBoundaryExceededSek,
-        @DefaultValue("700") @NotNull @Positive BigDecimal fineAmountWrongVehicleTypeSek,
+        Map<String, Map<ViolationType, BigDecimal>> fineAmounts,
         @DefaultValue("60000") @Min(100) long expireSweepMs,
         @DefaultValue("20") @Min(1) @Max(500) int expireBatchSize,
         @DefaultValue("15") @Min(1) int staleMinutes,
@@ -73,14 +76,52 @@ public record RuleEngineProperties(
         @DefaultValue("true") boolean vehicleLookupEnabled
 ) {
 
-    public BigDecimal fineAmountFor(ViolationType type) {
-        return switch (type) {
-            case NO_PARKING -> fineAmountNoParkingSek;
-            case OVERSTAY -> fineAmountOverstaySek;
-            case WRONG_PERMIT -> fineAmountWrongPermitSek;
-            case BOUNDARY_EXCEEDED -> fineAmountBoundaryExceededSek;
-            case WRONG_VEHICLE_TYPE -> fineAmountWrongVehicleTypeSek;
-        };
+    /** The fine amounts of SEK when nothing is configured for it. */
+    public static final Map<ViolationType, BigDecimal> DEFAULT_SEK_FINE_AMOUNTS = Collections.unmodifiableMap(new EnumMap<>(Map.of(
+            ViolationType.NO_PARKING, new BigDecimal("900"),
+            ViolationType.OVERSTAY, new BigDecimal("450"),
+            ViolationType.WRONG_PERMIT, new BigDecimal("700"),
+            ViolationType.BOUNDARY_EXCEEDED, new BigDecimal("900"),
+            ViolationType.WRONG_VEHICLE_TYPE, new BigDecimal("700"))));
+
+    /**
+     * Normalises {@code fineAmounts}: the currency codes are upper-cased and must be known ISO 4217 codes, every amount must be present and
+     * positive (a violation of that stops the start), SEK gets its defaults unless it is configured.
+     */
+    public RuleEngineProperties {
+        Map<String, Map<ViolationType, BigDecimal>> normalised = new LinkedHashMap<>();
+        normalised.put("SEK", DEFAULT_SEK_FINE_AMOUNTS);
+        if (fineAmounts != null) {
+            fineAmounts.forEach((currency, amounts) -> normalised.put(currencyCode(currency), positiveAmounts(currency, amounts)));
+        }
+        fineAmounts = Collections.unmodifiableMap(normalised);
+    }
+
+    private static String currencyCode(String currency) {
+        String code = currency == null ? "" : currency.trim().toUpperCase(Locale.ROOT);
+        try {
+            return Currency.getInstance(code).getCurrencyCode();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("parkview.rule-engine.fine-amounts: '" + currency + "' is not an ISO 4217 currency code", e);
+        }
+    }
+
+    private static Map<ViolationType, BigDecimal> positiveAmounts(String currency, Map<ViolationType, BigDecimal> amounts) {
+        Map<ViolationType, BigDecimal> checked = new EnumMap<>(ViolationType.class);
+        if (amounts != null) {
+            amounts.forEach((type, amount) -> {
+                if (type == null || amount == null || amount.signum() <= 0) {
+                    throw new IllegalArgumentException("parkview.rule-engine.fine-amounts." + currency + "." + type + " must be a positive amount");
+                }
+                checked.put(type, amount);
+            });
+        }
+        return Collections.unmodifiableMap(checked);
+    }
+
+    /** The fine amount of a violation type in a currency; empty when none is configured (the fine is then not issued). */
+    public Optional<BigDecimal> fineAmountFor(String currency, ViolationType type) {
+        return Optional.ofNullable(fineAmounts.get(currency)).map(amounts -> amounts.get(type));
     }
 
     /**

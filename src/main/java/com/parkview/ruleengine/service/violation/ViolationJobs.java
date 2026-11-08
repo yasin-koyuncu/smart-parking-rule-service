@@ -87,8 +87,9 @@ public class ViolationJobs {
     private boolean fineOne(UUID id, Instant now, Instant seenSince) {
         return violations.claimDue(id, now, seenSince)
                 .map(violation -> {
-                    fineIssuing.issueFine(violation);
-                    return true;
+                    // empty when the fine cannot be issued (site without currency, no amount for it): the violation stays open and is
+                    // tried again on the next sweep once the configuration is fixed; the error is logged by the issuing service
+                    return fineIssuing.issueFine(violation).isPresent();
                 })
                 .orElse(false);
     }

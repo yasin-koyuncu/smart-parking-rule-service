@@ -34,6 +34,14 @@ public class EngineMetrics {
         registry.counter("ruleengine.rules.matched", "outcome", outcome).increment();
     }
 
+    /**
+     * A fine was not issued and the violation stays open: the site has no usable currency ({@code currency} "unknown") or no fine amount is
+     * configured for the currency and violation type ({@code cause}: no_site_currency, no_fine_amount). Alert on it.
+     */
+    public void fineNotIssued(String cause, String currency, ViolationType type) {
+        registry.counter("ruleengine.fines.not_issued", "cause", cause, "currency", currency, "type", type.name()).increment();
+    }
+
     /** A completed payment needs a person to look at it ({@code cause}: voided, already_paid, amount_mismatch, unknown_fine). */
     public void paymentNeedsReview(String cause) {
         registry.counter("ruleengine.payments.needs_review", "cause", cause).increment();

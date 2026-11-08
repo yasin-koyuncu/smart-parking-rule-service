@@ -43,6 +43,7 @@ import java.util.UUID;
 /**
  * Disputes: a driver (or an operator on the phone with a driver) asks for a person to review a fine; while the dispute is
  * open the fine cannot be paid; an operator with {@code fine:manage} upholds or voids the fine with a written reason.
+ * Reading disputes needs {@code fine:read}; {@code fine:manage} is the write permission and does not imply it.
  * A fine or dispute the caller may not see is answered with 404, never 403, so its existence is not revealed.
  */
 @RestController
@@ -84,9 +85,10 @@ public class DisputeController {
     }
 
     @GetMapping("/fines/{id}/dispute")
-    @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read') or hasAuthority('fine:manage')")
+    @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read') or hasAuthority('fine:read')")
     @Operation(summary = "The latest dispute of a fine",
-            description = "For the driver who owns the plate and for operators of the site; also for a voided fine (the outcome of the dispute).")
+            description = "For the driver who owns the plate and for operators of the site (permission fine:read or violation:read); "
+                    + "also for a voided fine (the outcome of the dispute).")
     @ApiResponse(responseCode = "200", description = "The latest dispute")
     @ApiResponse(responseCode = "404", description = "Unknown fine, another driver fine, a fine outside the caller sites, or no dispute yet")
     public DisputeResponse latest(@PathVariable UUID id) {
@@ -113,10 +115,10 @@ public class DisputeController {
     }
 
     @GetMapping("/disputes")
-    @PreAuthorize("hasAuthority('fine:manage')")
+    @PreAuthorize("hasAuthority('fine:read')")
     @Operation(summary = "Disputes to review",
             description = "Newest first, limited to the sites in the caller token (administrators: all). status open (default), "
-                    + "decided (upheld, voided or withdrawn) or all. Needs permission fine:manage.")
+                    + "decided (upheld, voided or withdrawn) or all. Needs permission fine:read (deciding needs fine:manage).")
     @ApiResponse(responseCode = "200", description = "A page of disputes; the total is in the X-Total-Count header")
     @ApiResponse(responseCode = "400", description = "Unknown status")
     @ApiResponse(responseCode = "403", description = "Missing permission, or siteId (or the site of zoneId) outside the caller sites")

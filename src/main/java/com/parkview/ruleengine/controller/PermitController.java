@@ -36,8 +36,8 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1/permits")
 @RequiredArgsConstructor
-@PreAuthorize("hasAuthority('permit:manage')")
-@Tag(name = "Permits", description = "Permits that allow a plate to park in permit spots. Permission permit:manage.")
+@Tag(name = "Permits", description = "Permits that allow a plate to park in permit spots. Reading needs permit:read, "
+        + "granting and revoking need permit:manage.")
 public class PermitController {
 
     private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by("id"));
@@ -47,9 +47,10 @@ public class PermitController {
     private final AccessPolicy accessPolicy;
 
     @PostMapping
+    @PreAuthorize("hasAuthority('permit:manage')")
     @Operation(summary = "Grant a permit",
-            description = "Valid in a zone (zoneId; its site is taken), in the whole of a site (siteId without zoneId) or, with neither, at "
-                    + "every site. Operators may grant permits for their sites; a permit for every site needs an administrator.")
+            description = "Needs permit:manage. Valid in a zone (zoneId; its site is taken), in the whole of a site (siteId without zoneId) "
+                    + "or, with neither, at every site. Operators may grant permits for their sites; a permit for every site needs an administrator.")
     @ApiResponse(responseCode = "201", description = "Created; Location points to the new permit")
     @ApiResponse(responseCode = "400", description = "Invalid body")
     @ApiResponse(responseCode = "403", description = "Not allowed for this site")
@@ -63,8 +64,9 @@ public class PermitController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('permit:read')")
     @Operation(summary = "List permits",
-            description = "Newest first. Operators see the permits of their sites and the permits valid at every site; administrators see all.")
+            description = "Needs permit:read. Newest first. Operators see the permits of their sites and the permits valid at every site; administrators see all.")
     @ApiResponse(responseCode = "200", description = "A page of permits; the total is in the X-Total-Count header")
     public ResponseEntity<List<PermitResponse>> list(
             @Parameter(description = "Only this plate") @RequestParam(required = false) String plate,
@@ -88,7 +90,8 @@ public class PermitController {
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Get a permit")
+    @PreAuthorize("hasAuthority('permit:read')")
+    @Operation(summary = "Get a permit", description = "Needs permit:read.")
     @ApiResponse(responseCode = "200", description = "The permit")
     @ApiResponse(responseCode = "403", description = "The permit belongs to a site the operator does not manage")
     @ApiResponse(responseCode = "404", description = "Unknown permit")
@@ -101,7 +104,8 @@ public class PermitController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "Revoke a permit", description = "Permits valid at every site can only be revoked by an administrator.")
+    @PreAuthorize("hasAuthority('permit:manage')")
+    @Operation(summary = "Revoke a permit", description = "Needs permit:manage. Permits valid at every site can only be revoked by an administrator.")
     @ApiResponse(responseCode = "204", description = "Revoked")
     @ApiResponse(responseCode = "403", description = "Not allowed for this site")
     @ApiResponse(responseCode = "404", description = "Unknown permit")

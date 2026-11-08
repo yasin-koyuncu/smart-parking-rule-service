@@ -48,8 +48,12 @@ public class Fine {
     @Column(nullable = false)
     private ViolationType reason;
 
-    @Column(name = "amount_sek", nullable = false, precision = 10, scale = 2)
-    private BigDecimal amountSek;
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal amount;
+
+    /** ISO 4217, upper case: the currency of the site when the fine was issued. */
+    @Column(nullable = false)
+    private String currency;
 
     @Column(name = "issued_at", nullable = false)
     private Instant issuedAt;
@@ -93,13 +97,14 @@ public class Fine {
     @Column(name = "voided_by")
     private UUID voidedBy;
 
-    public static Fine issue(Violation violation, BigDecimal amountSek, UUID userId, Instant issuedAt) {
+    public static Fine issue(Violation violation, BigDecimal amount, String currency, UUID userId, Instant issuedAt) {
         Fine fine = new Fine();
         fine.plate = violation.getPlate();
         fine.siteId = violation.getSiteId();
         fine.zoneId = violation.getZoneId();
         fine.reason = violation.getViolationType();
-        fine.amountSek = amountSek.setScale(2, RoundingMode.HALF_UP);
+        fine.amount = amount.setScale(2, RoundingMode.HALF_UP);
+        fine.currency = currency;
         fine.issuedAt = issuedAt;
         fine.paid = false;
         fine.userId = userId;

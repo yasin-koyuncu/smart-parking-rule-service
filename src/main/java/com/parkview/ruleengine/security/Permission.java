@@ -21,10 +21,11 @@ public final class Permission {
 
     // BEGIN GENERATED permissions (contracts/permissions.json in smart-parking-e2e; do not edit)
     private static final Set<String> OPERATOR_DEFAULTS = Set.of(
-            "mapping:view", "spot:write", "session:read", "session:manage", "violation:read", "violation:resolve",
-            "permit:manage", "lookup:vehicle", "file:upload", "file:view", "stream:operator", "camera:admin", "ai:use");
+            "zone:read", "spot:read", "spot:write", "session:read", "session:manage", "violation:read",
+            "violation:resolve", "fine:read", "permit:read", "permit:manage", "lookup:vehicle", "file:upload",
+            "file:view", "stream:operator", "camera:read", "camera:admin", "ai:use");
 
-    private static final Set<String> ADMIN_DEFAULTS = union(OPERATOR_DEFAULTS, Set.of("zone:write", "session:correct", "fine:manage", "access:read", "access:manage"));
+    private static final Set<String> ADMIN_DEFAULTS = union(OPERATOR_DEFAULTS, Set.of("zone:write", "session:correct", "fine:manage", "access:read", "access:manage", "role:manage"));
     // END GENERATED permissions
 
     private static final Map<Role, Set<String>> DEFAULTS_BY_ROLE = Map.of(

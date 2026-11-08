@@ -12,7 +12,7 @@ import org.hibernate.annotations.Immutable;
 /**
  * Read-only view of {@code mapping.v_sites}, the published view of the sites of parking-mapping-service (ADR 0009, ADR 0010). A site is the place: it owns the
  * spots and, outside its zones, its own rules and tariff. rule-service needs the street address for the events, and the stay
- * limit, whether parking is allowed, country and timezone to evaluate the site rules at a spot without a zone.
+ * limit, whether parking is allowed, country and timezone to evaluate the site rules at a spot without a zone, and the currency of the fines issued at the site.
  * {@code price_per_hour} null means free, {@code max_minutes} null no limit. Maps just the columns used; never written by
  * this service and never created by its Liquibase changelog.
  */

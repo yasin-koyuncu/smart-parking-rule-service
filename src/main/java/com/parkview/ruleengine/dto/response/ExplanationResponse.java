@@ -11,7 +11,8 @@ import java.util.UUID;
 public record ExplanationResponse(
         UUID fineId,
         Instant issuedAt,
-        BigDecimal amountSek,
+        @Schema(description = "Amount of the fine") BigDecimal amount,
+        @Schema(description = "ISO 4217 code of the amount", example = "SEK") String currency,
         @Schema(description = "Street address of the zone, when known; null for a fine at a spot without a zone") String zoneAddress,
         @Schema(description = "Street address of the site, when known") String siteAddress,
         @Schema(description = "Spot number, when known") String spotNumber,

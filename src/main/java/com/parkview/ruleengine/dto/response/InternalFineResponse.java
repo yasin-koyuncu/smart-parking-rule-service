@@ -12,8 +12,8 @@ public record InternalFineResponse(
         UUID userId,
         @Schema(description = "Null for a fine at a spot without a zone") String zoneId,
         @Schema(description = "The site of the fine, always set; payment-service lets an operator pay a fine only at one of their sites") String siteId,
-        @Schema(description = "Amount to pay, SEK") BigDecimal amountSek,
-        @Schema(example = "SEK") String currency,
+        @Schema(description = "Amount to pay, in the currency of the fine (the currency of its site)") BigDecimal amount,
+        @Schema(description = "ISO 4217 code of the amount", example = "SEK") String currency,
         boolean paid,
         @Schema(description = "True when an operator voided the fine; payment-service must not charge it") boolean voided,
         @Schema(description = "True while a dispute is open; payment-service must not start a payment for it") boolean disputed
