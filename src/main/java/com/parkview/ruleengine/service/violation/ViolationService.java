@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.ruleengine.client.ActiveSessionDirectory;
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
 import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
@@ -54,6 +55,7 @@ public class ViolationService {
     private final ViolationRepository violations;
     private final FineRepository fines;
     private final PlateOwnerDirectory plateOwners;
+    private final ActiveSessionDirectory sessions;
     private final ZoneDirectory zones;
     private final SiteDirectory sites;
     private final OutboxService outbox;
@@ -130,15 +132,17 @@ public class ViolationService {
 
     private void open(ParkingSpot spot, ViolationType type, String plate, String cameraId, String ruleSummary, Instant now) {
         UUID owner = plateOwners.ownerOf(plate).orElse(null);
+        // the session active at the place now: session-service links the violation to it by this id and nothing else
+        UUID sessionId = sessions.idOfActiveSession(plate, spot.siteId(), spot.zoneId()).orElse(null);
         int graceMinutes = properties.graceMinutesFor(spot, type);
         Violation violation = violations.saveAndFlush(Violation.open(spot.id(), spot.siteId(), spot.zoneId(), plate, owner, type, now,
-                now.plus(Duration.ofMinutes(graceMinutes)), ruleSummary));
+                now.plus(Duration.ofMinutes(graceMinutes)), ruleSummary, sessionId));
 
         String zoneAddress = spot.zoneId() == null ? null : zones.addressOf(spot.zoneId()).orElse(null);
         outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
                 RabbitConfig.VIOLATION_CREATED_KEY, new ViolationCreatedEvent(violation.getId(), plate, spot.zoneId(), zoneAddress,
                         spot.siteId(), sites.addressOf(spot.siteId()).orElse(null), cameraId, owner, spot.id(),
-                        spot.spotNumber(), type, graceMinutes, now.toEpochMilli()));
+                        spot.spotNumber(), type, graceMinutes, now.toEpochMilli(), sessionId));
         metrics.violationCreated(type);
         log.info("Violation {} opened: {} for plate {} at site {} zone {}, grace {} min",
                 violation.getId(), type, Plates.mask(plate), spot.siteId(), spot.zoneId(), graceMinutes);

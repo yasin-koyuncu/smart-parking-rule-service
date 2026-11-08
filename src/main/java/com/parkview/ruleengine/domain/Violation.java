@@ -81,6 +81,10 @@ public class Violation {
     @Column(name = "image_path")
     private String imagePath;
 
+    /** The active parking session at the place when the violation was detected; null when there was none (no foreign key: another service's table). */
+    @Column(name = "session_id", updatable = false)
+    private UUID sessionId;
+
     @Column(name = "notified_at")
     private Instant notifiedAt;
 
@@ -101,11 +105,18 @@ public class Violation {
     /** Same, remembering the text of the rule that decided it (frozen into the evidence when the fine is issued). */
     public static Violation open(UUID spotId, String siteId, String zoneId, String plate, UUID userId,
                                  ViolationType type, Instant detectedAt, Instant graceUntil, String ruleSummary) {
+        return open(spotId, siteId, zoneId, plate, userId, type, detectedAt, graceUntil, ruleSummary, null);
+    }
+
+    /** Same, linked to the parking session that was active at the place ({@code sessionId}, null when none was). */
+    public static Violation open(UUID spotId, String siteId, String zoneId, String plate, UUID userId,
+                                 ViolationType type, Instant detectedAt, Instant graceUntil, String ruleSummary, UUID sessionId) {
         if (siteId == null) {
             throw new IllegalArgumentException("A violation belongs to a site");
         }
         Violation v = new Violation();
         v.ruleSummary = ruleSummary;
+        v.sessionId = sessionId;
         v.spotId = spotId;
         v.siteId = siteId;
         v.zoneId = zoneId;

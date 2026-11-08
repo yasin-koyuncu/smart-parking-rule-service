@@ -11,7 +11,7 @@ public record InternalFineResponse(
         String plate,
         UUID userId,
         @Schema(description = "Null for a fine at a spot without a zone") String zoneId,
-        String siteId,
+        @Schema(description = "The site of the fine, always set; payment-service lets an operator pay a fine only at one of their sites") String siteId,
         @Schema(description = "Amount to pay, SEK") BigDecimal amountSek,
         @Schema(example = "SEK") String currency,
         boolean paid,

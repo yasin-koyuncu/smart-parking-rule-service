@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
@@ -21,13 +22,21 @@ class JpaActiveSessionDirectory implements ActiveSessionDirectory {
      */
     @Override
     public Optional<Instant> startOfActiveSession(String normalizedPlate, String siteId, String zoneId) {
+        return activeSession(normalizedPlate, siteId, zoneId).map(SessionView::getStartedAt);
+    }
+
+    @Override
+    public Optional<UUID> idOfActiveSession(String normalizedPlate, String siteId, String zoneId) {
+        return activeSession(normalizedPlate, siteId, zoneId).map(SessionView::getId);
+    }
+
+    private Optional<SessionView> activeSession(String normalizedPlate, String siteId, String zoneId) {
         if (siteId == null) {
             return Optional.empty();
         }
-        Optional<SessionView> active = zoneId != null
+        return zoneId != null
                 ? sessions.findFirstByPlateAndSiteIdAndZoneIdAndEndedAtIsNullAndVoidedAtIsNullOrderByStartedAtDesc(
                         normalizedPlate, siteId, zoneId)
                 : sessions.findFirstByPlateAndSiteIdAndEndedAtIsNullAndVoidedAtIsNullOrderByStartedAtDesc(normalizedPlate, siteId);
-        return active.map(SessionView::getStartedAt);
     }
 }

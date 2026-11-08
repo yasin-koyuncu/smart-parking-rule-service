@@ -19,8 +19,9 @@ import java.time.Duration;
  * @param confirmTimeout how long to wait for the broker's publisher confirm of one message
  * @param maxBackoff     upper bound of the exponential retry delay of a failing row
  * @param retention      how long published rows are kept
- * @param retryUnroutable {@code false}: a message the broker confirms but cannot route (no queue bound, e.g. no consumer connected yet) is
- *                       counted, logged and treated as delivered, like the direct publish it replaces; {@code true}: it stays in the outbox and is retried
+ * @param unroutableRetryWindow how long a message the broker confirms but cannot route (no queue bound, e.g. the consumer has not declared its
+ *                       queue yet after a start) is retried like a failure; a row older than this is logged, counted and parked (marked published),
+ *                       so an event nobody consumes does not retry forever
  */
 @Validated
 @ConfigurationProperties("parkview.outbox")
@@ -31,6 +32,6 @@ public record OutboxProperties(
         @NotNull @DefaultValue("5s") Duration confirmTimeout,
         @NotNull @DefaultValue("60s") Duration maxBackoff,
         @NotNull @DefaultValue("14d") Duration retention,
-        @DefaultValue("false") boolean retryUnroutable
+        @NotNull @DefaultValue("PT5M") Duration unroutableRetryWindow
 ) {
 }

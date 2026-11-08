@@ -35,9 +35,10 @@ import java.util.Map;
  * of one fine are published one after the other in the order they were written, and a failing row holds back only its
  * own aggregate (see {@link OutboxEventRepository#lockDueBatch}). There is no order between different aggregates.
  *
- * <p>A message the broker acknowledges but cannot route (no queue bound) is, by default, counted and treated as
- * delivered: nobody is listening yet, which is a normal state (the direct publish it replaces dropped it too). With
- * {@code parkview.outbox.retry-unroutable=true} it is retried like a failure.
+ * <p>A message the broker acknowledges but cannot route (no queue bound) is retried like a failure while its row is
+ * younger than {@code parkview.outbox.unroutable-retry-window} (start-up order: the consumer may not have declared its queue
+ * yet). Once the row is older, nobody is evidently consuming that event: it is logged, counted as parked and marked
+ * published, so it does not retry forever.
  */
 @Slf4j
 @Component
@@ -49,7 +50,8 @@ public class OutboxRelay {
     private final Clock clock;
     private final Counter published;
     private final Counter failed;
-    private final Counter unroutable;
+    private final Counter unroutableRetrying;
+    private final Counter unroutableParked;
 
     public OutboxRelay(OutboxEventRepository outbox, RabbitTemplate rabbitTemplate, OutboxProperties properties,
                        Clock clock, MeterRegistry meters) {
@@ -59,7 +61,8 @@ public class OutboxRelay {
         this.clock = clock;
         this.published = Counter.builder("rule.outbox.published").register(meters);
         this.failed = Counter.builder("rule.outbox.failed").register(meters);
-        this.unroutable = Counter.builder("rule.outbox.unroutable").register(meters);
+        this.unroutableRetrying = Counter.builder("rule.outbox.unroutable").tag("outcome", "retrying").register(meters);
+        this.unroutableParked = Counter.builder("rule.outbox.unroutable").tag("outcome", "parked").register(meters);
         Gauge.builder("rule.outbox.pending", outbox, OutboxEventRepository::countByPublishedAtIsNull)
                 .register(meters);
         Gauge.builder("rule.outbox.oldest.pending.seconds", this, OutboxRelay::oldestPendingSeconds)
@@ -114,12 +117,13 @@ public class OutboxRelay {
                     sent++;
                 }
                 case UNROUTABLE -> {
-                    if (properties.retryUnroutable()) {
+                    if (now.isBefore(event.getCreatedAt().plus(properties.unroutableRetryWindow()))) {
+                        unroutableRetrying.increment();
                         fail(event, now, outcome.detail());
                     } else {
-                        unroutable.increment();
-                        log.warn("Outbox event {} ({}) has no consumer queue bound ({}), treated as delivered",
-                                event.getId(), event.getRoutingKey(), outcome.detail());
+                        unroutableParked.increment();
+                        log.warn("Outbox event {} ({}) is still unroutable after {} ({}), parked as published",
+                                event.getId(), event.getRoutingKey(), properties.unroutableRetryWindow(), outcome.detail());
                         markPublished(event, now);
                         sent++;
                     }

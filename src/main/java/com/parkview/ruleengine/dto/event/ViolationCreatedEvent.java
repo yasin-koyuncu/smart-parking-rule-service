@@ -11,6 +11,7 @@ import java.util.UUID;
  * @param zoneAddress street address of the zone, null without a zone or when it has none
  * @param siteId      the site of the spot; always set
  * @param siteAddress street address of the site, null when it has none
+ * @param sessionId   the parking session that was active at the place when the violation was detected, null when there was none
  */
 public record ViolationCreatedEvent(
         UUID violationId,
@@ -25,6 +26,7 @@ public record ViolationCreatedEvent(
         String spotNumber,
         ViolationType violationType,
         int graceMinutes,
-        long timestamp
+        long timestamp,
+        UUID sessionId
 ) {
 }

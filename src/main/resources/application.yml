@@ -131,6 +131,8 @@ parkview:
     ops-api-key: ${OPS_API_KEY:}                  # non-health actuator (prometheus) and retention endpoints
     public-paths: []
     legacy-role-fallback: ${LEGACY_ROLE_FALLBACK:false}   # true: a token without app_metadata.permissions gets the defaults of its role
+  outbox:
+    unroutable-retry-window: ${OUTBOX_UNROUTABLE_RETRY_WINDOW:PT5M}   # an unroutable event is retried this long (consumer queue not declared yet), then parked
   rule-engine:
     iou-threshold: 0.85
     containment-threshold: 0.90

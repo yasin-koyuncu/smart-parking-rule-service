@@ -13,6 +13,7 @@ import java.util.UUID;
  * @param siteId        always set
  * @param siteAddress   street address of the site, null when it has none
  * @param violationType type of the violation the fine was issued for (upper-case enum name)
+ * @param sessionId     the parking session that was active when the violation was detected, null when there was none
  */
 public record FineIssuedEvent(
         UUID fineId,
@@ -25,6 +26,7 @@ public record FineIssuedEvent(
         String siteAddress,
         BigDecimal amountSek,
         long timestamp,
-        ViolationType violationType
+        ViolationType violationType,
+        UUID sessionId
 ) {
 }

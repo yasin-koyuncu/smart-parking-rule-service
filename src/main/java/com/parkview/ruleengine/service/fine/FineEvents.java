@@ -41,7 +41,7 @@ class FineEvents {
         publish(fine.getId(), RabbitConfig.FINE_ISSUED_KEY,
                 new FineIssuedEvent(fine.getId(), violation.getId(), fine.getPlate(), owner, fine.getZoneId(), zoneAddress,
                         fine.getSiteId(), sites.addressOf(fine.getSiteId()).orElse(null), fine.getAmountSek(), at.toEpochMilli(),
-                        violation.getViolationType()));
+                        violation.getViolationType(), fine.getSessionId()));
     }
 
     void paid(Fine fine, PaidMethod method, Instant at) {

@@ -63,6 +63,10 @@ public class Fine {
     @Column(name = "image_path")
     private String imagePath;
 
+    /** The parking session that was active when the violation was detected; copied from the violation, null when there was none. */
+    @Column(name = "session_id", updatable = false)
+    private UUID sessionId;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;
@@ -100,6 +104,7 @@ public class Fine {
         fine.paid = false;
         fine.userId = userId;
         fine.imagePath = violation.getImagePath();
+        fine.sessionId = violation.getSessionId();
         return fine;
     }
 
