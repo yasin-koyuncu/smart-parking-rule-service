@@ -122,7 +122,7 @@ Package-by-layer under `com.parkview.ruleengine`; a call goes `controller`/`mess
 | Edge | `controller`, `controller/internal`, `messaging` | Thin: parse and validate, authorize (`@PreAuthorize` + `AccessPolicy`), call one service, map to a DTO. No repositories, no business rules. `FineController` (reads), `FineManagementController` (void, mark-paid), `ViolationController`, `PermitController`, `InternalFineController`; listeners `VehicleEventListener` and `PaymentEventListener` |
 | Use cases | `service` | One class per use case area (below) |
 | Rules | `engine` | `ViolationEvaluator` (decision order), `RuleResolver`, `RuleSchedule`, `VehicleContext`; no I/O except the ports |
-| Domain | `domain`, `geometry` | Entities with their own state transitions (`Fine.markPaid`, `Fine.voidFine`, `Violation`) in `domain`; `domain/type` (enums), `domain/converter` (JPA converters), `domain/value` (read-only values such as `ParkingSpot`, `ZoneInfo`); `RuleEngineProperties.fineAmountFor` / `graceMinutesFor` hold the amount and grace rules. `geometry/PolygonGeometry` answers how much two polygons overlap (area, intersection, IoU, containment) with JTS, the standard Java geometry library |
+| Domain | `domain`, `geometry` | Entities with their own state transitions (`Fine.markPaid`, `Fine.voidFine`, `Violation`) in `domain`; `domain/type` (enums), `domain/converter` (JPA converters), `domain/value` (read-only values such as `ParkingSpot`, `ZoneInfo`); `RuleEngineProperties.fineAmountFor(currency, type)` / `graceMinutesFor` hold the amount and grace rules. `geometry/PolygonGeometry` answers how much two polygons overlap (area, intersection, IoU, containment) with JTS, the standard Java geometry library |
 | Services by area | `service/fine` (fines, evidence, disputes: a dispute belongs to a fine and the two call each other), `service/violation` (violation lifecycle, detection, boundary and permit checks), `service/outbox` (outbox, relay, cleanup), `service/cache` | One package per area; `util` holds the small static helpers (`Plates`, `ZoneIds`, `ReasonTexts`); `client/jpa`, `client/http`, `client/holiday` hold the adapters behind the ports in `client/` |
 | Ports | `client` | `*Directory` interfaces and their adapters (`Jpa...` for tables of other services, `HttpVehicleDirectory`, `JollydayHolidayCalendar`) |
 | Mapping | `mapper` | Pure entity to DTO functions |
@@ -224,7 +224,7 @@ Explicit connect/read timeouts, no retries. `parkview.rule-engine.vehicle-lookup
 ### Metrics
 
 `ruleengine_observations_evaluated_total`, `ruleengine_violations_created_total{type}`,
-`ruleengine_vehicle_lookups_failed_total`, `ruleengine_rules_matched_total{outcome=no_parking|permit|max_minutes}`.
+`ruleengine_vehicle_lookups_failed_total`, `ruleengine_rules_matched_total{outcome=no_parking|permit|max_minutes}`, `ruleengine_fines_not_issued_total{cause,currency,type}`.
 
 ## API
 
@@ -234,8 +234,10 @@ Interactive docs: `/swagger-ui.html` and `/v3/api-docs` when `DOCS_ENABLED=true`
 Authorization uses the permissions in `app_metadata.permissions` (string[], one authority per permission, named exactly like it;
 ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the operator's site scope looked up through `OperatorSites` (`AccessPolicy`); there is no `plates` and no `sites` claim, see "Plates of a driver".
 A token WITHOUT the claim gets no permissions (`parkview.security.legacy-role-fallback` is `false` by default, so a token with `role=admin` and no claim is not authorised);
-with the flag set to true it gets the default permissions of its role; a present claim, even an empty list, is never overridden. By default an operator holds `violation:read`, `violation:resolve` and
-`permit:manage`, an admin everything (`fine:manage` is an admin default only; an operator needs it granted).
+with the flag set to true it gets the default permissions of its role; a present claim, even an empty list, is never overridden. By default an operator holds `violation:read`, `violation:resolve`, `fine:read`,
+`permit:read` and `permit:manage`, an admin everything (`fine:manage` is an admin default only; an operator needs it granted). Read and write are
+separate permissions: `fine:read` reads disputes and `permit:read` reads permits, while `fine:manage` and `permit:manage` are the write permissions
+and do not imply reading, so a token that holds only the write permission is refused on the read endpoints.
 
 | Endpoint | Access | Notes |
 |---|---|---|
@@ -244,8 +246,8 @@ with the flag set to true it gets the default permissions of its role; a present
 | `GET /api/v1/violations/plate/{plate}` | driver (own plate), or `violation:read` | all violations of the plate, newest first; an operator sees only those in their `zones`, an administrator all; `imagePath` only with `violation:read` |
 | `PATCH /api/v1/violations/{id}/resolve` | `violation:resolve` + zone of the violation (admin: any zone) | 204; 404 unknown; 409 when already fined; publishes `violation.resolved` (`MANUAL`) |
 | `POST /api/v1/permits` | `permit:manage` + zone (global permit: admin) | 201 + `Location`; a permit without `zoneId` is valid everywhere and needs an admin |
-| `GET /api/v1/permits?plate=&zoneId=` | `permit:manage` | operators see their zones and global permits |
-| `GET /api/v1/permits/{id}` | `permit:manage` + zone of the permit | |
+| `GET /api/v1/permits?plate=&zoneId=` | `permit:read` | operators see their zones and global permits |
+| `GET /api/v1/permits/{id}` | `permit:read` + zone of the permit | |
 | `DELETE /api/v1/permits/{id}` | `permit:manage` + zone of the permit (global: admin) | 204 |
 | `GET /api/v1/fines/plate/{plate}?includeVoided=` | driver (own plate: registered for the user, see "Plates of a driver"), or `violation:read` | fines of the plate, newest first; another driver's plate is 403; an operator sees only the fines in their `sites` (a plate with fines elsewhere gives an empty list), an administrator all; voided fines only for staff with `includeVoided=true` (drivers never see them); `imagePath` only with `violation:read` |
 | `GET /api/v1/fines/site/{siteId}?paid=&includeVoided=` | `violation:read` + site in the scope (admin: any) | fines of the site, in its zones and outside them; filters as for a zone |
@@ -257,15 +259,15 @@ with the flag set to true it gets the default permissions of its role; a present
 | `GET /api/v1/fines/{id}/evidence` | `violation:read` + zone of the fine (admin: any zone) | the frozen evidence incl. snapshot keys; `{recorded:false, fineId}` for fines issued before evidence was recorded; **404** for an unknown fine and for a fine outside the caller's zones |
 | `GET /api/v1/fines/{id}/explanation` | driver (plate of the fine is registered for the user), or `violation:read` + zone | plain-language view, never snapshots or detection ids; 404 for someone else's fine; also for voided fines (the driver can see how a dispute ended) |
 | `POST /api/v1/fines/{id}/dispute` | driver (own plate, channel `driver`), or `fine:manage` + zone (channel `operator`, "customer called") | body `{message}` (10-1000 characters after trimming); 201 + `Location` + the dispute; 404 for someone else's fine; 409 when the fine is paid or voided, already has an open dispute or was already upheld |
-| `GET /api/v1/fines/{id}/dispute` | driver (own plate), or `violation:read` / `fine:manage` + zone | the latest dispute of the fine; 404 when there is none |
+| `GET /api/v1/fines/{id}/dispute` | driver (own plate), or `violation:read` / `fine:read` + zone | the latest dispute of the fine; 404 when there is none |
 | `POST /api/v1/disputes/{id}/withdraw` | driver (own plate) | 200 + the dispute; 404 for someone else's; 409 when not open any more |
-| `GET /api/v1/disputes?status=open\|decided\|all&zoneId=&page=&size=` | `fine:manage`, limited to the zones in the token (admin: all) | newest first, total in `X-Total-Count`; `status` defaults to `open`, `decided` = upheld, voided and withdrawn; `zoneId` must be one of the caller's zones (403 otherwise) |
+| `GET /api/v1/disputes?status=open\|decided\|all&zoneId=&page=&size=` | `fine:read`, limited to the zones in the token (admin: all) | newest first, total in `X-Total-Count`; `status` defaults to `open`, `decided` = upheld, voided and withdrawn; `zoneId` must be one of the caller's zones (403 otherwise) |
 | `POST /api/v1/disputes/{id}/decision` | `fine:manage` + zone of the dispute (admin: any zone) | body `{outcome: upheld\|voided, note}` (note 10-1000 characters, mandatory); 200 + the dispute; 404 outside the caller's zones; 409 when already decided or withdrawn |
-| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, siteId, amountSek, currency, paid, voided, disputed}` (`siteId` always set: payment-service lets an operator pay a fine only at one of their sites); payment-service must not charge a voided fine nor start a payment while `disputed` |
+| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, siteId, amount, currency, paid, voided, disputed}` (`amount` + `currency` ISO 4217 are the fine's, i.e. the currency of its site; `siteId` always set: payment-service lets an operator pay a fine only at one of their sites); payment-service must not charge a voided fine nor start a payment while `disputed` |
 
-Fine JSON (read API and the response of the two commands; online payment goes through payment-service): `id, plate, siteId, zoneId, reason, amountSek,
+Fine JSON (read API and the response of the two commands; online payment goes through payment-service): `id, plate, siteId, zoneId, reason, amount, currency,
 issuedAt, paid, imagePath, paidAt, voided, voidedAt, disputed, disputeStatus`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
-`amountSek` a number, `issuedAt`, `paidAt` and `voidedAt` ISO-8601 instants; `zoneId`, `imagePath`, `paidAt` and `voidedAt` may be null. `disputed` is true while a dispute is open, `disputeStatus` is the status of the latest dispute (`open | upheld | voided | withdrawn`) or null. The owner's `userId`, the void reason and the actors are never returned here. The lists are served from
+`amount` a number (scale 2) next to its `currency` (ISO 4217, upper case), `issuedAt`, `paidAt` and `voidedAt` ISO-8601 instants; `zoneId`, `imagePath`, `paidAt` and `voidedAt` may be null. `disputed` is true while a dispute is open, `disputeStatus` is the status of the latest dispute (`open | upheld | voided | withdrawn`) or null. The owner's `userId`, the void reason and the actors are never returned here. The lists are served from
 the indexes `fines_plate_issued_idx`, `fines_site_issued_idx` and `fines_zone_issued_idx`. These endpoints replace the frontend's direct read of the `fines` table, so the row level
 security policy that lets every signed-in user read all fines can be dropped.
 
@@ -362,13 +364,13 @@ resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `viol
 | Direction | Exchange / routing key | Queue | Payload |
 |---|---|---|---|
 | consumed | `parkview.vehicle` / `vehicle.detected` | `vehicle.detected` | `cameraId, zoneId, plate?, vehiclePolygon[[x,y]], spotId?, spotNumber?, iou, confidence, timestamp(ms), vehicleClass?, viewId?` |
-| consumed | `parkview.payment` / `payment.completed.fine` | `payment.completed.rule-engine` | `paymentId, referenceId (fine id), referenceType, userId?, amountSek, timestamp(ms)` |
+| consumed | `parkview.payment` / `payment.completed.fine` | `payment.completed.rule-engine` | `paymentId, referenceId (fine id), referenceType, userId?, amount, currency, timestamp(ms)` (`amount` + `currency` are compared with the fine: another amount or currency is flagged for review) |
 | consumed | `parkview.session` / `session.ended` | `session.ended.rule-engine` | `plate, zoneId, endedAt, occurredAt` (read; the other fields of session-service are ignored) |
 | consumed | `parkview.mapping` / `map.updated` | `map.updated.rule-engine.instance-<uuid>` (one per instance) | `zoneId` (read; `versionNumber, spotCount, changeReason, timestamp(ms)` are ignored). Also published after zone-rule changes: harmless, the zone's spots are reloaded once |
 | published | `parkview.violation` / `violation.created` | | `violationId, plate, zoneId, zoneAddress?, cameraId?, userId?, spotId, spotNumber?, violationType, graceMinutes, timestamp(ms), sessionId?` |
 | published | `parkview.violation` / `violation.resolved` | | `violationId, plate, zoneId, reason (CORRECTED\|LEFT\|MANUAL), occurredAt` |
-| published | `parkview.violation` / `fine.issued` | | `fineId, violationId, plate, userId?, zoneId, zoneAddress?, amountSek, timestamp(ms), violationType, sessionId?` |
-| published | `parkview.violation` / `fine.paid` | | `fineId, plate, zoneId, amountSek, method (online\|cash\|transfer\|other), occurredAt` |
+| published | `parkview.violation` / `fine.issued` | | `fineId, violationId, plate, userId?, zoneId, zoneAddress?, siteId, siteAddress?, amount, currency, timestamp(ms), violationType, sessionId?` |
+| published | `parkview.violation` / `fine.paid` | | `fineId, plate, zoneId, siteId, amount, currency, method (online\|cash\|transfer\|other), occurredAt` |
 | published | `parkview.violation` / `fine.voided` | | `fineId, plate, zoneId, occurredAt` |
 | published | `parkview.violation` / `fine.disputed` | | `disputeId, fineId, plate, zoneId, channel (driver\|operator), occurredAt` |
 | published | `parkview.violation` / `fine.dispute.decided` | | `disputeId, fineId, plate, zoneId, userId?, outcome (upheld\|voided\|withdrawn), occurredAt`; `userId` is the owner of the plate when known |
@@ -396,7 +398,7 @@ a message that keeps failing for a transient-looking reason holds up the queue b
 `fine.paid` is published once, on the actual transition from unpaid to paid: by the first `payment.completed.fine` of a fine (`method` `online`) or by an operator's
 mark-paid (`cash | transfer | other`). A repeated payment event, a repeated command or a payment of a fine that is already paid publishes nothing. `fine.voided` is published
 once when an operator voids a fine (also when a dispute decision voids it). `fine.disputed` is published once when a dispute is opened, `fine.dispute.decided` once when it ends (also for a withdrawal
-and when the system upholds it because the fine was paid). None carries free text or the actor (that is in the audit trail); `amountSek` is the fine's amount, not the amount of the payment.
+and when the system upholds it because the fine was paid). None carries free text or the actor (that is in the audit trail); `amount` + `currency` are the fine's, not those of the payment.
 
 ## Transactional outbox
 
@@ -428,9 +430,9 @@ Read only: the catalogue views of other services (see "Data read from other serv
 
 * `spot_violations.violation_type` and `fine_evidence.violation_type` are upper-case, `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`); all
   are limited by a check constraint.
-* `fines(id, plate, site_id, zone_id null, reason, amount_sek, issued_at, paid, user_id null, image_path null, session_id null, created_at, paid_at, paid_method, paid_by, voided_at, void_reason, voided_by)`. Constraints:
+* `fines(id, plate, site_id, zone_id null, reason, amount, currency, issued_at, paid, user_id null, image_path null, session_id null, created_at, paid_at, paid_method, paid_by, voided_at, void_reason, voided_by)`. Constraints:
   `fines_reason_check`, `fines_paid_method_check` (`online | cash | transfer | other`), `fines_not_paid_and_voided_check` (never both),
-  `fines_amount_check` (`amount_sek >= 0`), `fines_paid_consistent_check` (`paid`, `paid_at` and `paid_method` are set together, as `Fine.markPaid` does) and
+  `fines_amount_check` (`amount >= 0`), `fines_currency_check` (`currency ~ '^[A-Z]{3}$'`), `fines_paid_consistent_check` (`paid`, `paid_at` and `paid_method` are set together, as `Fine.markPaid` does) and
   `fines_voided_consistent_check` (`voided_at` and `voided_by` are set together, `void_reason` only on a voided fine; it may be null there because the retention job clears it).
   Indexes `fines_plate_issued_idx`, `fines_site_issued_idx`, `fines_zone_issued_idx`.
 * One fine per violation, enforced by the database: `fine_evidence.violation_id` is unique, `spot_violations.fine_id` has the foreign key `spot_violations_fine_fk -> fines` and the partial unique
@@ -507,7 +509,7 @@ the mapped ones. Liquibase never creates or alters these views and this service 
 | View | Owner | Columns used | Read model class |
 |---|---|---|---|
 | `mapping.v_zones` | parking-mapping-service | `id`, `site_id`, `address`, `allows_parking`, `max_minutes`, `country`, `timezone` (null: `0` / `SE` / `Europe/Stockholm`) | `ZoneView` |
-| `mapping.v_sites` | parking-mapping-service | `id`, `address`, `country`, `currency`, `timezone`, `price_per_hour`, `max_minutes`, `allows_parking` | `SiteView` |
+| `mapping.v_sites` | parking-mapping-service | `id`, `address`, `country`, `currency` (the currency of the fines issued at the site), `timezone`, `price_per_hour`, `max_minutes`, `allows_parking` | `SiteView` |
 | `mapping.v_zone_rules` | parking-mapping-service | `id`, `site_id`, `zone_id` (null = site rule), `label`, `priority`, `enabled`, `vehicle_types` (`text[]`), `permit_required`, `weekdays` (`int[]`), `start_time`, `end_time` (`time`, read as text and parsed), `applies_holidays`, `max_minutes`, `no_parking` | `ZoneRuleView` |
 | `mapping.v_parking_spots` | parking-mapping-service | `id`, `site_id`, `zone_id`, `spot_number`, `type`, `shape` (only `polygon` is read for legacy spots), `permit_type`, `coordinates` (jsonb, null for a spot that only has a geo polygon: skipped), `boundary_grace_min`, `permit_grace_min`, `max_minutes` | `ParkingSpotView` |
 | `mapping.v_parking_spots` (camera views) | parking-mapping-service | `id`, `view_id` (uuid, null = legacy spot), `image_polygon` (jsonb, polygon in the view's corrected image) | `SpotPlacementView` |
@@ -571,7 +573,7 @@ Business settings, Spring property `parkview.rule-engine.*` (set with `SPRING_AP
 | `no-parking-grace-minutes` | `5` | grace of `NO_PARKING` |
 | `overstay-grace-minutes` | `5` | grace of `OVERSTAY` |
 | `wrong-vehicle-type-grace-minutes` | `10` | grace of `WRONG_VEHICLE_TYPE` |
-| `fine-amount-{no-parking,overstay,wrong-permit,boundary-exceeded,wrong-vehicle-type}-sek` | `900` / `450` / `700` / `900` / `700` | fine amounts |
+| `fine-amounts.<CURRENCY>.<violation-type>` (`no-parking`, `overstay`, `wrong-permit`, `boundary-exceeded`, `wrong-vehicle-type`) | SEK: `900` / `450` / `700` / `900` / `700`, no other currency | fine amounts per ISO 4217 currency. A fine takes the currency of its site (`mapping.v_sites.currency`). A currency listed here replaces the amounts of that currency as a whole; SEK keeps the defaults unless listed. A fine for a currency or a type without an amount is **not issued** (see Operations). An entry that is no ISO 4217 code or no positive amount stops the start |
 | `expire-sweep-ms` / `expire-batch-size` | `60000` / `20` | fine sweep delay and batch size |
 | `stale-minutes` / `stale-sweep-ms` | `15` / `60000` | re-confirmation window (resolve as `LEFT`) and sweep delay |
 | `fine-freshness-seconds` | `120` | a violation is fined only if a detection confirmed it within this time when the fine sweep claims it (the vehicle must demonstrably still be there) |
@@ -653,7 +655,7 @@ rejects UPDATE and DELETE, the entity cannot change a row, no update/delete API)
 `DisputeControllerTest` and `FineEvidenceControllerTest` (anonymous 401, other plate / other zone 404, missing permission 403, admin, validation 400, state errors 409, shapes, no snapshots in the explanation).
 Outbox: `OutboxRelayTest` (confirms, back-off, unroutable, order), `OutboxServiceTest` (bytes identical to the former direct publish), `OutboxEventRepositoryTest` (claim order, per-aggregate ordering, SKIP LOCKED
 with two sessions, clean-up), `OutboxRelayBrokerTest` and `RuleServiceFlowTest` (real RabbitMQ).
-The `fine:manage` / `violation:read` / zone matrices (admin, operator with and without the permission, other zone, driver, anonymous), body validation, the 409 cases,
+The `fine:read` / `fine:manage` / `permit:read` / `permit:manage` / `violation:read` / zone matrices (admin, operator with and without the permission, other zone, driver, anonymous), body validation, the 409 cases,
 idempotency, voided fines hidden from lists and drivers, audit rows and event payloads are covered in `FineControllerTest`, `FineManagementControllerTest`, `FineManagementServiceTest`, `FineSettlementServiceTest` and `FineIssuingServiceTest`.
 
 ## Operations
@@ -669,12 +671,17 @@ idempotency, voided fines hidden from lists and drivers, audit rows and event pa
 * Without detections (camera or ingestion down) open violations are resolved as `LEFT` after `stale-minutes`
   instead of being fined.
 * Observations without a plate, polygons that cannot be parsed and observations older than `observation-max-age-seconds` are ignored.
-* A payment that completes for a fine that is already paid (by hand, or by another payment), voided, or for another amount than the fine
+* A payment that completes for a fine that is already paid (by hand, or by another payment), voided, or for another amount or currency than the fine
   writes an audit row `payment_needs_review` (`actorId` null, `reason` the plain-language cause, `details`
-  `{paymentId, causes: [voided|already_paid|amount_mismatch], paidAmountSek, fineAmountSek}`; one row per payment, a redelivery adds none)
+  `{paymentId, causes: [voided|already_paid|amount_mismatch], paidAmount, paidCurrency, fineAmount, fineCurrency}`; one row per payment, a redelivery adds none)
   and increments `ruleengine_payments_needs_review_total{cause}` (`unknown_fine` counts a payment for a fine that does not exist, which
   has no row to write to). Nothing is published and nothing is refunded: a person looks at the fine history and refunds or corrects. A
-  first payment of another amount still settles an unpaid fine, it is only flagged. Alert on the counter.
+  first payment of another amount or currency still settles an unpaid fine, it is only flagged. Alert on the counter.
+* A fine that cannot be issued stays unissued: the site has no valid currency (`mapping.sites.currency` is not an ISO 4217 code; there is no
+  default currency) or no `fine-amounts` entry exists for the currency and the violation type. The violation stays open, an ERROR with site,
+  currency and type is logged on every sweep, and `ruleengine_fines_not_issued_total{cause=no_site_currency|no_fine_amount,currency,type}`
+  counts it. Alert on the counter and add the amounts (or fix the site). Violations that are not fined fill the head of the sweep batch
+  (oldest grace first, `expire-batch-size`), so fix the configuration promptly.
 * lookup-service down: decisions that need vehicle data are skipped (fail open) and `ruleengine_vehicle_lookups_failed_total`
   rises; after `negative-cache-ttl-seconds` the next observation asks again.
 * Rules are read through a cache: after an operator edit in the UI allow `rule-cache-ttl-seconds` before it is enforced.
