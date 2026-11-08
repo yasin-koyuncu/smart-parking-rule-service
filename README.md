@@ -261,7 +261,7 @@ with the flag set to true it gets the default permissions of its role; a present
 | `POST /api/v1/disputes/{id}/withdraw` | driver (own plate) | 200 + the dispute; 404 for someone else's; 409 when not open any more |
 | `GET /api/v1/disputes?status=open\|decided\|all&zoneId=&page=&size=` | `fine:manage`, limited to the zones in the token (admin: all) | newest first, total in `X-Total-Count`; `status` defaults to `open`, `decided` = upheld, voided and withdrawn; `zoneId` must be one of the caller's zones (403 otherwise) |
 | `POST /api/v1/disputes/{id}/decision` | `fine:manage` + zone of the dispute (admin: any zone) | body `{outcome: upheld\|voided, note}` (note 10-1000 characters, mandatory); 200 + the dispute; 404 outside the caller's zones; 409 when already decided or withdrawn |
-| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, amountSek, currency, paid, voided, disputed}`; payment-service must not charge a voided fine nor start a payment while `disputed` |
+| `GET /internal/v1/fines/{id}` | `X-Internal-Api-Key` | `{id, plate, userId, zoneId, siteId, amountSek, currency, paid, voided, disputed}` (`siteId` always set: payment-service lets an operator pay a fine only at one of their sites); payment-service must not charge a voided fine nor start a payment while `disputed` |
 
 Fine JSON (read API and the response of the two commands; online payment goes through payment-service): `id, plate, siteId, zoneId, reason, amountSek,
 issuedAt, paid, imagePath, paidAt, voided, voidedAt, disputed, disputeStatus`. `reason` is the stored lower-case value (`no_parking | overstay | wrong_permit | boundary_exceeded | wrong_vehicle_type`),
@@ -365,9 +365,9 @@ resolutionReason, fineIssuedAt, fineId, imagePath, notifiedAt, createdAt`. `viol
 | consumed | `parkview.payment` / `payment.completed.fine` | `payment.completed.rule-engine` | `paymentId, referenceId (fine id), referenceType, userId?, amountSek, timestamp(ms)` |
 | consumed | `parkview.session` / `session.ended` | `session.ended.rule-engine` | `plate, zoneId, endedAt, occurredAt` (read; the other fields of session-service are ignored) |
 | consumed | `parkview.mapping` / `map.updated` | `map.updated.rule-engine.instance-<uuid>` (one per instance) | `zoneId` (read; `versionNumber, spotCount, changeReason, timestamp(ms)` are ignored). Also published after zone-rule changes: harmless, the zone's spots are reloaded once |
-| published | `parkview.violation` / `violation.created` | | `violationId, plate, zoneId, zoneAddress?, cameraId?, userId?, spotId, spotNumber?, violationType, graceMinutes, timestamp(ms)` |
+| published | `parkview.violation` / `violation.created` | | `violationId, plate, zoneId, zoneAddress?, cameraId?, userId?, spotId, spotNumber?, violationType, graceMinutes, timestamp(ms), sessionId?` |
 | published | `parkview.violation` / `violation.resolved` | | `violationId, plate, zoneId, reason (CORRECTED\|LEFT\|MANUAL), occurredAt` |
-| published | `parkview.violation` / `fine.issued` | | `fineId, violationId, plate, userId?, zoneId, zoneAddress?, amountSek, timestamp(ms), violationType` |
+| published | `parkview.violation` / `fine.issued` | | `fineId, violationId, plate, userId?, zoneId, zoneAddress?, amountSek, timestamp(ms), violationType, sessionId?` |
 | published | `parkview.violation` / `fine.paid` | | `fineId, plate, zoneId, amountSek, method (online\|cash\|transfer\|other), occurredAt` |
 | published | `parkview.violation` / `fine.voided` | | `fineId, plate, zoneId, occurredAt` |
 | published | `parkview.violation` / `fine.disputed` | | `disputeId, fineId, plate, zoneId, channel (driver\|operator), occurredAt` |
@@ -379,7 +379,9 @@ ignored). `vehicleClass` is `car | motorcycle | bus | truck`, absent or null whe
 treated as unknown. `viewId` (uuid, optional) is the camera view the frame was checked against; it selects which spots the
 vehicle is matched against (see flow step 2) and is absent for observations of a camera without views. `violationType` of `violation.created` and `fine.issued` is the upper-case enum name
 (`BOUNDARY_EXCEEDED | WRONG_PERMIT | OVERSTAY | NO_PARKING | WRONG_VEHICLE_TYPE`); `fine.issued.violationType` is the
-type of the violation the fine was issued for.
+type of the violation the fine was issued for. `sessionId` (uuid string, null when no session was active) is the parking session of session-service that was active at the place when
+the violation was opened (`sessions.v_sessions`: same plate, site and zone, neither ended nor voided); it is stored on the violation (`spot_violations.session_id`), copied to the fine (`fines.session_id`) and carried by both events,
+so session-service links the entry in the timeline of that session by this id alone.
 
 Payloads are validated; invalid ones go to `parkview.dlq` without retry, transient failures are retried 6 times
 (exponential: 2 s, 6 s, 18 s, 54 s, 60 s, about 2.5 minutes in all) before dead-lettering. The window is that long on purpose: a
@@ -408,8 +410,9 @@ with publisher confirms and marks them published after the ack; consumers get wh
   fine. There is no order between different fines. The payload is stored as text (not jsonb), so the JSON the consumers get is byte-identical to the former direct publish.
 * Retries: nack, missing confirm or an unreachable broker leave the row in the outbox with exponential back-off (1 s, 2 s, 4 s ... `max-backoff`); rows are never given up, so a broker outage delays events and loses none.
   Delivery is at least once: consumers de-duplicate on `messageId`.
-* A message the broker confirms but cannot route (no queue bound, e.g. no consumer connected yet) is counted (`rule_outbox_unroutable_total`), logged and treated as delivered, like the direct publish it replaces; with
-  `retry-unroutable=true` it stays in the outbox until a queue exists.
+* A message the broker confirms but cannot route (no queue bound, e.g. the consumer has not declared its queue yet after a start) is treated as a failed attempt (normal back-off, stays due) while its row is younger than
+  `unroutable-retry-window` (default 5 minutes), so the start-up order does not lose events. Once the row is older it is logged with routing key and row id, counted as parked and marked published, so an event nobody
+  consumes does not retry forever. Counter `rule_outbox_unroutable_total` with tag `outcome=retrying|parked`.
 * Clean-up: published rows older than `retention` are deleted hourly. Metrics: `rule_outbox_published_total`, `rule_outbox_failed_total`, `rule_outbox_unroutable_total`, `rule_outbox_pending`,
   `rule_outbox_oldest_pending_seconds` (alert when it keeps growing: the broker is down or a row keeps failing; the row's `last_error` says why).
 
@@ -419,13 +422,13 @@ Schema `rules`, owned by the role `svc_rule` (ADR 0010). Everything is created b
 `db/changelog/001-baseline.sql` (the schema, the role and its `search_path = rules, public` are created by the infrastructure;
 Liquibase's tracking tables `databasechangelog*` live in the same schema). Owned tables: `spot_violations`, `fines`,
 `plate_permits`, `fine_actions`, `fine_evidence`, `fine_disputes`, `outbox_events`, and the published views `rules.v_fines` and `rules.v_fine_evidence`.
-No foreign key leaves the schema: `spot_violations.spot_id/zone_id/user_id`, `fines.zone_id/user_id` and the ids in the
+No foreign key leaves the schema: `spot_violations.spot_id/zone_id/user_id/session_id`, `fines.zone_id/user_id/session_id` and the ids in the
 other tables are plain columns. Inside the schema every foreign key restricts: nothing is deleted by a cascade, only by the retention job.
 Read only: the catalogue views of other services (see "Data read from other services").
 
 * `spot_violations.violation_type` and `fine_evidence.violation_type` are upper-case, `fines.reason` is lower-case (JPA converter, e.g. `wrong_vehicle_type`); all
   are limited by a check constraint.
-* `fines(id, plate, site_id, zone_id null, reason, amount_sek, issued_at, paid, user_id null, image_path null, created_at, paid_at, paid_method, paid_by, voided_at, void_reason, voided_by)`. Constraints:
+* `fines(id, plate, site_id, zone_id null, reason, amount_sek, issued_at, paid, user_id null, image_path null, session_id null, created_at, paid_at, paid_method, paid_by, voided_at, void_reason, voided_by)`. Constraints:
   `fines_reason_check`, `fines_paid_method_check` (`online | cash | transfer | other`), `fines_not_paid_and_voided_check` (never both),
   `fines_amount_check` (`amount_sek >= 0`), `fines_paid_consistent_check` (`paid`, `paid_at` and `paid_method` are set together, as `Fine.markPaid` does) and
   `fines_voided_consistent_check` (`voided_at` and `voided_by` are set together, `void_reason` only on a voided fine; it may be null there because the retention job clears it).
@@ -556,7 +559,7 @@ Transactional outbox, Spring property `parkview.outbox.*` (set with `SPRING_APPL
 | `confirm-timeout` | `5s` | how long to wait for the broker's publisher confirm |
 | `max-backoff` | `60s` | upper bound of the exponential retry delay of a failing row |
 | `retention` | `14d` | how long published rows are kept |
-| `retry-unroutable` | `false` | `true`: a message without a bound queue stays in the outbox and is retried; `false`: it is counted and treated as delivered |
+| `unroutable-retry-window` (`OUTBOX_UNROUTABLE_RETRY_WINDOW`) | `PT5M` | how long a message the broker cannot route (no queue bound) is retried; after that it is logged, counted (`outcome=parked`) and marked published |
 
 Business settings, Spring property `parkview.rule-engine.*` (set with `SPRING_APPLICATION_JSON` or the matching `PARKVIEW_RULE_ENGINE_*` variables):
 
@@ -597,7 +600,7 @@ Service-to-service calls use one secret per CALLEE (header `X-Internal-Api-Key`)
 
 * This service as callee: `INTERNAL_API_KEY` is its own key (callers hold it as `RULE_INTERNAL_API_KEY`) and grants `ROLE_INTERNAL` on
   `/internal/**`; `INTERNAL_API_KEY_PREVIOUS` is accepted as well while it is set; `OPS_API_KEY` grants `ROLE_OPS`, which is required for
-  `/internal/v1/retention/**` and every non-health `/actuator/**` (prometheus). Comparisons take constant time, an unset key never matches,
+  `/internal/v1/retention/**` and every non-health `/actuator/**` (prometheus). A presented key that equals the own or the previous key gives `ROLE_INTERNAL`, else one that equals the ops key gives `ROLE_OPS`, never both. Comparisons take constant time, an unset key never matches,
   and with none of the three set the internal API and actuator are denied entirely.
 * This service as caller: it calls lookup-service with `LOOKUP_INTERNAL_API_KEY`. There is no fallback to its own `INTERNAL_API_KEY`; only the
   `local` profile defaults the keys to `local-internal-key`.
