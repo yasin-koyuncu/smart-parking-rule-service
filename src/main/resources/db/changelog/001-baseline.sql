@@ -13,7 +13,8 @@
 -- changeset parkview:1-baseline
 -- Fines. A fine ends either paid or voided, never both (refunds are a separate flow). paid_at, paid_method, paid_by and voided_* are set
 -- together with paid and voided by the commands of Fine, the checks below say so. The retention job later clears plate, user_id, image_path
--- and void_reason of closed fines, which is why void_reason may be null on a voided fine.
+-- and void_reason of closed fines, which is why void_reason may be null on a voided fine. session_id is the parking session of
+-- session-service that was active at the place when the violation was detected (null when there was none; no foreign key across schemas).
 create table fines (
   id           uuid primary key default gen_random_uuid(),
   plate        text          not null,
@@ -25,6 +26,7 @@ create table fines (
   paid         boolean       not null default false,
   user_id      uuid,
   image_path   text,
+  session_id   uuid,
   created_at   timestamptz   not null default now(),
   paid_at      timestamptz,
   paid_method  text,
@@ -152,7 +154,8 @@ create index plate_permits_zone_idx  on plate_permits (zone_id);
 -- key), user_id is the driver who registered the plate (plain column, identity owns the account).
 -- last_seen_at is updated whenever a detection re-confirms the violation and drives the stale sweep, resolution_reason says why an open
 -- violation was closed without a fine, rule_summary is the plain-language text of the rule that decided it. A violation is fined at most
--- once: fine_id and fine_issued_at are set together (Violation.markFined) and one fine belongs to one violation. The retention job deletes
+-- once: session_id is the active parking session of session-service at the place when it was detected (null when there was none; no foreign
+-- key across schemas); fine_id and fine_issued_at are set together (Violation.markFined) and one fine belongs to one violation. The retention job deletes
 -- resolved violations that never became a fine.
 create table spot_violations (
   id                uuid primary key default gen_random_uuid(),
@@ -170,6 +173,7 @@ create table spot_violations (
   fine_issued_at    timestamptz,
   fine_id           uuid,
   image_path        text,
+  session_id        uuid,
   notified_at       timestamptz,
   rule_summary      text,
   created_at        timestamptz not null default now(),
