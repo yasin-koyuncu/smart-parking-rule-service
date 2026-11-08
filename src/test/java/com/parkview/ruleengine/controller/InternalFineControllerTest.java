@@ -73,12 +73,28 @@ class InternalFineControllerTest {
                 .andExpect(jsonPath("$.plate").value("ABC123"))
                 .andExpect(jsonPath("$.userId").value("7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11"))
                 .andExpect(jsonPath("$.zoneId").value("z1"))
+                // payment-service lets an operator pay a fine only at one of their sites
+                .andExpect(jsonPath("$.siteId").value("z1"))
                 .andExpect(jsonPath("$.amountSek").value(700.0))
                 .andExpect(jsonPath("$.currency").value("SEK"))
                 .andExpect(jsonPath("$.paid").value(false))
                 .andExpect(jsonPath("$.voided").value(false))
                 .andExpect(jsonPath("$.disputed").value(false))
-                .andExpect(jsonPath("$.length()").value(9));
+                .andExpect(jsonPath("$.length()").value(10));
+    }
+
+    @Test
+    void aFineAtASpotWithoutAZoneStillNamesItsSite() throws Exception {
+        Instant t = Instant.parse("2026-10-09T10:00:00Z");
+        Violation v = Violation.open(UUID.randomUUID(), "site-1", null, "ABC123", null, ViolationType.NO_PARKING, t, t);
+        Fine fine = Fine.issue(v, new BigDecimal("900"), null, t);
+        ReflectionTestUtils.setField(fine, "id", UUID.randomUUID());
+        when(fineService.get(fine.getId())).thenReturn(fine);
+
+        mvc.perform(get("/internal/v1/fines/{id}", fine.getId()).header(InternalApiKeyFilter.HEADER, INTERNAL_KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.zoneId").doesNotExist())
+                .andExpect(jsonPath("$.siteId").value("site-1"));
     }
 
     @Test

@@ -12,6 +12,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -72,6 +73,23 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         assertThat(event.amountSek()).isEqualByComparingTo(BigDecimal.valueOf(700));
         assertThat(event.timestamp()).isEqualTo(NOW.toEpochMilli());
         assertThat(event.violationType()).isEqualTo(ViolationType.WRONG_PERMIT);
+        assertThat(event.sessionId()).isNull();
+        assertThat(fine.getSessionId()).isNull();
+    }
+
+    @Test
+    void theSessionOfTheViolationIsCarriedToTheFineAndItsEvent() {
+        UUID sessionId = UUID.randomUUID();
+        Violation violation = TestFixtures.violation(ViolationType.WRONG_PERMIT, NOW.minusSeconds(900), NOW.minusSeconds(60));
+        ReflectionTestUtils.setField(violation, "sessionId", sessionId);
+
+        Fine fine = service.issueFine(violation);
+
+        assertThat(fine.getSessionId()).isEqualTo(sessionId);
+        ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+        verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), eq(fine.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.issued"),
+                payload.capture());
+        assertThat(((FineIssuedEvent) payload.getValue()).sessionId()).isEqualTo(sessionId);
     }
 
     @Test

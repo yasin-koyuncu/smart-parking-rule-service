@@ -137,15 +137,16 @@ class ListenersTest {
     void publishedEventsUseTheCatalogueFieldNames() throws Exception {
         UUID id = UUID.randomUUID();
         var created = mapper.readTree(mapper.writeValueAsString(new ViolationCreatedEvent(
-                id, "ABC123", "z1", "Storgatan 1", "z1", "Storgatan 1", "cam", null, id, "A1", ViolationType.WRONG_PERMIT, 30, 1L)));
+                id, "ABC123", "z1", "Storgatan 1", "z1", "Storgatan 1", "cam", null, id, "A1", ViolationType.WRONG_PERMIT, 30, 1L, id)));
         var resolved = mapper.readTree(mapper.writeValueAsString(new ViolationResolvedEvent(
                 id, "ABC123", "z1", "z1", ResolutionReason.CORRECTED, Instant.parse("2026-10-09T10:00:00Z"))));
         var fine = mapper.readTree(mapper.writeValueAsString(new FineIssuedEvent(
-                id, id, "ABC123", null, "z1", null, "z1", null, new BigDecimal("700.00"), 1L, ViolationType.WRONG_VEHICLE_TYPE)));
+                id, id, "ABC123", null, "z1", null, "z1", null, new BigDecimal("700.00"), 1L, ViolationType.WRONG_VEHICLE_TYPE, id)));
 
         assertThat(created.fieldNames()).toIterable().containsExactlyInAnyOrder("violationId", "plate", "zoneId",
                 "zoneAddress", "siteId", "siteAddress", "cameraId", "userId", "spotId", "spotNumber", "violationType", "graceMinutes",
-                "timestamp");
+                "timestamp", "sessionId");
+        assertThat(created.get("sessionId").asText()).isEqualTo(id.toString());
         assertThat(created.get("violationType").asText()).isEqualTo("WRONG_PERMIT");
         assertThat(resolved.fieldNames()).toIterable().containsExactlyInAnyOrder(
                 "violationId", "plate", "zoneId", "siteId", "reason", "occurredAt");
@@ -153,7 +154,8 @@ class ListenersTest {
         assertThat(resolved.get("occurredAt").asText()).isEqualTo("2026-10-09T10:00:00Z");
         assertThat(fine.fieldNames()).toIterable().containsExactlyInAnyOrder(
                 "fineId", "violationId", "plate", "userId", "zoneId", "zoneAddress", "siteId", "siteAddress", "amountSek", "timestamp",
-                "violationType");
+                "violationType", "sessionId");
+        assertThat(fine.get("sessionId").asText()).isEqualTo(id.toString());
         assertThat(fine.get("violationType").asText()).isEqualTo("WRONG_VEHICLE_TYPE");
         assertThat(fine.get("amountSek").decimalValue()).isEqualByComparingTo("700");
     }

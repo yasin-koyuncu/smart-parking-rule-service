@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.ruleengine.client.ActiveSessionDirectory;
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
 import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.client.ZoneDirectory;
@@ -57,13 +58,14 @@ class ViolationServiceTest {
     private final PlateOwnerDirectory owners = mock(PlateOwnerDirectory.class);
     private final ZoneDirectory zones = mock(ZoneDirectory.class);
     private final SiteDirectory sites = mock(SiteDirectory.class);
+    private final ActiveSessionDirectory sessions = mock(ActiveSessionDirectory.class);
     private final OutboxService events = mock(OutboxService.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private ViolationService service;
 
     @BeforeEach
     void setUp() {
-        service = new ViolationService(violations, fines, owners, zones, sites, events, TestFixtures.properties(),
+        service = new ViolationService(violations, fines, owners, sessions, zones, sites, events, TestFixtures.properties(),
                 new EngineMetrics(registry), Clock.fixed(NOW, ZoneOffset.UTC), TestTransactions.template());
         when(owners.ownerOf(anyString())).thenReturn(Optional.empty());
         when(zones.addressOf(anyString())).thenReturn(Optional.empty());
@@ -105,6 +107,26 @@ class ViolationServiceTest {
         assertThat(event.violationType()).isEqualTo(ViolationType.WRONG_PERMIT);
         assertThat(event.graceMinutes()).isEqualTo(45);
         assertThat(event.timestamp()).isEqualTo(NOW.toEpochMilli());
+        assertThat(event.sessionId()).isNull();
+        assertThat(saved.getValue().getSessionId()).isNull();
+    }
+
+    @Test
+    void aViolationOpenedWhileASessionIsActiveCarriesItsIdOnTheRowAndTheEvent() {
+        ParkingSpot spot = TestFixtures.spot("permit", "resident", 0, 45);
+        UUID sessionId = UUID.randomUUID();
+        when(sessions.idOfActiveSession(PLATE, spot.siteId(), spot.zoneId())).thenReturn(Optional.of(sessionId));
+        when(violations.findActive(PLATE, spot.id(), ViolationType.WRONG_PERMIT)).thenReturn(Optional.empty());
+
+        service.confirm(spot, ViolationType.WRONG_PERMIT, PLATE, "cam-1");
+
+        ArgumentCaptor<Violation> saved = ArgumentCaptor.forClass(Violation.class);
+        verify(violations).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getSessionId()).isEqualTo(sessionId);
+        ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
+        verify(events).enqueue(eq(OutboxService.AGGREGATE_VIOLATION), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE),
+                eq("violation.created"), payload.capture());
+        assertThat(((ViolationCreatedEvent) payload.getValue()).sessionId()).isEqualTo(sessionId);
     }
 
     @Test

@@ -261,13 +261,16 @@ class RuleServiceFlowTest {
         String plate = newPlate();
         UUID owner = UUID.randomUUID();
         jdbc.update("insert into identity.user_plates (user_id, plate) values (?, ?)", owner, plate);
+        UUID sessionId = UUID.randomUUID();
+        jdbc.update("insert into sessions.sessions (id, plate, zone_id, started_at) values (?, ?, ?, now() - interval '10 minutes')", sessionId, plate, zone);
 
         detect(zone, plate, VEHICLE_IN_SPOT);
-        awaitEvent("violation.created", plate);
+        assertThat(awaitEvent("violation.created", plate).get("sessionId").asText()).isEqualTo(sessionId.toString());
         jdbc.update("update spot_violations set grace_until = now() - interval '1 minute' where plate = ?", plate);
 
         JsonNode fineEvent = awaitEvent("fine.issued", plate);
         UUID fineId = UUID.fromString(fineEvent.get("fineId").asText());
+        assertThat(fineEvent.get("sessionId").asText()).isEqualTo(sessionId.toString());
         assertThat(fineEvent.get("amountSek").decimalValue()).isEqualByComparingTo("700");
         assertThat(fineEvent.get("userId").asText()).isEqualTo(owner.toString());
         assertThat(fineEvent.get("zoneAddress").asText()).isEqualTo("Testgatan 1");
@@ -275,6 +278,7 @@ class RuleServiceFlowTest {
 
         Map<String, Object> fine = jdbc.queryForMap("select * from fines where id = ?", fineId);
         assertThat(fine.get("reason")).isEqualTo("wrong_permit");
+        assertThat(fine.get("session_id")).isEqualTo(sessionId);
         assertThat(fine.get("paid")).isEqualTo(false);
         assertThat(violationRow(plate).get("fine_id")).isEqualTo(fineId);
         assertThat(violationRow(plate).get("fine_issued_at")).isNotNull();
@@ -701,6 +705,7 @@ class RuleServiceFlowTest {
         JsonNode fine = awaitEvent("fine.issued", plate);
 
         assertThat(fine.get("violationType").asText()).isEqualTo("NO_PARKING");
+        assertThat(fine.get("sessionId").isNull()).isTrue();
         jdbc.update("insert into fines (plate, site_id, zone_id, reason, amount_sek) values (?, ?, ?, 'wrong_vehicle_type', 700)", plate, zone, zone);
         jdbc.update("""
                 insert into spot_violations (spot_id, site_id, zone_id, plate, violation_type, grace_until)

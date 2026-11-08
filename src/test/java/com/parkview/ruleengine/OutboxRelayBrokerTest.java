@@ -35,8 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * The relay against a real broker with the application's own RabbitTemplate configuration (publisher confirms, mandatory
  * flag): a routed message is confirmed and delivered with the outbox row id as messageId and the headers of the former direct
- * publish; an unroutable one is returned by the broker and, by default, counted and treated as delivered, or with
- * {@code retry-unroutable} kept until a consumer queue exists. The scheduled relay of the application is switched off here so
+ * publish; an unroutable one is returned by the broker and kept (retried) while the row is younger than the unroutable retry
+ * window, so it is delivered once a consumer queue exists, and parked as published once it is older. The scheduled relay of the application is switched off here so
  * that the test drives the relay itself.
  */
 @Testcontainers
@@ -70,9 +70,9 @@ class OutboxRelayBrokerTest {
 
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
 
-    private OutboxRelay relay(boolean retryUnroutable) {
+    private OutboxRelay relay(Duration unroutableRetryWindow) {
         OutboxProperties properties = new OutboxProperties(true, Duration.ofMillis(250), 50, Duration.ofSeconds(5), Duration.ofSeconds(60),
-                Duration.ofDays(14), retryUnroutable);
+                Duration.ofDays(14), unroutableRetryWindow);
         return new OutboxRelay(outbox, template, properties, Clock.systemUTC(), meters);
     }
 
@@ -99,7 +99,7 @@ class OutboxRelayBrokerTest {
         String aggregate = UUID.randomUUID().toString();
         OutboxEvent routed = enqueue(aggregate, key, "{\"zzz\":1,\"fineId\":\"" + aggregate + "\",\"amountSek\":700.00}");
 
-        assertThat(run(relay(false))).isGreaterThanOrEqualTo(1);
+        assertThat(run(relay(Duration.ofMinutes(5)))).isGreaterThanOrEqualTo(1);
 
         Message delivered = template.receive(queue.getName(), 5000);
         assertThat(delivered).isNotNull();
@@ -118,30 +118,32 @@ class OutboxRelayBrokerTest {
     }
 
     @Test
-    void anUnroutableMessageIsCountedAndTreatedAsDeliveredByDefault() {
+    void anUnroutableMessageOlderThanTheWindowIsParkedAsPublished() {
         OutboxEvent unroutable = enqueue(UUID.randomUUID().toString(), "fine.nobody.listens." + UUID.randomUUID(), "{\"a\":1}");
-        OutboxRelay relay = relay(false);
+        jdbc.update("update outbox_events set created_at = now() - interval '10 minutes' where id = ?", unroutable.getId());
+        OutboxRelay relay = relay(Duration.ofMinutes(5));
 
         run(relay);
 
         assertThat(jdbc.queryForObject("select published_at is not null from outbox_events where id = ?", Boolean.class, unroutable.getId())).isTrue();
-        assertThat(meters.get("rule.outbox.unroutable").counter().count()).isGreaterThanOrEqualTo(1);
+        assertThat(meters.get("rule.outbox.unroutable").tag("outcome", "parked").counter().count()).isGreaterThanOrEqualTo(1);
     }
 
     @Test
-    void withRetryUnroutableTheRowStaysUntilAConsumerQueueExists() {
+    void anUnroutableMessageStaysUntilAConsumerQueueExists() {
         String key = "fine.late.consumer." + UUID.randomUUID();
         OutboxEvent unroutable = enqueue(UUID.randomUUID().toString(), key, "{\"a\":1}");
 
-        run(relay(true));
+        run(relay(Duration.ofMinutes(5)));
 
         assertThat(jdbc.queryForObject("select published_at is null from outbox_events where id = ?", Boolean.class, unroutable.getId())).isTrue();
         assertThat(jdbc.queryForObject("select attempts from outbox_events where id = ?", Integer.class, unroutable.getId())).isEqualTo(1);
         assertThat(jdbc.queryForObject("select last_error from outbox_events where id = ?", String.class, unroutable.getId())).contains("unroutable");
+        assertThat(meters.get("rule.outbox.unroutable").tag("outcome", "retrying").counter().count()).isGreaterThanOrEqualTo(1);
 
         Queue queue = bind("relay-test-late-" + UUID.randomUUID(), key);
         jdbc.update("update outbox_events set next_attempt_at = now() where id = ?", unroutable.getId());
-        run(relay(true));
+        run(relay(Duration.ofMinutes(5)));
 
         Message retried = template.receive(queue.getName(), 5000);
         assertThat(retried).isNotNull();
@@ -156,7 +158,7 @@ class OutboxRelayBrokerTest {
         enqueue(aggregate, key, "{\"n\":1}");
         enqueue(aggregate, key, "{\"n\":2}");
         enqueue(aggregate, key, "{\"n\":3}");
-        OutboxRelay relay = relay(false);
+        OutboxRelay relay = relay(Duration.ofMinutes(5));
 
         for (int run = 0; run < 3; run++) {
             run(relay);

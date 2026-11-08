@@ -237,6 +237,20 @@ class JpaDirectoriesTest {
     }
 
     @Test
+    void theIdOfTheActiveSessionIsReadPerPlateAndZoneAndVoidedOrEndedOnesHaveNone() {
+        UUID active = UUID.randomUUID();
+        jdbc.update("insert into sessions.sessions (id, plate, zone_id, started_at) values (?, 'ABC123', 'z1', '2026-10-12T09:00:00Z')", active);
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, ended_at) values ('DEF456', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T10:00:00Z')");
+        jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, voided_at) values ('VOID11', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T09:30:00Z')");
+
+        assertThat(sessions.idOfActiveSession("ABC123", "z1", "z1")).contains(active);
+        assertThat(sessions.idOfActiveSession("ABC123", "z2", "z2")).isEmpty();
+        assertThat(sessions.idOfActiveSession("DEF456", "z1", "z1")).isEmpty();
+        assertThat(sessions.idOfActiveSession("VOID11", "z1", "z1")).isEmpty();
+        assertThat(sessions.idOfActiveSession("ABC123", null, "z1")).isEmpty();
+    }
+
+    @Test
     void aVoidedSessionIsNotActive() {
         jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, voided_at) values ('VOID11', 'z1', '2026-10-12T09:00:00Z', '2026-10-12T09:30:00Z')");
         jdbc.update("insert into sessions.sessions (plate, zone_id, started_at, voided_at) values ('BOTH11', 'z1', '2026-10-12T10:00:00Z', '2026-10-12T10:30:00Z')");

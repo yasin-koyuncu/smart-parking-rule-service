@@ -44,6 +44,7 @@ import static org.mockito.Mockito.when;
 class OutboxRelayTest {
 
     private static final Instant NOW = Instant.parse("2026-10-09T12:00:00Z");
+    private static final Duration UNROUTABLE_WINDOW = Duration.ofMinutes(5);
     private static final String PAYLOAD = "{\"fineId\":\"f-1\",\"amountSek\":700.00}";
 
     @Mock OutboxEventRepository repository;
@@ -55,12 +56,12 @@ class OutboxRelayTest {
     @BeforeEach
     void setUp() {
         meters = new SimpleMeterRegistry();
-        relay = new OutboxRelay(repository, rabbit, properties(true, false), Clock.fixed(NOW, ZoneOffset.UTC), meters);
+        relay = new OutboxRelay(repository, rabbit, properties(true), Clock.fixed(NOW, ZoneOffset.UTC), meters);
     }
 
-    private static OutboxProperties properties(boolean enabled, boolean retryUnroutable) {
+    private static OutboxProperties properties(boolean enabled) {
         return new OutboxProperties(enabled, Duration.ofMillis(250), 10, Duration.ofMillis(200), Duration.ofSeconds(30),
-                Duration.ofDays(14), retryUnroutable);
+                Duration.ofDays(14), UNROUTABLE_WINDOW);
     }
 
     private static OutboxEvent row(String aggregateId, String routingKey, String requestId) {
@@ -148,7 +149,7 @@ class OutboxRelayTest {
 
     @Test
     void aDisabledRelayDoesNotEvenClaimRows() {
-        relay = new OutboxRelay(repository, rabbit, properties(false, false), Clock.fixed(NOW, ZoneOffset.UTC), meters);
+        relay = new OutboxRelay(repository, rabbit, properties(false), Clock.fixed(NOW, ZoneOffset.UTC), meters);
 
         assertThat(relay.relayDueEvents()).isZero();
 
@@ -197,22 +198,9 @@ class OutboxRelayTest {
     }
 
     @Test
-    void anUnroutableMessageIsCountedAndTreatedAsDeliveredByDefaultLikeTheDirectPublishItReplaces() {
+    void anUnroutableMessageYoungerThanTheWindowIsRetriedLikeAFailure() {
         OutboxEvent event = row("f-1", "fine.issued");
-        when(repository.lockDueBatch(NOW, 10)).thenReturn(List.of(event));
-        unroutable();
-
-        assertThat(relay.relayDueEvents()).isEqualTo(1);
-
-        assertThat(event.getPublishedAt()).isEqualTo(NOW);
-        assertThat(meters.get("rule.outbox.unroutable").counter().count()).isEqualTo(1);
-        assertThat(meters.get("rule.outbox.failed").counter().count()).isZero();
-    }
-
-    @Test
-    void withRetryUnroutableAnUnroutableMessageStaysInTheOutbox() {
-        relay = new OutboxRelay(repository, rabbit, properties(true, true), Clock.fixed(NOW, ZoneOffset.UTC), meters);
-        OutboxEvent event = row("f-1", "fine.issued");
+        ReflectionTestUtils.setField(event, "createdAt", NOW.minus(UNROUTABLE_WINDOW).plusSeconds(1));
         when(repository.lockDueBatch(NOW, 10)).thenReturn(List.of(event));
         unroutable();
 
@@ -221,6 +209,26 @@ class OutboxRelayTest {
         assertThat(event.getPublishedAt()).isNull();
         assertThat(event.getLastError()).contains("unroutable");
         assertThat(event.getAttempts()).isEqualTo(1);
+        assertThat(event.getNextAttemptAt()).isAfter(NOW);
+        assertThat(meters.get("rule.outbox.unroutable").tag("outcome", "retrying").counter().count()).isEqualTo(1);
+        assertThat(meters.get("rule.outbox.unroutable").tag("outcome", "parked").counter().count()).isZero();
+        assertThat(meters.get("rule.outbox.failed").counter().count()).isEqualTo(1);
+    }
+
+    @Test
+    void anUnroutableMessageOlderThanTheWindowIsParkedAsPublished() {
+        OutboxEvent event = row("f-1", "fine.issued");
+        ReflectionTestUtils.setField(event, "createdAt", NOW.minus(UNROUTABLE_WINDOW).minusSeconds(1));
+        when(repository.lockDueBatch(NOW, 10)).thenReturn(List.of(event));
+        unroutable();
+
+        assertThat(relay.relayDueEvents()).isEqualTo(1);
+
+        assertThat(event.getPublishedAt()).isEqualTo(NOW);
+        assertThat(event.getAttempts()).isZero();
+        assertThat(meters.get("rule.outbox.unroutable").tag("outcome", "parked").counter().count()).isEqualTo(1);
+        assertThat(meters.get("rule.outbox.unroutable").tag("outcome", "retrying").counter().count()).isZero();
+        assertThat(meters.get("rule.outbox.failed").counter().count()).isZero();
     }
 
     @Test

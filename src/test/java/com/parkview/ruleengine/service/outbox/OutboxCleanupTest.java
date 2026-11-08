@@ -21,7 +21,7 @@ class OutboxCleanupTest {
 
     private OutboxCleanup cleanup(boolean enabled) {
         OutboxProperties properties = new OutboxProperties(enabled, Duration.ofMillis(500), 10, Duration.ofSeconds(5),
-                Duration.ofSeconds(60), Duration.ofDays(14), false);
+                Duration.ofSeconds(60), Duration.ofDays(14), Duration.ofMinutes(5));
         return new OutboxCleanup(repository, properties, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
