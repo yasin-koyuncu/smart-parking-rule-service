@@ -26,7 +26,10 @@ import java.util.UUID;
  *       within {@code fine-freshness-seconds}: rule-service is not told that a car left, so a violation that stopped being
  *       confirmed (the car drove away during the grace period) must not be fined just because its grace is over. The
  *       stale sweep, or {@code session.ended}, closes it. The database allows one fine per violation: should a second fine ever be
- *       attempted, its transaction fails on the unique constraint, rolls back as a whole and is logged as already fined.</li>
+ *       attempted, its transaction fails on the unique constraint, rolls back as a whole and is logged as already fined.
+ *       A violation whose fine cannot be issued (site without currency, no amount configured) gets {@code fining_retry_at = now +
+ *       fining-retry-delay} in the same transaction and is not a candidate before then: it cannot fill the head of the batch and starve the
+ *       others, and its ERROR is logged once per delay instead of once per sweep.</li>
  *   <li>stale sweep: resolves violations no detection has confirmed for {@code stale-minutes} as LEFT.</li>
  * </ul>
  */
@@ -47,7 +50,9 @@ public class ViolationJobs {
         BatchResult batch;
         do {
             batch = issueBatch();
-        } while (batch.candidates() == properties.expireBatchSize() && batch.fined() > 0);
+            // a full batch may be followed by more due violations; stop when nothing moved (fined or deferred), which also ends the loop for
+            // violations that fail or are locked by another instance and would otherwise be met again at once
+        } while (batch.candidates() == properties.expireBatchSize() && batch.fined() + batch.deferred() > 0);
     }
 
     @Scheduled(fixedDelayString = "${parkview.rule-engine.stale-sweep-ms:60000}")
@@ -65,10 +70,14 @@ public class ViolationJobs {
         List<UUID> due = violations.findDueForFine(now, seenSince, PageRequest.of(0, properties.expireBatchSize()));
 
         int fined = 0;
+        int deferred = 0;
         for (UUID id : due) {
             try {
-                if (Boolean.TRUE.equals(tx.execute(status -> fineOne(id, now, seenSince)))) {
+                FineOutcome outcome = tx.execute(status -> fineOne(id, now, seenSince));
+                if (outcome == FineOutcome.FINED) {
                     fined++;
+                } else if (outcome == FineOutcome.DEFERRED) {
+                    deferred++;
                 }
             } catch (DataIntegrityViolationException e) {
                 // the database allows one fine per violation (unique violation_id on the evidence, unique fine_id on the violation): a
@@ -79,21 +88,31 @@ public class ViolationJobs {
             }
         }
         if (!due.isEmpty()) {
-            log.info("Fine sweep: {} due, {} fined", due.size(), fined);
+            log.info("Fine sweep: {} due, {} fined, {} deferred", due.size(), fined, deferred);
         }
-        return new BatchResult(due.size(), fined);
+        return new BatchResult(due.size(), fined, deferred);
     }
 
-    private boolean fineOne(UUID id, Instant now, Instant seenSince) {
+    private FineOutcome fineOne(UUID id, Instant now, Instant seenSince) {
         return violations.claimDue(id, now, seenSince)
                 .map(violation -> {
-                    // empty when the fine cannot be issued (site without currency, no amount for it): the violation stays open and is
-                    // tried again on the next sweep once the configuration is fixed; the error is logged by the issuing service
-                    return fineIssuing.issueFine(violation).isPresent();
+                    // empty when the fine cannot be issued (site without currency, no amount for it); the error is logged by the issuing service.
+                    // The violation stays open and is left out of the sweep until fining-retry-delay has passed (same transaction as the claim),
+                    // so it neither starves the other violations nor logs an error on every sweep; once the configuration is fixed it is
+                    // fined at its next retry
+                    if (fineIssuing.issueFine(violation).isPresent()) {
+                        return FineOutcome.FINED;
+                    }
+                    violations.deferFining(id, now.plus(properties.finingRetryDelay()));
+                    return FineOutcome.DEFERRED;
                 })
-                .orElse(false);
+                .orElse(FineOutcome.SKIPPED);
     }
 
-    record BatchResult(int candidates, int fined) {
+    private enum FineOutcome {
+        FINED, DEFERRED, SKIPPED
+    }
+
+    record BatchResult(int candidates, int fined, int deferred) {
     }
 }

@@ -163,6 +163,8 @@ parkview:
     refine-block-hours: 6
     rule-cache-ttl-seconds: 60
     vehicle-lookup-enabled: true
+    # a violation whose fine cannot be issued (site without currency, no fine amount) is left out of the fine sweep this long (ISO-8601 or 30m style)
+    fining-retry-delay: ${FINING_RETRY_DELAY:PT15M}
   lookup:
     base-url: ${LOOKUP_SERVICE_URL:http://localhost:8089}
     connect-timeout-ms: 500

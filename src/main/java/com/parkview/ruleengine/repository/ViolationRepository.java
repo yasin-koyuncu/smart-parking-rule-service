@@ -87,12 +87,14 @@ public interface ViolationRepository extends JpaRepository<Violation, UUID> {
 
     /**
      * Active violations whose grace has passed and that were confirmed by a detection since {@code seenSince} (the fine
-     * freshness window: the vehicle has to be demonstrably still there).
+     * freshness window: the vehicle has to be demonstrably still there). A violation whose fine could not be issued is left out until
+     * its {@code finingRetryAt} has passed, so such violations cannot fill the head of the batch.
      */
     @Query("""
             select v.id from Violation v
             where v.resolvedAt is null and v.fineIssuedAt is null
               and v.graceUntil < :now and v.lastSeenAt >= :seenSince
+              and (v.finingRetryAt is null or v.finingRetryAt <= :now)
             order by v.graceUntil
             """)
     List<UUID> findDueForFine(Instant now, Instant seenSince, Pageable limit);
@@ -122,9 +124,15 @@ public interface ViolationRepository extends JpaRepository<Violation, UUID> {
             select * from spot_violations
             where id = :id and resolved_at is null and fine_issued_at is null
               and grace_until < :now and last_seen_at >= :seenSince
+              and (fining_retry_at is null or fining_retry_at <= :now)
             for update skip locked
             """, nativeQuery = true)
     Optional<Violation> claimDue(UUID id, Instant now, Instant seenSince);
+
+    /** Keeps the violation out of the fine sweep until {@code retryAt}; runs in the transaction of the claim. */
+    @Modifying
+    @Query("update Violation v set v.finingRetryAt = :retryAt where v.id = :id")
+    int deferFining(UUID id, Instant retryAt);
 
     @Modifying
     @Query("update Violation v set v.lastSeenAt = :at where v.id = :id and v.lastSeenAt < :at")

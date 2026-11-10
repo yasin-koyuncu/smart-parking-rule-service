@@ -92,6 +92,13 @@ public class Violation {
     @Column(name = "rule_summary", updatable = false)
     private String ruleSummary;
 
+    /**
+     * Set by the fine sweep when the fine could not be issued (site without currency, no amount configured): the violation is not
+     * a candidate of the sweep before this time. Null when never deferred; needs no cleanup once the violation is fined or resolved.
+     */
+    @Column(name = "fining_retry_at")
+    private Instant finingRetryAt;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private Instant createdAt;

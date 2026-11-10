@@ -43,6 +43,7 @@ public class FineIssuingService {
      * <p>The fine takes the currency of its site. A fine is NOT issued, and the violation stays open, when the site has no valid
      * currency or when no fine amount is configured for the currency and the violation type: that is a configuration error, so it is
      * logged as an ERROR (with currency and type) and counted in {@code ruleengine.fines.not_issued}; there is no default currency.
+     * The sweep ({@link ViolationJobs}) then defers the violation by {@code fining-retry-delay} so that the error is logged once per delay.
      *
      * @return the fine, empty when it was not issued
      */

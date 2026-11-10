@@ -49,6 +49,8 @@ import java.util.Optional;
  *                                    within this many hours, whatever happens to the spot (re-scan, "empty the area"); 0 turns the block off
  * @param ruleCacheTtlSeconds         how long a zone's rules and master data are cached
  * @param vehicleLookupEnabled        whether vehicle registry data may be fetched when a decision needs it
+ * @param finingRetryDelay            how long the fine sweep leaves a violation alone after its fine could not be issued (site without a valid
+ *                                    currency, no fine amount configured); must be positive. The configuration error is logged once per delay
  */
 @Validated
 @ConfigurationProperties("parkview.rule-engine")
@@ -73,7 +75,8 @@ public record RuleEngineProperties(
         @DefaultValue("600") @Min(1) int observationMaxAgeSeconds,
         @DefaultValue("6") @PositiveOrZero int refineBlockHours,
         @DefaultValue("60") @Min(1) int ruleCacheTtlSeconds,
-        @DefaultValue("true") boolean vehicleLookupEnabled
+        @DefaultValue("true") boolean vehicleLookupEnabled,
+        @DefaultValue("PT15M") Duration finingRetryDelay
 ) {
 
     /** The fine amounts of SEK when nothing is configured for it. */
@@ -86,7 +89,7 @@ public record RuleEngineProperties(
 
     /**
      * Normalises {@code fineAmounts}: the currency codes are upper-cased and must be known ISO 4217 codes, every amount must be present and
-     * positive (a violation of that stops the start), SEK gets its defaults unless it is configured.
+     * positive (a violation of that stops the start), SEK gets its defaults unless it is configured. {@code finingRetryDelay} must be positive.
      */
     public RuleEngineProperties {
         Map<String, Map<ViolationType, BigDecimal>> normalised = new LinkedHashMap<>();
@@ -95,6 +98,9 @@ public record RuleEngineProperties(
             fineAmounts.forEach((currency, amounts) -> normalised.put(currencyCode(currency), positiveAmounts(currency, amounts)));
         }
         fineAmounts = Collections.unmodifiableMap(normalised);
+        if (finingRetryDelay == null || finingRetryDelay.isZero() || finingRetryDelay.isNegative()) {
+            throw new IllegalArgumentException("parkview.rule-engine.fining-retry-delay must be a positive duration");
+        }
     }
 
     private static String currencyCode(String currency) {
