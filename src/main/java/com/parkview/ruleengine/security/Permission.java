@@ -1,18 +1,14 @@
 package com.parkview.ruleengine.security;
 
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
  * Fine-grained permissions carried in the JWT claim {@code app_metadata.permissions} (string[], set by the Supabase
  * access-token hook). Each one becomes a granted authority named exactly like the permission, e.g. {@code zone:write}.
- * The catalogue is {@code contracts/permissions.json} in smart-parking-e2e; keep the tables below identical to its
- * {@code defaultsByRole}.
+ * The catalogue is {@code contracts/permissions.json} in smart-parking-e2e (the block below is generated from it).
  */
 public final class Permission {
 
@@ -20,35 +16,22 @@ public final class Permission {
     private static final Pattern NAME = Pattern.compile("[a-z][a-z0-9-]*:[a-z][a-z0-9-]*");
 
     // BEGIN GENERATED permissions (contracts/permissions.json in smart-parking-e2e; do not edit)
-    private static final Set<String> OPERATOR_DEFAULTS = Set.of(
-            "zone:read", "spot:read", "spot:write", "session:read", "session:manage", "violation:read",
-            "violation:resolve", "fine:read", "permit:read", "permit:manage", "lookup:vehicle", "file:upload",
-            "file:view", "stream:operator", "camera:read", "camera:admin", "ai:use");
-
-    private static final Set<String> ADMIN_DEFAULTS = union(OPERATOR_DEFAULTS, Set.of("zone:write", "session:correct", "fine:manage", "access:read", "access:manage", "role:manage"));
+    /** Every permission of the catalogue (contracts/permissions.json). */
+    public static final Set<String> ALL = Set.of(
+            "zone:read", "zone:write", "spot:read", "spot:write", "session:read", "session:manage", "session:correct",
+            "violation:read", "violation:resolve", "fine:read", "fine:manage", "permit:read", "permit:manage",
+            "lookup:vehicle", "file:upload", "file:view", "stream:operator", "camera:read", "camera:admin", "ai:use",
+            "access:read", "access:manage", "role:manage");
     // END GENERATED permissions
-
-    private static final Map<Role, Set<String>> DEFAULTS_BY_ROLE = Map.of(
-            Role.ADMIN, ADMIN_DEFAULTS,
-            Role.OPERATOR, OPERATOR_DEFAULTS,
-            Role.DRIVER, Set.of());
 
     private Permission() {
     }
 
-    /** The permissions a role has when nobody has restricted it (what tokens without the claim are treated as). */
-    public static Set<String> defaultsFor(Role role) {
-        return DEFAULTS_BY_ROLE.getOrDefault(role, Set.of());
-    }
-
     /**
-     * The permissions in the claim. Empty when the claim is ABSENT (a token minted before permissions existed);
-     * a present claim, even an empty list or a malformed value, yields a set (possibly empty) and never triggers a fallback.
+     * The permissions in the claim. Empty when the claim is absent, malformed or empty: a token without the claim has no
+     * permissions and nothing is derived from its role.
      */
-    public static Optional<Set<String>> fromClaim(Object raw) {
-        if (raw == null) {
-            return Optional.empty();
-        }
+    public static Set<String> fromClaim(Object raw) {
         Set<String> granted = new LinkedHashSet<>();
         if (raw instanceof Collection<?> values) {
             for (Object value : values) {
@@ -57,21 +40,6 @@ public final class Permission {
                 }
             }
         }
-        return Optional.of(granted);
-    }
-
-    /**
-     * The effective permissions of a token: the claim when present, otherwise (only while
-     * {@code parkview.security.legacy-role-fallback} is on) the defaults of the token's role.
-     */
-    public static Set<String> resolve(Object rawClaim, Optional<Role> role, boolean legacyRoleFallback) {
-        return fromClaim(rawClaim).orElseGet(() ->
-                legacyRoleFallback ? role.map(Permission::defaultsFor).orElse(Set.of()) : Set.of());
-    }
-
-    private static Set<String> union(Set<String> a, Set<String> b) {
-        Set<String> all = new HashSet<>(a);
-        all.addAll(b);
-        return Set.copyOf(all);
+        return granted;
     }
 }

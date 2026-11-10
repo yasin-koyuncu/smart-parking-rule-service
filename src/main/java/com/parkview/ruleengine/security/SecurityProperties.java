@@ -18,8 +18,6 @@ import java.util.List;
  * @param internalApiKeyPrevious the key before a rotation, accepted as well while it is set; optional
  * @param opsApiKey      secret of the operations endpoints (non-health actuator, retention); blank means it matches nothing
  * @param publicPaths    Ant patterns that need no authentication (health is always public)
- * @param legacyRoleFallback when true (default {@code false}), a token WITHOUT the {@code app_metadata.permissions} claim
- *                       gets the default permissions of its role; a present claim (even empty) is never overridden
  */
 @Validated
 @ConfigurationProperties("parkview.security")
@@ -30,8 +28,7 @@ public record SecurityProperties(
         String internalApiKey,
         String internalApiKeyPrevious,
         String opsApiKey,
-        @DefaultValue List<String> publicPaths,
-        @DefaultValue("false") boolean legacyRoleFallback
+        @DefaultValue List<String> publicPaths
 ) {
 
     public String resolvedJwksUri() {
