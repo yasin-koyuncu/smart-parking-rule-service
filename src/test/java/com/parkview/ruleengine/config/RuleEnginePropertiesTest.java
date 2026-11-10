@@ -138,6 +138,17 @@ class RuleEnginePropertiesTest {
         assertThat(custom.refineBlockHours()).isZero();
     }
 
+    @Test
+    void theFiningRetryDelayDefaultsToFifteenMinutesBindsAsADurationAndMustBePositive() {
+        assertThat(bind(Map.of()).finingRetryDelay()).isEqualTo(Duration.ofMinutes(15));
+        assertThat(bind(Map.of("parkview.rule-engine.fining-retry-delay", "PT1H")).finingRetryDelay()).isEqualTo(Duration.ofHours(1));
+        assertThat(bind(Map.of("parkview.rule-engine.fining-retry-delay", "30s")).finingRetryDelay()).isEqualTo(Duration.ofSeconds(30));
+        assertThatThrownBy(() -> bind(Map.of("parkview.rule-engine.fining-retry-delay", "PT0S")))
+                .hasRootCauseInstanceOf(IllegalArgumentException.class).hasStackTraceContaining("fining-retry-delay");
+        assertThatThrownBy(() -> bind(Map.of("parkview.rule-engine.fining-retry-delay", "-5m")))
+                .hasStackTraceContaining("fining-retry-delay");
+    }
+
     private static ParkingSpot spot(Integer boundaryGrace, Integer permitGrace) {
         return new ParkingSpot(UUID.randomUUID(), "z1", "z1", "A1", "paid", null, null, boundaryGrace, permitGrace, 0);
     }

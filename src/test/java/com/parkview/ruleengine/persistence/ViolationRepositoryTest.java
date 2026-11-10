@@ -6,6 +6,10 @@ import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
+import com.parkview.ruleengine.service.TestFixtures;
+import com.parkview.ruleengine.service.fine.FineIssuingService;
+import com.parkview.ruleengine.service.violation.ViolationJobs;
+import com.parkview.ruleengine.service.violation.ViolationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,8 +29,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,6 +42,9 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** Runs the real Liquibase changelog against Postgres 16: the DB-level invariants are what is under test. */
 @Testcontainers
@@ -186,6 +196,58 @@ class ViolationRepositoryTest {
         assertThat(claim(stale.getId())).isEmpty();
         assertThat(claim(resolved.getId())).isEmpty();
         assertThat(violations.findDueForFine(NOW, SEEN_SINCE, PageRequest.of(0, 10))).containsExactly(due.getId());
+    }
+
+    @Test
+    void aDeferredViolationIsNeitherListedNorClaimedBeforeItsRetryTimeAndBothAfterwards() {
+        Violation deferred = due("DEFER1");
+        Violation other = due("OTHER1");
+
+        int updated = tx.execute(s -> violations.deferFining(deferred.getId(), NOW.plusSeconds(900)));
+        assertThat(updated).isEqualTo(1);
+
+        assertThat(violations.findDueForFine(NOW, SEEN_SINCE, PageRequest.of(0, 10))).containsExactly(other.getId());
+        assertThat(claim(deferred.getId())).isEmpty();
+        assertThat(claim(other.getId())).isPresent();
+        assertThat(violations.findById(deferred.getId()).orElseThrow().getFiningRetryAt()).isEqualTo(NOW.plusSeconds(900));
+
+        // exactly at the retry time and later the violation is a candidate again
+        assertThat(violations.findDueForFine(NOW.plusSeconds(900), SEEN_SINCE, PageRequest.of(0, 10)))
+                .containsExactlyInAnyOrder(deferred.getId(), other.getId());
+        assertThat(tx.<Optional<Violation>>execute(s -> violations.claimDue(deferred.getId(), NOW.plusSeconds(900), SEEN_SINCE))).isPresent();
+    }
+
+    @Test
+    void twentyFiveUnfineableViolationsAtTheHeadDoNotPreventAFineableOneFromBeingFinedInTheSameSweep() {
+        Instant detected = NOW.minusSeconds(100);
+        for (int i = 0; i < 25; i++) {
+            // the oldest grace first: these fill the head of the sweep order (batch size 20)
+            open("BAD%03d".formatted(i), spot, ViolationType.WRONG_PERMIT, detected, NOW.minusSeconds(3000 - i));
+        }
+        open("GOOD01", spot, ViolationType.WRONG_PERMIT, detected, NOW.minusSeconds(10));
+
+        List<String> attempts = new ArrayList<>();
+        FineIssuingService fineIssuing = mock(FineIssuingService.class);
+        when(fineIssuing.issueFine(any())).thenAnswer(invocation -> {
+            Violation attempted = invocation.getArgument(0);
+            attempts.add(attempted.getPlate());
+            // only GOOD01 can be fined: the site of the others has no currency
+            return attempted.getPlate().equals("GOOD01") ? Optional.of(mock(Fine.class)) : Optional.<Fine>empty();
+        });
+        ViolationJobs jobs = new ViolationJobs(violations, mock(ViolationService.class), fineIssuing, TestFixtures.properties(),
+                Clock.fixed(NOW, ZoneOffset.UTC), new TransactionTemplate(transactionManager));
+
+        jobs.issueDueFines();
+
+        assertThat(attempts).as("every violation was tried exactly once, the fineable one included").hasSize(26).contains("GOOD01");
+        assertThat(jdbc.queryForObject("select count(*) from spot_violations where fining_retry_at = ?", Integer.class,
+                java.sql.Timestamp.from(NOW.plus(TestFixtures.FINING_RETRY_DELAY)))).isEqualTo(25);
+
+        // the next sweep within the delay does not try the unfineable ones again (no ERROR per minute)
+        attempts.clear();
+        jobs.issueDueFines();
+
+        assertThat(attempts).containsExactly("GOOD01");
     }
 
     private int resolve(UUID id, ResolutionReason reason) {

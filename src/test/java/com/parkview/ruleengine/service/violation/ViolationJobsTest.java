@@ -60,13 +60,14 @@ class ViolationJobsTest {
 
         ViolationJobs.BatchResult result = jobs.issueBatch();
 
-        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 2));
+        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 2, 0));
+        verify(violations, never()).deferFining(any(), any());
         verify(fineService).issueFine(a);
         verify(fineService).issueFine(b);
     }
 
     @Test
-    void aViolationWhoseFineCannotBeIssuedIsNotCountedAndDoesNotBlockTheOthers() {
+    void aViolationWhoseFineCannotBeIssuedIsDeferredByTheRetryDelayAndDoesNotBlockTheOthers() {
         Violation unissuable = due();
         Violation healthy = due();
         when(fineService.issueFine(unissuable)).thenReturn(Optional.empty());
@@ -74,8 +75,10 @@ class ViolationJobsTest {
 
         ViolationJobs.BatchResult result = jobs.issueBatch();
 
-        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1));
+        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1, 1));
         verify(fineService).issueFine(healthy);
+        verify(violations).deferFining(unissuable.getId(), NOW.plus(TestFixtures.FINING_RETRY_DELAY));
+        verify(violations, never()).deferFining(eq(healthy.getId()), any());
     }
 
     @Test
@@ -95,8 +98,9 @@ class ViolationJobsTest {
 
         ViolationJobs.BatchResult result = jobs.issueBatch();
 
-        assertThat(result.fined()).isZero();
+        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(1, 0, 0));
         verify(fineService, never()).issueFine(any());
+        verify(violations, never()).deferFining(any(), any());
     }
 
     @Test
@@ -108,8 +112,9 @@ class ViolationJobsTest {
 
         ViolationJobs.BatchResult result = jobs.issueBatch();
 
-        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1));
+        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1, 0));
         verify(fineService).issueFine(healthy);
+        verify(violations, never()).deferFining(any(), any());
     }
 
     @Test
@@ -121,14 +126,46 @@ class ViolationJobsTest {
 
         ViolationJobs.BatchResult result = jobs.issueBatch();
 
-        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1));
+        assertThat(result).isEqualTo(new ViolationJobs.BatchResult(2, 1, 0));
         verify(fineService).issueFine(healthy);
+        verify(violations, never()).deferFining(any(), any());
     }
 
     @Test
     void sweepStopsWhenABatchIsNotFull() {
         Violation a = due();
         when(violations.findDueForFine(any(), any(), any(Pageable.class))).thenReturn(List.of(a.getId()));
+
+        jobs.issueDueFines();
+
+        verify(violations).findDueForFine(any(), any(), any(Pageable.class));
+    }
+
+    @Test
+    void aFullBatchOfDeferredViolationsIsFollowedByTheNextBatchInTheSameSweep() {
+        List<UUID> unfineable = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            Violation v = due();
+            when(fineService.issueFine(v)).thenReturn(Optional.empty());
+            unfineable.add(v.getId());
+        }
+        Violation fineable = due();
+        when(violations.findDueForFine(any(), any(), any(Pageable.class)))
+                .thenReturn(unfineable)
+                .thenReturn(List.of(fineable.getId()));
+
+        jobs.issueDueFines();
+
+        verify(violations, org.mockito.Mockito.times(2)).findDueForFine(any(), any(), any(Pageable.class));
+        verify(fineService).issueFine(fineable);
+        verify(violations, org.mockito.Mockito.times(20)).deferFining(any(), eq(NOW.plus(TestFixtures.FINING_RETRY_DELAY)));
+    }
+
+    @Test
+    void sweepStopsWhenAFullBatchMadeNoProgress() {
+        UUID locked = UUID.randomUUID();
+        when(violations.findDueForFine(any(), any(), any(Pageable.class))).thenReturn(java.util.Collections.nCopies(20, locked));
+        when(violations.claimDue(locked, NOW, SEEN_SINCE)).thenReturn(Optional.empty());
 
         jobs.issueDueFines();
 

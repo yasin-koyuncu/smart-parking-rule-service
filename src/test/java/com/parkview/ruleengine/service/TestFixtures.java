@@ -18,6 +18,7 @@ public final class TestFixtures {
 
     public static final String ZONE = "zone-1";
     public static final String PLATE = "ABC123";
+    public static final java.time.Duration FINING_RETRY_DELAY = java.time.Duration.ofMinutes(15);
 
     private TestFixtures() {
     }
@@ -30,7 +31,7 @@ public final class TestFixtures {
     /** The defaults, plus the given fine amounts per currency (SEK keeps its defaults unless it is listed). */
     public static RuleEngineProperties properties(Map<String, Map<ViolationType, BigDecimal>> fineAmounts) {
         return new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30, 5, 5, 10,
-                fineAmounts, 60000, 20, 15, 120, 60000, 30, 5, 15, 600, 6, 60, true);
+                fineAmounts, 60000, 20, 15, 120, 60000, 30, 5, 15, 600, 6, 60, true, FINING_RETRY_DELAY);
     }
 
     public static Polygon rect(double x0, double y0, double x1, double y1) {

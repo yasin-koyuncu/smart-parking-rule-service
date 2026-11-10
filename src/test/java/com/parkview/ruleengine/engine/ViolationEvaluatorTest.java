@@ -54,7 +54,7 @@ class ViolationEvaluatorTest {
 
     private static RuleEngineProperties properties(boolean lookupEnabled) {
         return new RuleEngineProperties(0.85, 0.90, 0.5, 10, 30, 5, 5, 10,
-                java.util.Map.of(), 60000, 20, 15, 120, 60000, 10, 5, 15, 600, 6, 60, lookupEnabled);
+                java.util.Map.of(), 60000, 20, 15, 120, 60000, 10, 5, 15, 600, 6, 60, lookupEnabled, java.time.Duration.ofMinutes(15));
     }
 
     @BeforeEach

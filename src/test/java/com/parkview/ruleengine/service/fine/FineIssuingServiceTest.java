@@ -161,6 +161,8 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         assertThat(fine).isEmpty();
         assertThat(violation.isActive()).isTrue();
         assertThat(violation.getFineId()).isNull();
+        // deferring the retry is the job of the sweep (ViolationJobs), the issuing service only reports "not issued"
+        assertThat(violation.getFiningRetryAt()).isNull();
         verify(fines, never()).save(any(Fine.class));
         verifyNoInteractions(events, evidence);
         assertThat(registry.counter("ruleengine.fines.not_issued", "cause", "no_fine_amount", "currency", "USD", "type", "OVERSTAY").count())
