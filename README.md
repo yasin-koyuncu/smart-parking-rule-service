@@ -68,7 +68,11 @@ Jobs (safe on several instances):
   the grace period, so "grace over" alone must not fine it. Set `fine-freshness-seconds` well above the interval at which
   ingestion re-publishes a persisting violation (about 30 s) plus `touch-interval-seconds`; too low and a car that is still
   there is not fined, too high and a car that left shortly before the grace ended is. A violation that is not fresh stays open
-  until `session.ended` or the stale sweep resolves it.
+  until `session.ended` or the stale sweep resolves it. A violation whose fine cannot be issued (site without a valid currency, no
+  fine amount for its currency and type) gets `fining_retry_at = now + fining-retry-delay` in the claim's transaction and is not a
+  candidate before then (the sweep query takes only `fining_retry_at is null or fining_retry_at <= now`, oldest grace first): such
+  violations cannot starve the others, and the error is logged once per delay. A full batch is followed by the next one in the same
+  run as long as the batch fined or deferred something.
 * stale sweep (`stale-sweep-ms`): resolves violations not re-confirmed for `stale-minutes` as `LEFT`.
   Set `stale-minutes` well above the interval at which ingestion re-publishes a persisting violation.
 * `session.ended` (session-service): the open, not yet fined violations of that plate in that zone are resolved as `LEFT`
@@ -576,6 +580,7 @@ Business settings, Spring property `parkview.rule-engine.*` (set with `SPRING_AP
 | `fine-amounts.<CURRENCY>.<violation-type>` (`no-parking`, `overstay`, `wrong-permit`, `boundary-exceeded`, `wrong-vehicle-type`) | SEK: `900` / `450` / `700` / `900` / `700`, no other currency | fine amounts per ISO 4217 currency. A fine takes the currency of its site (`mapping.v_sites.currency`). A currency listed here replaces the amounts of that currency as a whole; SEK keeps the defaults unless listed. A fine for a currency or a type without an amount is **not issued** (see Operations). An entry that is no ISO 4217 code or no positive amount stops the start |
 | `expire-sweep-ms` / `expire-batch-size` | `60000` / `20` | fine sweep delay and batch size |
 | `stale-minutes` / `stale-sweep-ms` | `15` / `60000` | re-confirmation window (resolve as `LEFT`) and sweep delay |
+| `fining-retry-delay` (`FINING_RETRY_DELAY`) | `PT15M` | how long the fine sweep leaves a violation alone after its fine could not be issued (site without valid currency, no fine amount); a positive duration (`PT15M` or `15m`), otherwise the start fails. The violation is fined at its next retry once the configuration is fixed |
 | `fine-freshness-seconds` | `120` | a violation is fined only if a detection confirmed it within this time when the fine sweep claims it (the vehicle must demonstrably still be there) |
 | `observation-max-age-seconds` | `600` | an observation older than this (event time) is dropped |
 | `refine-block-hours` | `6` | a plate fined for a reason in a zone gets no new violation of that reason there within this time, whatever happens to the spot; `0` turns it off. Product decision: a car that comes back within the window and offends again is not fined again |
@@ -678,10 +683,12 @@ idempotency, voided fines hidden from lists and drivers, audit rows and event pa
   has no row to write to). Nothing is published and nothing is refunded: a person looks at the fine history and refunds or corrects. A
   first payment of another amount or currency still settles an unpaid fine, it is only flagged. Alert on the counter.
 * A fine that cannot be issued stays unissued: the site has no valid currency (`mapping.sites.currency` is not an ISO 4217 code; there is no
-  default currency) or no `fine-amounts` entry exists for the currency and the violation type. The violation stays open, an ERROR with site,
-  currency and type is logged on every sweep, and `ruleengine_fines_not_issued_total{cause=no_site_currency|no_fine_amount,currency,type}`
-  counts it. Alert on the counter and add the amounts (or fix the site). Violations that are not fined fill the head of the sweep batch
-  (oldest grace first, `expire-batch-size`), so fix the configuration promptly.
+  default currency) or no `fine-amounts` entry exists for the currency and the violation type. The violation stays open and
+  `spot_violations.fining_retry_at` is set to now plus `fining-retry-delay` (default 15 minutes), so it is out of the fine sweep until then:
+  an ERROR with site, currency and type is logged once per delay and violation, not once per sweep, and
+  `ruleengine_fines_not_issued_total{cause=no_site_currency|no_fine_amount,currency,type}` counts it per attempt. Other violations are
+  fined meanwhile. Alert on the counter and add the amounts (or fix the site); the violation is fined at its next retry (a fined or
+  resolved violation needs no cleanup of the column).
 * lookup-service down: decisions that need vehicle data are skipped (fail open) and `ruleengine_vehicle_lookups_failed_total`
   rises; after `negative-cache-ttl-seconds` the next observation asks again.
 * Rules are read through a cache: after an operator edit in the UI allow `rule-cache-ttl-seconds` before it is enforced.
