@@ -27,7 +27,7 @@ import java.util.UUID;
 import static com.parkview.ruleengine.controller.WebTestSupport.token;
 import static com.parkview.ruleengine.controller.WebTestSupport.user;
 import static com.parkview.ruleengine.controller.WebTestSupport.userWith;
-import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutFallback;
+import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutClaim;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -141,8 +141,8 @@ class PermitControllerTest {
         when(permitService.get(zonePermit.getId())).thenReturn(zonePermit);
         for (var denied : List.of(userWith("operator", List.of("violation:read", "violation:resolve"), List.of(), List.of("z1")),
                 userWith("operator", List.of(), List.of(), List.of("z1")),
-                userWithoutFallback("operator", List.of(), List.of("z1")),
-                userWithoutFallback("admin", List.of(), List.of()))) {
+                userWithoutClaim("operator", List.of(), List.of("z1")),
+                userWithoutClaim("admin", List.of(), List.of()))) {
             mvc.perform(post("/api/v1/permits").contentType(MediaType.APPLICATION_JSON).content(BODY).with(denied)).andExpect(status().isForbidden());
             mvc.perform(get("/api/v1/permits").with(denied)).andExpect(status().isForbidden());
             mvc.perform(get("/api/v1/permits/{id}", zonePermit.getId()).with(denied)).andExpect(status().isForbidden());
@@ -179,7 +179,7 @@ class PermitControllerTest {
     }
 
     @Test
-    void operatorWithOnlyPermitManageStillGetsTheZoneScopeAndAdminsTheClaimOrFallback() throws Exception {
+    void operatorWithOnlyPermitManageStillGetsTheZoneScopeAndAdminsTheClaim() throws Exception {
         mvc.perform(post("/api/v1/permits").contentType(MediaType.APPLICATION_JSON).content(BODY)
                         .with(userWith("operator", List.of("permit:manage"), List.of(), List.of("z1"))))
                 .andExpect(status().isCreated());
@@ -187,7 +187,7 @@ class PermitControllerTest {
                         .with(userWith("operator", List.of("permit:manage"), List.of(), List.of("z2"))))
                 .andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/permits").contentType(MediaType.APPLICATION_JSON).content(GLOBAL_BODY)
-                        .with(token(false, "admin", List.of("permit:manage"), List.of(), List.of())))
+                        .with(token("admin", List.of("permit:manage"), List.of(), List.of())))
                 .andExpect(status().isCreated());
     }
 

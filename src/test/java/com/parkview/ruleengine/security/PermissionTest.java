@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -29,37 +28,34 @@ class PermissionTest {
         return m;
     }
 
-    private static Set<String> authorities(boolean fallback, Map<String, Object> appMetadata) {
-        return new ParkviewJwtAuthenticationConverter(fallback).convert(jwt(appMetadata)).getAuthorities().stream()
+    private static Set<String> authorities(Map<String, Object> appMetadata) {
+        return new ParkviewJwtAuthenticationConverter().convert(jwt(appMetadata)).getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority).collect(Collectors.toSet());
     }
 
     @Test
     void presentClaimBecomesOneAuthorityPerPermissionNextToTheRole() {
-        assertThat(authorities(true, claims("operator", List.of("zone:write", "zone:read"))))
+        assertThat(authorities(claims("operator", List.of("zone:write", "zone:read"))))
                 .containsExactlyInAnyOrder("ROLE_OPERATOR", "zone:write", "zone:read");
     }
 
     @Test
-    void presentButEmptyClaimMeansNoPermissionsEvenWithFallback() {
-        assertThat(authorities(true, claims("operator", List.of()))).containsExactly("ROLE_OPERATOR");
+    void presentButEmptyClaimMeansNoPermissions() {
+        assertThat(authorities(claims("operator", List.of()))).containsExactly("ROLE_OPERATOR");
     }
 
     @Test
-    void absentClaimFallsBackToTheRoleDefaultsOnlyWhileTheFallbackIsOn() {
-        assertThat(authorities(true, claims("operator", null))).contains("ROLE_OPERATOR", "spot:write", "violation:resolve")
-                .doesNotContain("zone:write", "access:manage", "session:correct", "fine:manage");
-        assertThat(authorities(true, claims("admin", null))).contains("ROLE_ADMIN", "zone:write", "access:manage", "session:correct", "fine:manage");
-        assertThat(authorities(true, claims("driver", null))).containsExactly("ROLE_DRIVER");
-        assertThat(authorities(false, claims("operator", null))).containsExactly("ROLE_OPERATOR");
-        assertThat(authorities(false, claims("admin", null))).containsExactly("ROLE_ADMIN");
+    void absentClaimMeansNoPermissionsWhateverTheRole() {
+        assertThat(authorities(claims("operator", null))).containsExactly("ROLE_OPERATOR");
+        assertThat(authorities(claims("admin", null))).containsExactly("ROLE_ADMIN");
+        assertThat(authorities(claims("driver", null))).containsExactly("ROLE_DRIVER");
     }
 
     @Test
-    void unknownRoleGetsNoFallbackAndMalformedClaimsGrantNothing() {
-        assertThat(authorities(true, claims("hacker", null))).isEmpty();
-        assertThat(authorities(true, claims("operator", "zone:write"))).containsExactly("ROLE_OPERATOR");
-        assertThat(authorities(true, claims("operator", Map.of("zone:write", true)))).containsExactly("ROLE_OPERATOR");
+    void unknownRoleGetsNoAuthorityAndMalformedClaimsGrantNothing() {
+        assertThat(authorities(claims("hacker", null))).isEmpty();
+        assertThat(authorities(claims("operator", "zone:write"))).containsExactly("ROLE_OPERATOR");
+        assertThat(authorities(claims("operator", Map.of("zone:write", true)))).containsExactly("ROLE_OPERATOR");
     }
 
     @Test
@@ -67,7 +63,7 @@ class PermissionTest {
         List<Object> raw = new ArrayList<>(List.of("zone:write", " spot:write ", "ROLE_ADMIN", "SCOPE_x", "", "a:b:c", "Zone:Write"));
         raw.add(null);
         raw.add(42);
-        assertThat(authorities(true, claims("operator", raw))).containsExactlyInAnyOrder("ROLE_OPERATOR", "zone:write", "spot:write");
+        assertThat(authorities(claims("operator", raw))).containsExactlyInAnyOrder("ROLE_OPERATOR", "zone:write", "spot:write");
     }
 
     @Test
@@ -77,10 +73,14 @@ class PermissionTest {
     }
 
     @Test
-    void resolveReturnsTheClaimWhenPresentAndTheDefaultsOtherwise() {
-        assertThat(Permission.resolve(List.of("a:b"), Optional.of(Role.ADMIN), true)).containsExactly("a:b");
-        assertThat(Permission.resolve(null, Optional.of(Role.OPERATOR), true)).isEqualTo(Permission.defaultsFor(Role.OPERATOR));
-        assertThat(Permission.resolve(null, Optional.empty(), true)).isEmpty();
-        assertThat(Permission.resolve(null, Optional.of(Role.OPERATOR), false)).isEmpty();
+    void fromClaimIsEmptyWhenAbsentOrMalformedAndKeepsTheValidNames() {
+        assertThat(Permission.fromClaim(null)).isEmpty();
+        assertThat(Permission.fromClaim("zone:write")).isEmpty();
+        assertThat(Permission.fromClaim(List.of("a:b", "nope"))).containsExactly("a:b");
+    }
+
+    @Test
+    void theCatalogueHoldsTheAccessPermissions() {
+        assertThat(Permission.ALL).contains("zone:write", "access:manage", "role:manage");
     }
 }

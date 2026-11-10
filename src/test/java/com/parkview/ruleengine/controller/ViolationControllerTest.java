@@ -28,7 +28,7 @@ import java.util.UUID;
 import static com.parkview.ruleengine.controller.WebTestSupport.token;
 import static com.parkview.ruleengine.controller.WebTestSupport.user;
 import static com.parkview.ruleengine.controller.WebTestSupport.userWith;
-import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutFallback;
+import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutClaim;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
@@ -196,12 +196,12 @@ class ViolationControllerTest {
         when(violationService.activeByZone(eq("z1"), any())).thenReturn(new PageImpl<>(List.of()));
 
         for (var allowed : List.of(userWith("operator", List.of("violation:read"), List.of(), List.of("z1")), user("operator", List.of(), List.of("z1")),
-                token(false, "admin", List.of("violation:read"), List.of(), List.of()))) {
+                token("admin", List.of("violation:read"), List.of(), List.of()))) {
             mvc.perform(get("/api/v1/violations/zone/z1").with(allowed)).andExpect(status().isOk());
         }
         for (var denied : List.of(userWith("operator", List.of("violation:resolve", "permit:manage"), List.of(), List.of("z1")),
-                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")),
-                userWithoutFallback("admin", List.of(), List.of()), userWith("driver", List.of(), List.of("ABC123"), List.of("z1")))) {
+                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutClaim("operator", List.of(), List.of("z1")),
+                userWithoutClaim("admin", List.of(), List.of()), userWith("driver", List.of(), List.of("ABC123"), List.of("z1")))) {
             mvc.perform(get("/api/v1/violations/zone/z1").with(denied)).andExpect(status().isForbidden());
         }
         // the permission does not widen the zone scope
@@ -217,16 +217,16 @@ class ViolationControllerTest {
 
         mvc.perform(get("/api/v1/violations/plate/XYZ999").with(userWith("operator", List.of("violation:read"), List.of(), List.of("z1"))))
                 .andExpect(status().isOk());
-        mvc.perform(get("/api/v1/violations/plate/XYZ999").with(token(false, "admin", List.of("violation:read"), List.of(), List.of())))
+        mvc.perform(get("/api/v1/violations/plate/XYZ999").with(token("admin", List.of("violation:read"), List.of(), List.of())))
                 .andExpect(status().isOk());
         for (var denied : List.of(userWith("operator", List.of("zone:read", "violation:resolve"), List.of(), List.of("z1")),
-                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")))) {
+                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutClaim("operator", List.of(), List.of("z1")))) {
             mvc.perform(get("/api/v1/violations/plate/XYZ999").with(denied)).andExpect(status().isForbidden());
         }
         // a driver keeps the object-level check: own plates only, with or without a permissions claim
-        mvc.perform(get("/api/v1/violations/plate/XYZ999").with(userWithoutFallback("driver", List.of("ABC123"), List.of())))
+        mvc.perform(get("/api/v1/violations/plate/XYZ999").with(userWithoutClaim("driver", List.of("ABC123"), List.of())))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/violations/plate/ABC123").with(userWithoutFallback("driver", List.of("ABC123"), List.of())))
+        mvc.perform(get("/api/v1/violations/plate/ABC123").with(userWithoutClaim("driver", List.of("ABC123"), List.of())))
                 .andExpect(status().isOk());
     }
 
@@ -238,13 +238,13 @@ class ViolationControllerTest {
                         .with(userWith("operator", List.of("violation:resolve"), List.of(), List.of("z1"))))
                 .andExpect(status().isNoContent());
         mvc.perform(patch("/api/v1/violations/{id}/resolve", violation.getId())
-                        .with(token(false, "admin", List.of("violation:resolve"), List.of(), List.of())))
+                        .with(token("admin", List.of("violation:resolve"), List.of(), List.of())))
                 .andExpect(status().isNoContent());
         verify(violationService, org.mockito.Mockito.times(2)).resolveManually(violation.getId());
 
         for (var denied : List.of(userWith("operator", List.of("violation:read", "zone:read"), List.of(), List.of("z1")),
-                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")),
-                userWithoutFallback("admin", List.of(), List.of()),
+                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutClaim("operator", List.of(), List.of("z1")),
+                userWithoutClaim("admin", List.of(), List.of()),
                 userWith("operator", List.of("violation:resolve"), List.of(), List.of("z2")))) {
             mvc.perform(patch("/api/v1/violations/{id}/resolve", violation.getId()).with(denied)).andExpect(status().isForbidden());
         }

@@ -17,12 +17,14 @@ class SecurityPropertiesTest {
     }
 
     @Test
-    void legacyRoleFallbackIsOffByDefault() {
-        assertThat(bind(Map.of()).legacyRoleFallback()).isFalse();
+    void theJwksUriDefaultsToTheWellKnownPathOfTheIssuer() {
+        assertThat(bind(Map.of()).resolvedJwksUri()).isEqualTo("http://issuer.test/auth/v1/.well-known/jwks.json");
+        assertThat(bind(Map.of("parkview.security.jwks-uri", "http://keys.test/jwks")).resolvedJwksUri()).isEqualTo("http://keys.test/jwks");
     }
 
     @Test
-    void legacyRoleFallbackCanBeSwitchedOn() {
-        assertThat(bind(Map.of("parkview.security.legacy-role-fallback", "true")).legacyRoleFallback()).isTrue();
+    void theInternalApiIsEnabledOnlyWhenAKeyIsSet() {
+        assertThat(bind(Map.of()).internalApiEnabled()).isFalse();
+        assertThat(bind(Map.of("parkview.security.ops-api-key", "k")).internalApiEnabled()).isTrue();
     }
 }

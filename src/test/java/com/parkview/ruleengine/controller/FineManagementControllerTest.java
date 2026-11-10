@@ -40,7 +40,7 @@ import static com.parkview.ruleengine.controller.WebTestSupport.actor;
 import static com.parkview.ruleengine.controller.WebTestSupport.token;
 import static com.parkview.ruleengine.controller.WebTestSupport.user;
 import static com.parkview.ruleengine.controller.WebTestSupport.userWith;
-import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutFallback;
+import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutClaim;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -105,28 +105,28 @@ class FineManagementControllerTest {
 
     private static List<RequestPostProcessor> allowedToManage() {
         return List.of(
-                actor("admin", null, List.of()),
+                actor("admin", List.of()),
                 actor("operator", List.of("fine:manage"), List.of("z1")),
                 actor("operator", List.of("violation:read", "fine:manage"), List.of("z1", "z2")),
-                token(false, "admin", List.of("fine:manage"), List.of(), List.of(), ACTOR_ID));
+                token("admin", List.of("fine:manage"), List.of(), List.of(), ACTOR_ID));
     }
 
     private static List<RequestPostProcessor> notAllowedToManage() {
         return List.of(
-                // an operator holds no fine:manage by default (it is an admin default)
-                actor("operator", null, List.of("z1")),
+                // the operator permissions of the tests hold no fine:manage
+                actor("operator", List.of("z1")),
                 actor("operator", List.of("violation:read", "violation:resolve", "permit:manage"), List.of("z1")),
                 actor("operator", List.of(), List.of("z1")),
                 // fine:manage but not the fine's zone
                 actor("operator", List.of("fine:manage"), List.of("z2")),
                 actor("operator", List.of("fine:manage"), List.of()),
-                // no permissions claim and no fallback
-                token(false, "admin", null, List.of(), List.of(), ACTOR_ID),
-                token(false, "operator", null, List.of(), List.of("z1"), ACTOR_ID),
+                // no permissions claim: no permissions, whatever the role
+                token("admin", null, List.of(), List.of(), ACTOR_ID),
+                token("operator", null, List.of(), List.of("z1"), ACTOR_ID),
                 // drivers and unknown roles never manage fines, whatever the claims say
-                token(true, "driver", List.of("fine:manage"), List.of("ABC123"), List.of("z1"), ACTOR_ID),
+                token("driver", List.of("fine:manage"), List.of("ABC123"), List.of("z1"), ACTOR_ID),
                 user("driver", List.of("ABC123"), List.of()),
-                token(true, "hacker", List.of("fine:manage"), List.of(), List.of("z1"), ACTOR_ID));
+                token("hacker", List.of("fine:manage"), List.of(), List.of("z1"), ACTOR_ID));
     }
 
     // ---- authorization matrix: POST /{id}/void and /{id}/mark-paid ----
@@ -182,7 +182,7 @@ class FineManagementControllerTest {
     void anAdminMayManageAFineOfAnyZone() throws Exception {
         ReflectionTestUtils.setField(fine, "zoneId", "zone-nobody-listed");
 
-        mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(actor("admin", null, List.of()))
+        mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(actor("admin", List.of()))
                         .contentType(MediaType.APPLICATION_JSON).content(VOID_BODY))
                 .andExpect(status().isOk());
     }
@@ -199,7 +199,7 @@ class FineManagementControllerTest {
 
     @Test
     void voidPassesTheTrimmedReasonAndTheTokenSubjectAndReturnsTheFine() throws Exception {
-        mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(actor("admin", null, List.of()))
+        mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(actor("admin", List.of()))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\"  Plate misread  \"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(FINE_ID.toString()))
@@ -215,7 +215,7 @@ class FineManagementControllerTest {
 
     @Test
     void markPaidPassesReasonMethodAndTheTokenSubjectAndReturnsTheFine() throws Exception {
-        mvc.perform(post("/api/v1/fines/{id}/mark-paid", FINE_ID).with(actor("admin", null, List.of()))
+        mvc.perform(post("/api/v1/fines/{id}/mark-paid", FINE_ID).with(actor("admin", List.of()))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"reason\":\" Bank transfer \",\"method\":\"transfer\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.paid").value(true))
@@ -229,7 +229,7 @@ class FineManagementControllerTest {
     @Test
     void everyManualMethodIsAccepted() throws Exception {
         for (String method : List.of("cash", "transfer", "other")) {
-            mvc.perform(post("/api/v1/fines/{id}/mark-paid", FINE_ID).with(actor("admin", null, List.of()))
+            mvc.perform(post("/api/v1/fines/{id}/mark-paid", FINE_ID).with(actor("admin", List.of()))
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{\"reason\":\"Paid by hand\",\"method\":\"" + method + "\"}"))
                     .andExpect(status().isOk());
@@ -243,7 +243,7 @@ class FineManagementControllerTest {
     void unknownFineIsNotFoundForBothCommandsAndTheHistory() throws Exception {
         UUID id = UUID.randomUUID();
         when(fineQuery.get(id)).thenThrow(new ResourceNotFoundException("Fine", id));
-        var admin = actor("admin", null, List.of());
+        var admin = actor("admin", List.of());
 
         mvc.perform(post("/api/v1/fines/{id}/void", id).with(admin).contentType(MediaType.APPLICATION_JSON).content(VOID_BODY))
                 .andExpect(status().isNotFound())
@@ -260,7 +260,7 @@ class FineManagementControllerTest {
         when(fineManagement.voidFine(eq(FINE_ID), anyString(), any())).thenThrow(new ConflictException("A paid fine cannot be voided"));
         when(fineManagement.markPaidManually(eq(FINE_ID), anyString(), any(), any()))
                 .thenThrow(new ConflictException("A voided fine cannot be marked as paid"));
-        var admin = actor("admin", null, List.of());
+        var admin = actor("admin", List.of());
 
         mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(admin).contentType(MediaType.APPLICATION_JSON).content(VOID_BODY))
                 .andExpect(status().isConflict())
@@ -275,7 +275,7 @@ class FineManagementControllerTest {
 
     @Test
     void voidRejectsAnInvalidReason() throws Exception {
-        var admin = actor("admin", null, List.of());
+        var admin = actor("admin", List.of());
         for (String body : List.of("{}", "{\"reason\":null}", "{\"reason\":\"\"}", "{\"reason\":\"   \"}", "{\"reason\":\"ab\"}",
                 "{\"reason\":\"  ab  \"}", "{\"reason\":\"" + "x".repeat(301) + "\"}")) {
             mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(admin).contentType(MediaType.APPLICATION_JSON).content(body))
@@ -291,7 +291,7 @@ class FineManagementControllerTest {
 
     @Test
     void reasonLengthBoundariesAreInclusive() throws Exception {
-        var admin = actor("admin", null, List.of());
+        var admin = actor("admin", List.of());
 
         mvc.perform(post("/api/v1/fines/{id}/void", FINE_ID).with(admin).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"reason\":\"abc\"}"))
@@ -303,7 +303,7 @@ class FineManagementControllerTest {
 
     @Test
     void markPaidRejectsAnInvalidReasonOrMethod() throws Exception {
-        var admin = actor("admin", null, List.of());
+        var admin = actor("admin", List.of());
         for (String body : List.of(
                 "{}", "{\"method\":\"cash\"}", "{\"reason\":\"Paid\"}", "{\"reason\":\"ab\",\"method\":\"cash\"}",
                 "{\"reason\":\"Paid by hand\",\"method\":\"\"}", "{\"reason\":\"Paid by hand\",\"method\":\"card\"}",
@@ -325,14 +325,14 @@ class FineManagementControllerTest {
 
         for (var allowed : List.of(user("operator", List.of(), List.of("z1")), user("admin", List.of(), List.of()),
                 userWith("operator", List.of("violation:read"), List.of(), List.of("z1")),
-                token(false, "admin", List.of("violation:read"), List.of(), List.of()))) {
+                token("admin", List.of("violation:read"), List.of(), List.of()))) {
             mvc.perform(get("/api/v1/fines/{id}/history", FINE_ID).with(allowed))
                     .andExpect(status().isOk())
                     .andExpect(header().string("X-Total-Count", "0"));
         }
         for (var denied : List.of(
                 userWith("operator", List.of("fine:manage", "violation:resolve"), List.of(), List.of("z1")),
-                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")),
+                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutClaim("operator", List.of(), List.of("z1")),
                 userWith("operator", List.of("violation:read"), List.of(), List.of("z2")), user("operator", List.of(), List.of("z2")),
                 user("driver", List.of("ABC123"), List.of("z1")), user("hacker", List.of(), List.of("z1")))) {
             mvc.perform(get("/api/v1/fines/{id}/history", FINE_ID).with(denied))

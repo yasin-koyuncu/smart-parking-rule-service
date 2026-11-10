@@ -111,7 +111,7 @@ class DisputeControllerTest {
     }
 
     private static RequestPostProcessor driver(String... plates) {
-        return token(true, "driver", null, List.of(plates), List.of(), "7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11");
+        return token("driver", null, List.of(plates), List.of(), "7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11");
     }
 
     private static RequestPostProcessor operator(List<String> permissions, String... zones) {
@@ -178,7 +178,7 @@ class DisputeControllerTest {
 
     @Test
     void opening_anAdminMayOpenInAnyZone() throws Exception {
-        mvc.perform(post("/api/v1/fines/{id}/dispute", FINE_ID).with(actor("admin", null, List.of()))
+        mvc.perform(post("/api/v1/fines/{id}/dispute", FINE_ID).with(actor("admin", List.of()))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isCreated());
         verify(disputeService).open(eq(FINE_ID), eq(DisputeChannel.OPERATOR), eq(ACTOR), eq(MESSAGE));
@@ -233,7 +233,7 @@ class DisputeControllerTest {
     @Test
     void opening_anOperatorTokenWhoseSubjectIsNotAUserIdIsForbidden() throws Exception {
         mvc.perform(post("/api/v1/fines/{id}/dispute", FINE_ID)
-                        .with(token(true, "operator", MANAGE, List.of(), List.of("z1"), "not-a-uuid"))
+                        .with(token("operator", MANAGE, List.of(), List.of("z1"), "not-a-uuid"))
                         .contentType(MediaType.APPLICATION_JSON).content(BODY))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(disputeService);
@@ -256,7 +256,7 @@ class DisputeControllerTest {
                 .andExpect(status().isOk());
         mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(operator(READ, "z1")))
                 .andExpect(status().isOk());
-        mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(actor("admin", null, List.of())))
+        mvc.perform(get("/api/v1/fines/{id}/dispute", FINE_ID).with(actor("admin", List.of())))
                 .andExpect(status().isOk());
     }
 
@@ -312,7 +312,7 @@ class DisputeControllerTest {
     void withdraw_anotherDriverGetsA404AndOperatorsAreForbidden() throws Exception {
         mvc.perform(post("/api/v1/disputes/{id}/withdraw", DISPUTE_ID).with(driver("XYZ999"))).andExpect(status().isNotFound());
         mvc.perform(post("/api/v1/disputes/{id}/withdraw", DISPUTE_ID).with(operator(MANAGE, "z1"))).andExpect(status().isForbidden());
-        mvc.perform(post("/api/v1/disputes/{id}/withdraw", DISPUTE_ID).with(actor("admin", null, List.of()))).andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/disputes/{id}/withdraw", DISPUTE_ID).with(actor("admin", List.of()))).andExpect(status().isForbidden());
         verify(disputeService, never()).withdraw(any(), any());
     }
 
@@ -360,7 +360,7 @@ class DisputeControllerTest {
     void list_anAdminSeesEveryZone() throws Exception {
         pageOfOne();
 
-        mvc.perform(get("/api/v1/disputes").param("status", "all").with(actor("admin", null, List.of())))
+        mvc.perform(get("/api/v1/disputes").param("status", "all").with(actor("admin", List.of())))
                 .andExpect(status().isOk());
         verify(disputes).list(eq(DisputeQueryService.Filter.ALL), isNull(), isNull(), any(Pageable.class));
     }
@@ -375,7 +375,7 @@ class DisputeControllerTest {
 
         mvc.perform(get("/api/v1/disputes").param("zoneId", "z2").with(operator(READ, "z1")))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/disputes").param("zoneId", "z2").with(actor("admin", null, List.of())))
+        mvc.perform(get("/api/v1/disputes").param("zoneId", "z2").with(actor("admin", List.of())))
                 .andExpect(status().isOk());
     }
 
@@ -425,7 +425,7 @@ class DisputeControllerTest {
                 .andExpect(jsonPath("$.id").value(DISPUTE_ID.toString()));
         verify(disputeService).decide(DISPUTE_ID, DisputeStatus.VOIDED, ACTOR, NOTE);
 
-        mvc.perform(post("/api/v1/disputes/{id}/decision", DISPUTE_ID).with(actor("admin", null, List.of()))
+        mvc.perform(post("/api/v1/disputes/{id}/decision", DISPUTE_ID).with(actor("admin", List.of()))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"outcome\":\"UPHELD\",\"note\":\"  " + NOTE + "  \"}"))
                 .andExpect(status().isOk());
         verify(disputeService).decide(DISPUTE_ID, DisputeStatus.UPHELD, ACTOR, NOTE);
@@ -473,7 +473,7 @@ class DisputeControllerTest {
     @Test
     void decision_aTokenWhoseSubjectIsNotAUserIdCannotDecide() throws Exception {
         mvc.perform(post("/api/v1/disputes/{id}/decision", DISPUTE_ID)
-                        .with(token(true, "operator", MANAGE, List.of(), List.of("z1"), "not-a-uuid"))
+                        .with(token("operator", MANAGE, List.of(), List.of("z1"), "not-a-uuid"))
                         .contentType(MediaType.APPLICATION_JSON).content(DECISION))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(disputeService);

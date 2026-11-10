@@ -87,7 +87,7 @@ class FineEvidenceControllerTest {
     }
 
     private static RequestPostProcessor driver(String... plates) {
-        return token(true, "driver", null, List.of(plates), List.of(), "7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11");
+        return token("driver", null, List.of(plates), List.of(), "7d0c2a56-6b53-4d4e-9a0c-0f9d1f4f4e11");
     }
 
     private static RequestPostProcessor operator(List<String> permissions, String... zones) {
@@ -137,7 +137,7 @@ class FineEvidenceControllerTest {
         when(fineQuery.get(otherId)).thenReturn(other);
         when(evidence.find(otherId)).thenReturn(Optional.of(FineEvidence.of(other, v, null, null, null, "x", List.of(), List.of(), null)));
 
-        mvc.perform(get("/api/v1/fines/{id}/evidence", otherId).with(actor("admin", null, List.of())))
+        mvc.perform(get("/api/v1/fines/{id}/evidence", otherId).with(actor("admin", List.of())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.minConfidence").value(nullValue()))
                 .andExpect(jsonPath("$.imagePaths").isEmpty());
@@ -202,7 +202,7 @@ class FineEvidenceControllerTest {
     void explanation_operatorsOfTheZoneWithViolationReadAndAdminsSeeTheSame() throws Exception {
         mvc.perform(get("/api/v1/fines/{id}/explanation", FINE_ID).with(operator(List.of("violation:read"), "z1")))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.imagePaths").doesNotExist());
-        mvc.perform(get("/api/v1/fines/{id}/explanation", FINE_ID).with(actor("admin", null, List.of())))
+        mvc.perform(get("/api/v1/fines/{id}/explanation", FINE_ID).with(actor("admin", List.of())))
                 .andExpect(status().isOk());
     }
 

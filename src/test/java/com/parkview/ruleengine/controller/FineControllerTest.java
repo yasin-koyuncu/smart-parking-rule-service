@@ -33,7 +33,7 @@ import java.util.UUID;
 import static com.parkview.ruleengine.controller.WebTestSupport.token;
 import static com.parkview.ruleengine.controller.WebTestSupport.user;
 import static com.parkview.ruleengine.controller.WebTestSupport.userWith;
-import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutFallback;
+import static com.parkview.ruleengine.controller.WebTestSupport.userWithoutClaim;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -167,7 +167,7 @@ class FineControllerTest {
         mvc.perform(get("/api/v1/fines/plate/XYZ999").with(user("driver", List.of("ABC123"), List.of())))
                 .andExpect(status().isForbidden())
                 .andExpect(content().contentTypeCompatibleWith("application/problem+json"));
-        mvc.perform(get("/api/v1/fines/plate/XYZ999").with(userWithoutFallback("driver", List.of("ABC123"), List.of())))
+        mvc.perform(get("/api/v1/fines/plate/XYZ999").with(userWithoutClaim("driver", List.of("ABC123"), List.of())))
                 .andExpect(status().isForbidden());
         verify(fineService, never()).byPlate(eq("XYZ999"), eq(false), any());
     }
@@ -177,7 +177,7 @@ class FineControllerTest {
         when(fineService.byPlate(eq("XYZ999"), eq(false), any())).thenReturn(page());
         when(fineService.byPlateInSites(eq("XYZ999"), eq(false), eq(List.of("z1")), any())).thenReturn(page());
 
-        for (var allowed : List.of(user("admin", List.of(), List.of()), token(false, "admin", List.of("violation:read"), List.of(), List.of()))) {
+        for (var allowed : List.of(user("admin", List.of(), List.of()), token("admin", List.of("violation:read"), List.of(), List.of()))) {
             mvc.perform(get("/api/v1/fines/plate/XYZ999").with(allowed)).andExpect(status().isOk());
         }
         for (var allowed : List.of(user("operator", List.of(), List.of("z1")),
@@ -226,8 +226,8 @@ class FineControllerTest {
     @Test
     void staffWithoutViolationReadAndUnknownRolesAreForbiddenOnThePlateList() throws Exception {
         for (var denied : List.of(userWith("operator", List.of("zone:read", "violation:resolve"), List.of(), List.of("z1")),
-                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")),
-                userWithoutFallback("admin", List.of(), List.of()), user("hacker", List.of("ABC123"), List.of()))) {
+                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutClaim("operator", List.of(), List.of("z1")),
+                userWithoutClaim("admin", List.of(), List.of()), user("hacker", List.of("ABC123"), List.of()))) {
             mvc.perform(get("/api/v1/fines/plate/ABC123").with(denied)).andExpect(status().isForbidden());
         }
         verify(fineService, never()).byPlate(any(), anyBoolean(), any());
@@ -337,14 +337,14 @@ class FineControllerTest {
 
         for (var allowed : List.of(user("operator", List.of(), List.of("z1")), user("admin", List.of(), List.of()),
                 userWith("operator", List.of("violation:read"), List.of(), List.of("z1")),
-                token(false, "admin", List.of("violation:read"), List.of(), List.of()))) {
+                token("admin", List.of("violation:read"), List.of(), List.of()))) {
             mvc.perform(get("/api/v1/fines/zone/z1").with(allowed))
                     .andExpect(status().isOk())
                     .andExpect(header().string("X-Total-Count", "1"));
         }
         for (var denied : List.of(userWith("operator", List.of("violation:resolve", "permit:manage"), List.of(), List.of("z1")),
-                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutFallback("operator", List.of(), List.of("z1")),
-                userWithoutFallback("admin", List.of(), List.of()),
+                userWith("operator", List.of(), List.of(), List.of("z1")), userWithoutClaim("operator", List.of(), List.of("z1")),
+                userWithoutClaim("admin", List.of(), List.of()),
                 user("driver", List.of("ABC123"), List.of("z1")))) {
             mvc.perform(get("/api/v1/fines/zone/z1").with(denied))
                     .andExpect(status().isForbidden())
@@ -406,7 +406,7 @@ class FineControllerTest {
         mvc.perform(get("/api/v1/fines/{id}", fine.getId())
                         .with(userWith("operator", List.of("violation:resolve"), List.of(), List.of("z1"))))
                 .andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/fines/{id}", fine.getId()).with(userWithoutFallback("operator", List.of(), List.of("z1"))))
+        mvc.perform(get("/api/v1/fines/{id}", fine.getId()).with(userWithoutClaim("operator", List.of(), List.of("z1"))))
                 .andExpect(status().isForbidden());
     }
 
