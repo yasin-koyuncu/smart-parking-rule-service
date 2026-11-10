@@ -179,6 +179,8 @@ create table spot_violations (
   session_id        uuid,
   notified_at       timestamptz,
   rule_summary      text,
+  -- set by the fine sweep when the fine cannot be issued (no site currency, no amount): not tried again before this time
+  fining_retry_at   timestamptz,
   created_at        timestamptz not null default now(),
   constraint spot_violations_violation_type_check
     check (violation_type in ('WRONG_PERMIT','BOUNDARY_EXCEEDED','OVERSTAY','NO_PARKING','WRONG_VEHICLE_TYPE')),
