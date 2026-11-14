@@ -1,9 +1,9 @@
 package com.parkview.ruleengine.messaging;
 
+import com.parkview.platform.security.Plates;
 import com.parkview.ruleengine.config.RabbitConfig;
 import com.parkview.ruleengine.dto.event.SessionEndedEvent;
 import com.parkview.ruleengine.service.violation.ViolationService;
-import com.parkview.ruleengine.util.Plates;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,7 +24,7 @@ public class SessionEventListener {
 
     @RabbitListener(queues = RabbitConfig.SESSION_ENDED_QUEUE)
     public void onSessionEnded(@Payload @Valid SessionEndedEvent event) {
-        String plate = Plates.normalize(event.plate());
+        String plate = Plates.normalizeOrNull(event.plate());
         if (plate == null) {
             return;
         }

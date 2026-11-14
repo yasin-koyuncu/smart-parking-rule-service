@@ -1,10 +1,10 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.platform.security.Plates;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.PlatePermit;
 import com.parkview.ruleengine.dto.request.CreatePermitRequest;
 import com.parkview.ruleengine.repository.PlatePermitRepository;
-import com.parkview.ruleengine.util.Plates;
 import com.parkview.ruleengine.util.ZoneIds;
 import com.parkview.platform.web.BusinessRuleException;
 import com.parkview.platform.web.ResourceNotFoundException;
@@ -81,7 +81,7 @@ public class PermitService {
 
     @Transactional
     public PlatePermit grant(CreatePermitRequest request, String createdBy) {
-        String plate = Plates.normalize(request.plate());
+        String plate = Plates.normalizeOrNull(request.plate());
         if (plate == null) {
             throw BusinessRuleException.coded("permit.plateEmpty", "Plate must not be empty");
         }
@@ -108,7 +108,7 @@ public class PermitService {
     public Page<PlatePermit> search(String plate, String siteId, String zoneId, Collection<String> visibleSites, Pageable pageable) {
         Specification<PlatePermit> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            String normalized = Plates.normalize(plate);
+            String normalized = Plates.normalizeOrNull(plate);
             if (normalized != null) {
                 predicates.add(cb.equal(root.get("plate"), normalized));
             }

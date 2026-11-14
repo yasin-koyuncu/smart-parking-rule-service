@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.platform.security.Plates;
 import com.parkview.ruleengine.domain.type.ResolutionReason;
 import com.parkview.ruleengine.domain.type.VehicleClass;
 import com.parkview.ruleengine.domain.type.ViolationType;
@@ -13,7 +14,6 @@ import com.parkview.ruleengine.geometry.Polygon;
 import com.parkview.ruleengine.config.RuleEngineProperties;
 import com.parkview.ruleengine.service.cache.RuleCacheService;
 import com.parkview.ruleengine.service.cache.SpotCacheService;
-import com.parkview.ruleengine.util.Plates;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -68,7 +68,7 @@ public class DetectionService {
             log.warn("Observation from camera {} names no known site or zone: ignored", event.cameraId());
             return;
         }
-        String plate = Plates.normalize(event.plate());
+        String plate = Plates.normalizeOrNull(event.plate());
         if (plate == null) {
             log.debug("Observation at site {} without a plate: ignored", siteId);
             return;

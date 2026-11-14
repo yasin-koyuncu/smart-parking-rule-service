@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.engine;
 
+import com.parkview.platform.security.Plates;
 import com.parkview.ruleengine.client.ActiveSessionDirectory;
 import com.parkview.ruleengine.client.VehicleDirectory;
 import com.parkview.ruleengine.config.RuleEngineProperties;
@@ -8,7 +9,6 @@ import com.parkview.ruleengine.domain.value.ParkingSpot;
 import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.domain.value.ZoneRule;
 import com.parkview.ruleengine.service.violation.PermitService;
-import com.parkview.ruleengine.util.Plates;
 import com.parkview.ruleengine.service.cache.RuleCacheService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

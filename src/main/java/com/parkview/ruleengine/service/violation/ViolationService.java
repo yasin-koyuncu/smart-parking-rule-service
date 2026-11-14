@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.violation;
 
+import com.parkview.platform.security.Plates;
 import com.parkview.ruleengine.client.ActiveSessionDirectory;
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
 import com.parkview.ruleengine.client.SiteDirectory;
@@ -16,7 +17,6 @@ import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.service.outbox.OutboxService;
-import com.parkview.ruleengine.util.Plates;
 import com.parkview.platform.web.ConflictException;
 import com.parkview.platform.web.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;

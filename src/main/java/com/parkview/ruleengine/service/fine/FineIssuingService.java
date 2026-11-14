@@ -1,5 +1,6 @@
 package com.parkview.ruleengine.service.fine;
 
+import com.parkview.platform.security.Plates;
 import com.parkview.ruleengine.client.PlateOwnerDirectory;
 import com.parkview.ruleengine.client.SiteDirectory;
 import com.parkview.ruleengine.config.RuleEngineProperties;
@@ -7,7 +8,6 @@ import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.repository.FineRepository;
-import com.parkview.ruleengine.util.Plates;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

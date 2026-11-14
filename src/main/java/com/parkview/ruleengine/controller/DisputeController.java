@@ -176,11 +176,7 @@ public class DisputeController {
 
     /** The token subject as a user id, or null when it is not a UUID (Supabase always issues one). */
     private static UUID uuidOf(AuthenticatedUser user) {
-        try {
-            return UUID.fromString(user.userId());
-        } catch (IllegalArgumentException | NullPointerException e) {
-            return null;
-        }
+        return user.userUuid().orElse(null);
     }
 
     /** The audit trail records who acted: the token subject, which Supabase always issues as a UUID. */

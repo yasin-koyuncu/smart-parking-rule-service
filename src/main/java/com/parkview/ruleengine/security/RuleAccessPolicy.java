@@ -7,8 +7,6 @@ import com.parkview.platform.security.servlet.AuthenticatedUser;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -67,11 +65,5 @@ public class RuleAccessPolicy extends AccessPolicy {
      */
     public boolean canAccessPlate(AuthenticatedUser user, String plate) {
         return canAccessPlate(user, plate, () -> plateDirectory.platesOf(user.userId()));
-    }
-
-    /** Whether the caller holds the permission (a granted authority named exactly like it, e.g. {@code violation:read}). */
-    public boolean hasAuthority(String authority) {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        return auth != null && auth.getAuthorities().stream().anyMatch(a -> authority.equals(a.getAuthority()));
     }
 }

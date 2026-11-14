@@ -1,11 +1,11 @@
 package com.parkview.ruleengine.controller;
 
+import com.parkview.platform.security.Plates;
 import com.parkview.ruleengine.dto.response.ViolationResponse;
 import com.parkview.ruleengine.mapper.ViolationMapper;
 import com.parkview.ruleengine.security.RuleAccessPolicy;
 import com.parkview.platform.security.servlet.AuthenticatedUser;
 import com.parkview.platform.security.servlet.CurrentUser;
-import com.parkview.ruleengine.util.Plates;
 import com.parkview.ruleengine.service.violation.ViolationService;
 import com.parkview.platform.web.PagedResponses;
 import io.swagger.v3.oas.annotations.Operation;
@@ -87,9 +87,9 @@ public class ViolationController {
             @Parameter(description = "Page size, at most 500") @RequestParam(defaultValue = "100") int size) {
         AuthenticatedUser user = currentUser.require();
         accessPolicy.requirePlate(user, plate);
-        String normalized = Plates.normalize(plate);
+        String normalized = Plates.normalizeOrNull(plate);
         var pageable = PagedResponses.pageable(page, size, NEWEST_FIRST);
-        boolean withImagePath = accessPolicy.hasAuthority(EVIDENCE_PERMISSION);
+        boolean withImagePath = currentUser.hasAuthority(EVIDENCE_PERMISSION);
         List<String> sites = accessPolicy.siteScopeOf(user).orElse(null);
         return PagedResponses.of((sites != null
                 ? violationService.byPlateInSites(normalized, sites, pageable)
