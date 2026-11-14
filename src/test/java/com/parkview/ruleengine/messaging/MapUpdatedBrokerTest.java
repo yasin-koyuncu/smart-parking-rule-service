@@ -12,10 +12,12 @@ import org.testcontainers.containers.RabbitMQContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * {@code map.updated} against a real broker: the event reaches the listener of this instance through its own queue and
@@ -58,10 +60,7 @@ class MapUpdatedBrokerTest {
         rabbit.convertAndSend("parkview.mapping", "map.updated", Map.of("zoneId", zone, "versionNumber", 2,
                 "spotCount", 1, "changeReason", "test", "timestamp", System.currentTimeMillis()));
 
-        long deadline = System.currentTimeMillis() + 10_000;
-        while (System.currentTimeMillis() < deadline && "A1".equals(cache.spotsOf(zone).get(0).spotNumber())) {
-            Thread.sleep(100);
-        }
-        assertThat(cache.spotsOf(zone)).extracting("spotNumber").containsExactly("B2");
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                assertThat(cache.spotsOf(zone)).extracting("spotNumber").containsExactly("B2"));
     }
 }
