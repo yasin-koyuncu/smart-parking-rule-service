@@ -267,7 +267,7 @@ class DisputeServiceTest extends FineServiceTestBase {
         assertThat(entry.getActorId()).isEqualTo(ACTOR);
         assertThat(entry.getReason()).isEqualTo(NOTE);
         assertThat(((FineDisputeDecidedEvent) publishedPayload("fine.dispute.decided")).outcome()).isEqualTo("upheld");
-        verify(events, never()).enqueue(any(), any(), any(), eq("fine.voided"), any());
+        verify(events, never()).enqueue(any(), any(UUID.class), any(), eq("fine.voided"), any());
     }
 
     @Test
@@ -377,7 +377,7 @@ class DisputeServiceTest extends FineServiceTestBase {
         service.decide(dispute.getId(), DisputeStatus.UPHELD, ACTOR, NOTE);
 
         assertThat(((FineDisputeDecidedEvent) publishedPayload("fine.dispute.decided")).userId()).isNull();
-        verify(events, never()).enqueue(any(), any(), any(), eq("fine.voided"), any());
+        verify(events, never()).enqueue(any(), any(UUID.class), any(), eq("fine.voided"), any());
     }
 
     // ---- logging ----

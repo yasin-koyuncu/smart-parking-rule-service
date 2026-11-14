@@ -13,10 +13,12 @@ import com.parkview.ruleengine.domain.value.ParkingSpot;
 import com.parkview.ruleengine.repository.ViolationRepository;
 import com.parkview.ruleengine.service.TestFixtures;
 import com.parkview.ruleengine.service.cache.SpotCacheService;
-import com.parkview.ruleengine.service.outbox.OutboxService;
+import com.parkview.platform.outbox.OutboxAutoConfiguration;
+import com.parkview.platform.outbox.OutboxService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -54,10 +56,11 @@ import static org.mockito.Mockito.when;
  * not at all, and every event of the service goes through the outbox (nothing is sent without a transaction).
  */
 @Testcontainers
-@DataJpaTest
+@DataJpaTest(properties = "parkview.outbox.relay-enabled=false")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({FineIssuingService.class, FineEvidenceService.class, FineEvents.class, OutboxService.class, JacksonAutoConfiguration.class,
+@ImportAutoConfiguration(OutboxAutoConfiguration.class)   // the library's OutboxService, entity and repository; no relay in this test
+@Import({FineIssuingService.class, FineEvidenceService.class, FineEvents.class, JacksonAutoConfiguration.class,
         FineIssuingTransactionTest.Config.class})
 class FineIssuingTransactionTest {
 

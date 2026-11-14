@@ -13,7 +13,7 @@ import com.parkview.ruleengine.dto.event.FineDisputedEvent;
 import com.parkview.ruleengine.dto.event.FineIssuedEvent;
 import com.parkview.ruleengine.dto.event.FinePaidEvent;
 import com.parkview.ruleengine.dto.event.FineVoidedEvent;
-import com.parkview.ruleengine.service.outbox.OutboxService;
+import com.parkview.platform.outbox.OutboxService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +29,9 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 class FineEvents {
+
+    /** Aggregate type of the events of a fine in the outbox: they are published in the order they were written. */
+    static final String AGGREGATE_FINE = "fine";
 
     private final OutboxService outbox;
     private final ZoneDirectory zones;
@@ -69,6 +72,6 @@ class FineEvents {
     }
 
     private void publish(UUID fineId, String routingKey, Object payload) {
-        outbox.enqueue(OutboxService.AGGREGATE_FINE, fineId, RabbitConfig.VIOLATION_EXCHANGE, routingKey, payload);
+        outbox.enqueue(AGGREGATE_FINE, fineId, RabbitConfig.VIOLATION_EXCHANGE, routingKey, payload);
     }
 }

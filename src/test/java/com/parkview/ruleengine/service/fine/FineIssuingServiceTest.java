@@ -7,7 +7,7 @@ import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.dto.event.FineIssuedEvent;
 import com.parkview.ruleengine.service.TestFixtures;
-import com.parkview.ruleengine.service.outbox.OutboxService;
+import com.parkview.platform.outbox.OutboxService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -65,7 +65,7 @@ class FineIssuingServiceTest extends FineServiceTestBase {
         assertThat(fine.getUserId()).isEqualTo(owner);
 
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-        verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), eq(fine.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.issued"),
+        verify(events).enqueue(eq(FineEvents.AGGREGATE_FINE), eq(fine.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.issued"),
                 payload.capture());
         FineIssuedEvent event = (FineIssuedEvent) payload.getValue();
         assertThat(event.fineId()).isEqualTo(fine.getId());
@@ -92,7 +92,7 @@ class FineIssuingServiceTest extends FineServiceTestBase {
 
         assertThat(fine.getSessionId()).isEqualTo(sessionId);
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-        verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), eq(fine.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.issued"),
+        verify(events).enqueue(eq(FineEvents.AGGREGATE_FINE), eq(fine.getId()), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.issued"),
                 payload.capture());
         assertThat(((FineIssuedEvent) payload.getValue()).sessionId()).isEqualTo(sessionId);
     }
@@ -105,7 +105,7 @@ class FineIssuingServiceTest extends FineServiceTestBase {
 
         InOrder order = inOrder(evidence, events);
         order.verify(evidence).record(fine, violation);
-        order.verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), eq(fine.getId()), any(), eq("fine.issued"), any());
+        order.verify(events).enqueue(eq(FineEvents.AGGREGATE_FINE), eq(fine.getId()), any(), eq("fine.issued"), any());
     }
 
     @Test

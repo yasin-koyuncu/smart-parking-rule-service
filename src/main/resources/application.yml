@@ -71,6 +71,8 @@ parkview:
     # issuer, audience and the keys come from the platform defaults (SUPABASE_URL, INTERNAL_API_KEY - callers hold it as RULE_INTERNAL_API_KEY -,
     # INTERNAL_API_KEY_PREVIOUS, OPS_API_KEY for the non-health actuator and the retention endpoints)
     public-paths: []
+  # the transactional outbox (entity, relay, clean-up, metrics rule.outbox.*, x-source rule-service) comes from parkview-platform (parkview-outbox);
+  # source and metrics-prefix default from spring.application.name (rule-service gives rule-service and rule), the other keys keep the library defaults
   outbox:
     unroutable-retry-window: ${OUTBOX_UNROUTABLE_RETRY_WINDOW:PT5M}   # an unroutable event is retried this long (consumer queue not declared yet), then parked
   rule-engine:

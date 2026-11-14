@@ -16,7 +16,7 @@ import com.parkview.ruleengine.dto.event.ViolationResolvedEvent;
 import com.parkview.ruleengine.engine.EngineMetrics;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.repository.ViolationRepository;
-import com.parkview.ruleengine.service.outbox.OutboxService;
+import com.parkview.platform.outbox.OutboxService;
 import com.parkview.platform.web.ConflictException;
 import com.parkview.platform.web.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +49,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ViolationService {
+
+    /** Aggregate type of the events of a violation in the outbox: they are published in the order they were written. */
+    static final String AGGREGATE_VIOLATION = "violation";
 
     private static final int STALE_BATCH = 200;
 
@@ -139,7 +142,7 @@ public class ViolationService {
                 now.plus(Duration.ofMinutes(graceMinutes)), ruleSummary, sessionId));
 
         String zoneAddress = spot.zoneId() == null ? null : zones.addressOf(spot.zoneId()).orElse(null);
-        outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
+        outbox.enqueue(AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
                 RabbitConfig.VIOLATION_CREATED_KEY, new ViolationCreatedEvent(violation.getId(), plate, spot.zoneId(), zoneAddress,
                         spot.siteId(), sites.addressOf(spot.siteId()).orElse(null), cameraId, owner, spot.id(),
                         spot.spotNumber(), type, graceMinutes, now.toEpochMilli(), sessionId));
@@ -257,7 +260,7 @@ public class ViolationService {
         return Boolean.TRUE.equals(tx.execute(status -> {
             Instant now = clock.instant();
             if (violations.resolveIfActive(violation.getId(), reason, now) == 1) {
-                outbox.enqueue(OutboxService.AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
+                outbox.enqueue(AGGREGATE_VIOLATION, violation.getId(), RabbitConfig.VIOLATION_EXCHANGE,
                         RabbitConfig.VIOLATION_RESOLVED_KEY, new ViolationResolvedEvent(violation.getId(),
                                 violation.getPlate(), violation.getZoneId(), violation.getSiteId(), reason, now));
                 log.info("Violation {} resolved ({})", violation.getId(), reason);

@@ -35,6 +35,11 @@
             <groupId>com.parkview.platform</groupId>
             <artifactId>parkview-service-starter</artifactId>
         </dependency>
+        <!-- transactional outbox: entity, repository, OutboxService, scheduled relay with publisher confirms, clean-up, metrics -->
+        <dependency>
+            <groupId>com.parkview.platform</groupId>
+            <artifactId>parkview-outbox</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>

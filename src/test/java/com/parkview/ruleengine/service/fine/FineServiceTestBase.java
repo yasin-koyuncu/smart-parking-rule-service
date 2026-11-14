@@ -12,7 +12,7 @@ import com.parkview.ruleengine.repository.DisputeRepository;
 import com.parkview.ruleengine.repository.FineActionRepository;
 import com.parkview.ruleengine.repository.FineRepository;
 import com.parkview.ruleengine.service.TestFixtures;
-import com.parkview.ruleengine.service.outbox.OutboxService;
+import com.parkview.platform.outbox.OutboxService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
@@ -83,7 +83,7 @@ abstract class FineServiceTestBase {
 
     protected Object publishedPayload(String routingKey) {
         ArgumentCaptor<Object> payload = ArgumentCaptor.forClass(Object.class);
-        verify(events).enqueue(eq(OutboxService.AGGREGATE_FINE), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE), eq(routingKey),
+        verify(events).enqueue(eq(FineEvents.AGGREGATE_FINE), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE), eq(routingKey),
                 payload.capture());
         return payload.getValue();
     }

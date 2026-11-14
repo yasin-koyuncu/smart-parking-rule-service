@@ -141,7 +141,7 @@ Package-by-layer under `com.parkview.ruleengine`; a call goes `controller`/`mess
 | Use cases | `service` | One class per use case area (below) |
 | Rules | `engine` | `ViolationEvaluator` (decision order), `RuleResolver`, `RuleSchedule`, `VehicleContext`; no I/O except the ports |
 | Domain | `domain`, `geometry` | Entities with their own state transitions (`Fine.markPaid`, `Fine.voidFine`, `Violation`) in `domain`; `domain/type` (enums), `domain/converter` (JPA converters), `domain/value` (read-only values such as `ParkingSpot`, `ZoneInfo`); `RuleEngineProperties.fineAmountFor(currency, type)` / `graceMinutesFor` hold the amount and grace rules. `geometry/PolygonGeometry` answers how much two polygons overlap (area, intersection, IoU, containment) with JTS, the standard Java geometry library |
-| Services by area | `service/fine` (fines, evidence, disputes: a dispute belongs to a fine and the two call each other), `service/violation` (violation lifecycle, detection, boundary and permit checks), `service/outbox` (outbox, relay, cleanup), `service/cache` | One package per area; `util` holds the small static helpers (`Plates`, `ZoneIds`, `ReasonTexts`); `client/jpa`, `client/http`, `client/holiday` hold the adapters behind the ports in `client/` |
+| Services by area | `service/fine` (fines, evidence, disputes: a dispute belongs to a fine and the two call each other), `service/violation` (violation lifecycle, detection, boundary and permit checks), `service/cache` | One package per area; `util` holds the small static helpers (`Plates`, `ZoneIds`, `ReasonTexts`); `client/jpa`, `client/http`, `client/holiday` hold the adapters behind the ports in `client/` |
 | Ports | `client` | `*Directory` interfaces and their adapters (`Jpa...` for tables of other services, `HttpVehicleDirectory`, `JollydayHolidayCalendar`) |
 | Mapping | `mapper` | Pure entity to DTO functions |
 
@@ -151,7 +151,7 @@ Services:
 * `ViolationService`: violation lifecycle (open, confirm, resolve). `ViolationJobs`: the two sweeps.
 * `FineIssuingService`: creates the fine of a due violation and freezes its evidence (inside the sweep transaction). `FineEvidenceService`: writes and reads the frozen evidence, builds the driver's explanation. `FineManagementService`: operator void and mark-paid. `FineSettlementService`: online payment. `FineQueryService`: reads, audit trail and the dispute state of fines. `FineEvents`: payload and routing key of the fine events.
 * `DisputeService`: open, withdraw and decide a dispute (the void of a decision goes through `FineManagementService.voidFine`). `DisputeCloser`: the one place that ends a dispute (status, audit row, `fine.dispute.decided`). `DisputeQueryService`: reads and the operator list.
-* `OutboxService`: writes an event to the outbox (refuses to run without a transaction). `OutboxRelay` / `OutboxCleanup`: publish the rows, remove old ones.
+* The outbox (`OutboxService`, relay, clean-up, entity) is the `parkview-outbox` module of `parkview-platform`; this service only has `FineEvents` (payloads and routing keys of the fine events) and calls `OutboxService.enqueue` in `ViolationService`.
 * `RetentionJob`, `RuleRetention`, `PostgresRetentionLock` (package `service.retention`): the data-retention job, its batch work and its advisory lock, see "Data retention".
 * `PermitService`: permits (the engine question `holdsAll` and operator CRUD). `Plates`, `ZoneIds`: normal forms of ids from requests.
 
@@ -423,7 +423,7 @@ and when the system upholds it because the fine was paid). None carries free tex
 ## Transactional outbox
 
 Every event this service publishes (`violation.created`, `violation.resolved`, `fine.issued`, `fine.paid`, `fine.voided`, `fine.disputed`, `fine.dispute.decided`) is a row in `outbox_events`, written by
-`OutboxService` in the same transaction as the state change (it refuses to run without one: a rollback leaves no event, a commit never loses one). The table, its columns and the relay are the same in every
+`OutboxService` of `parkview-outbox` in the same transaction as the state change (it refuses to run without one: a rollback leaves no event, a commit never loses one). The table, its columns and the relay are the same in every
 service that publishes events (platform standards, "Transactional outbox"); the table lives in this service's schema, so no other relay sees it. `OutboxRelay` (scheduled every `relay-interval`) claims due rows with `FOR UPDATE SKIP LOCKED`, sends them
 with publisher confirms and marks them published after the ack; consumers get what they got before: persistent JSON message, the row id as `messageId` (idempotency key), headers `x-event-type`, `x-source`
 (`rule-service`) and, when a request caused the event, `x-request-id` (the former `__TypeId__` header is gone, consumers infer the type from their listener).
@@ -572,7 +572,7 @@ Everything the platform starter defaults (`DB_POOL_SIZE`, `DOCS_ENABLED`, `TRACI
 locale, the `parkview.security.*` mapping of the variables above ...) is documented in the README of `parkview-service-starter` and can be overridden here or
 in the environment.
 
-Transactional outbox, Spring property `parkview.outbox.*` (set with `SPRING_APPLICATION_JSON` or the matching `PARKVIEW_OUTBOX_*` variables):
+Transactional outbox, Spring property `parkview.outbox.*`: the outbox comes from `parkview-platform` (`parkview-outbox`), see its README for all keys, defaults and metrics (`rule.outbox.*`: the prefix and `x-source` = `rule-service` default from `spring.application.name`). This service only sets `unroutable-retry-window` in `application.yml`; the others can be overridden with `SPRING_APPLICATION_JSON` or the matching `PARKVIEW_OUTBOX_*` variables:
 
 | Property | Default | Description |
 |---|---|---|
@@ -675,8 +675,7 @@ Evidence and disputes: `FineEvidenceServiceTest` (what is frozen, snapshots, fal
 rejects UPDATE and DELETE, the entity cannot change a row, no update/delete API), `FineIssuingTransactionTest` (fine, evidence and outbox row commit together, a rollback leaves none), `DisputeServiceTest`
 (rules, audit rows, events, void through the existing logic, payment hold, system upheld after a race, nothing logged), `DisputeRepositoryTest` (unique open index, constraints, latest status, list queries),
 `DisputeControllerTest` and `FineEvidenceControllerTest` (anonymous 401, other plate / other zone 404, missing permission 403, admin, validation 400, state errors 409, shapes, no snapshots in the explanation).
-Outbox: `OutboxRelayTest` (confirms, back-off, unroutable, order), `OutboxServiceTest` (bytes identical to the former direct publish), `OutboxEventRepositoryTest` (claim order, per-aggregate ordering, SKIP LOCKED
-with two sessions, clean-up), `OutboxRelayBrokerTest` and `RuleServiceFlowTest` (real RabbitMQ).
+Outbox: relay, claim query, clean-up and the broker behaviour are tested in `parkview-outbox` (`parkview-platform`); here `FineEventPayloadTest` (payload bytes identical to the former direct publish) and `RuleServiceFlowTest` (real RabbitMQ).
 The `fine:read` / `fine:manage` / `permit:read` / `permit:manage` / `violation:read` / zone matrices (admin, operator with and without the permission, other zone, driver, anonymous), body validation, the 409 cases,
 idempotency, voided fines hidden from lists and drivers, audit rows and event payloads are covered in `FineControllerTest`, `FineManagementControllerTest`, `FineManagementServiceTest`, `FineSettlementServiceTest` and `FineIssuingServiceTest`.
 

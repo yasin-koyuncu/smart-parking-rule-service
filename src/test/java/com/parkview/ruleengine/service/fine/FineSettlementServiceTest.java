@@ -63,7 +63,7 @@ class FineSettlementServiceTest extends FineServiceTestBase {
 
         assertThat(fine.isPaid()).isTrue();
         verify(actions, times(1)).save(any(FineAction.class));
-        verify(events, times(1)).enqueue(any(), any(), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.paid"), any());
+        verify(events, times(1)).enqueue(any(), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.paid"), any());
     }
 
     @Test
@@ -156,7 +156,7 @@ class FineSettlementServiceTest extends FineServiceTestBase {
         service.markPaidOnline(fine.getId(), "pay-1", new BigDecimal("450.00"), "SEK");
 
         assertThat(fine.isPaid()).isTrue();
-        verify(events, times(1)).enqueue(any(), any(), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.paid"), any());
+        verify(events, times(1)).enqueue(any(), any(UUID.class), eq(RabbitConfig.VIOLATION_EXCHANGE), eq("fine.paid"), any());
         org.mockito.ArgumentCaptor<FineAction> saved = org.mockito.ArgumentCaptor.forClass(FineAction.class);
         verify(actions, times(2)).save(saved.capture());
         assertThat(saved.getAllValues()).extracting(FineAction::getAction).containsExactly("paid_online", "payment_needs_review");
