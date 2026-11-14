@@ -7,15 +7,12 @@ import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.client.ZoneDirectory;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.CurrentUser;
-import com.parkview.ruleengine.security.JwtSecurityConfig;
 import com.parkview.ruleengine.service.fine.DisputeDetails;
 import com.parkview.ruleengine.service.fine.DisputeQueryService;
 import com.parkview.ruleengine.service.fine.DisputeService;
 import com.parkview.ruleengine.service.fine.FineQueryService;
-import com.parkview.ruleengine.web.ConflictException;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.ConflictException;
+import com.parkview.platform.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,7 +56,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** The dispute endpoints: who may open, read, withdraw, list and decide (anonymous, other plate, other zone, missing permission, admin), validation, conflicts. */
 @WebMvcTest(DisputeController.class)
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class, FineAccess.class})
+@PlatformWebSlice
+@Import(FineAccess.class)
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})

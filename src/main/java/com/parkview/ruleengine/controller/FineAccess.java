@@ -1,10 +1,10 @@
 package com.parkview.ruleengine.controller;
 
 import com.parkview.ruleengine.domain.Fine;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.AuthenticatedUser;
+import com.parkview.ruleengine.security.RuleAccessPolicy;
+import com.parkview.platform.security.servlet.AuthenticatedUser;
 import com.parkview.ruleengine.service.fine.FineQueryService;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -19,7 +19,7 @@ import java.util.UUID;
 class FineAccess {
 
     private final FineQueryService fines;
-    private final AccessPolicy accessPolicy;
+    private final RuleAccessPolicy accessPolicy;
 
     /** A fine at a site of the staff member (administrators: any site), in a zone or not. */
     Fine forStaff(UUID fineId, AuthenticatedUser user) {

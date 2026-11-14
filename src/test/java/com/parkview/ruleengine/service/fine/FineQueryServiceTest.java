@@ -2,7 +2,7 @@ package com.parkview.ruleengine.service.fine;
 
 import com.parkview.ruleengine.domain.Fine;
 import com.parkview.ruleengine.domain.FineAction;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.ResourceNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;

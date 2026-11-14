@@ -6,7 +6,7 @@ import com.parkview.ruleengine.domain.FineAction;
 import com.parkview.ruleengine.repository.DisputeRepository;
 import com.parkview.ruleengine.repository.FineActionRepository;
 import com.parkview.ruleengine.repository.FineRepository;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;

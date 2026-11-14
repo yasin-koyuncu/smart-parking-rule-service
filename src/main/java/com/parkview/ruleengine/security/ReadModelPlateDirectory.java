@@ -3,7 +3,9 @@ package com.parkview.ruleengine.security;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
-import com.parkview.ruleengine.config.AccessProperties;
+import com.parkview.platform.security.PlateDirectory;
+import com.parkview.platform.security.Plates;
+import com.parkview.platform.security.servlet.AccessProperties;
 import com.parkview.ruleengine.readmodel.PlateOwnerView;
 import com.parkview.ruleengine.readmodel.PlateOwnerViewRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,7 +48,7 @@ public class ReadModelPlateDirectory implements PlateDirectory {
     private Set<String> load(UUID userId) {
         return plates.findByUserId(userId).stream()
                 .map(PlateOwnerView::getPlate)
-                .map(AuthenticatedUser::normalizePlate)
+                .map(Plates::normalize)
                 .collect(Collectors.toUnmodifiableSet());
     }
 

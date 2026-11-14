@@ -8,7 +8,7 @@ import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.dto.event.FineIssuedEvent;
 import com.parkview.ruleengine.dto.event.FineVoidedEvent;
 import com.parkview.ruleengine.repository.OutboxEventRepository;
-import com.parkview.ruleengine.web.CorrelationIdFilter;
+import com.parkview.platform.web.CorrelationIdFilter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

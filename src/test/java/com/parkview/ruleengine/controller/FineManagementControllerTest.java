@@ -7,18 +7,14 @@ import com.parkview.ruleengine.domain.type.PaidMethod;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.client.ZoneDirectory;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.CurrentUser;
-import com.parkview.ruleengine.security.JwtSecurityConfig;
 import com.parkview.ruleengine.service.fine.FineManagementService;
 import com.parkview.ruleengine.service.fine.FineQueryService;
-import com.parkview.ruleengine.web.ConflictException;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.ConflictException;
+import com.parkview.platform.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -57,7 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Void, mark-paid and the audit trail: permission fine:manage / violation:read, zone scope, validation, conflicts. */
 @WebMvcTest({FineController.class, FineManagementController.class})
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class})
+@PlatformWebSlice
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})

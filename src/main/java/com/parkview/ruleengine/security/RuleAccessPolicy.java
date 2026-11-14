@@ -1,44 +1,31 @@
 package com.parkview.ruleengine.security;
 
+import com.parkview.platform.security.PlateDirectory;
+import com.parkview.platform.security.Role;
+import com.parkview.platform.security.servlet.AccessPolicy;
+import com.parkview.platform.security.servlet.AuthenticatedUser;
 import com.parkview.ruleengine.client.ZoneDirectory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Object-level authorisation rules (the role check says "may use this endpoint",
- * the policy says "may touch this site / zone / plate / record").
- *
- * <ul>
- *   <li>admin: everything</li>
- *   <li>operator: only the sites they are assigned to ({@link OperatorSites}, looked up, not in the token, ADR 0011); a zone is reachable when its site is, and a record
- *       when its {@code site_id} is. A record without a site is for administrators only.</li>
- *   <li>driver: only the plates registered for their user id ({@link PlateDirectory}, not a token claim), only their own user id</li>
- * </ul>
+ * The rule-service rules on top of the platform {@link AccessPolicy} (admin everything, operator the sites of
+ * {@link com.parkview.platform.security.OperatorSites}, driver the plates of the {@link PlateDirectory}): a zone is reachable when
+ * its site is, and a plate list of an operator is limited to their sites. Declared as the {@code AccessPolicy} bean, so the
+ * platform default backs off.
  */
 @Component
 @RequiredArgsConstructor
-public class AccessPolicy {
+public class RuleAccessPolicy extends AccessPolicy {
 
     private final ZoneDirectory zones;
     private final PlateDirectory plateDirectory;
-
-    public void requireSite(AuthenticatedUser user, String siteId) {
-        if (!canAccessSite(user, siteId)) {
-            throw new AccessDeniedException("No access to site");
-        }
-    }
-
-    public boolean canAccessSite(AuthenticatedUser user, String siteId) {
-        if (user.isAdmin()) {
-            return true;
-        }
-        return user.role() == Role.OPERATOR && siteId != null && user.sites().contains(siteId);
-    }
 
     /** A zone-keyed endpoint: the caller must have the site of the zone (see {@link #siteOfZone}). */
     public void requireZone(AuthenticatedUser user, String zoneId) {
@@ -79,20 +66,12 @@ public class AccessPolicy {
      * {@link #siteScopeOf}), drivers only their own.
      */
     public boolean canAccessPlate(AuthenticatedUser user, String plate) {
-        if (user.isOperatorOrAdmin()) {
-            return true;
-        }
-        String normalized = AuthenticatedUser.normalizePlate(plate);
-        return normalized != null && plateDirectory.platesOf(user.userId()).contains(normalized);
+        return canAccessPlate(user, plate, () -> plateDirectory.platesOf(user.userId()));
     }
 
-    /** The record's owner (drivers) or any operator/admin. */
-    public void requireOwnerOrStaff(AuthenticatedUser user, String ownerUserId) {
-        if (user.isOperatorOrAdmin()) {
-            return;
-        }
-        if (ownerUserId == null || !Objects.equals(user.userId(), ownerUserId)) {
-            throw new AccessDeniedException("Not the owner");
-        }
+    /** Whether the caller holds the permission (a granted authority named exactly like it, e.g. {@code violation:read}). */
+    public boolean hasAuthority(String authority) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null && auth.getAuthorities().stream().anyMatch(a -> authority.equals(a.getAuthority()));
     }
 }

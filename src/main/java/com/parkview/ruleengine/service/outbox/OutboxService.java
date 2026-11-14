@@ -4,7 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.parkview.ruleengine.domain.OutboxEvent;
 import com.parkview.ruleengine.repository.OutboxEventRepository;
-import com.parkview.ruleengine.web.CorrelationIdFilter;
+import com.parkview.platform.web.CorrelationIdFilter;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;

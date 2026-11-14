@@ -4,8 +4,8 @@ import com.parkview.ruleengine.client.ZoneDirectory;
 import com.parkview.ruleengine.domain.PlatePermit;
 import com.parkview.ruleengine.dto.request.CreatePermitRequest;
 import com.parkview.ruleengine.repository.PlatePermitRepository;
-import com.parkview.ruleengine.web.BusinessRuleException;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.BusinessRuleException;
+import com.parkview.platform.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

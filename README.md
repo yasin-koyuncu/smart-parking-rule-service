@@ -117,13 +117,27 @@ and disputes belong to a site (`site_id`) and only optionally to a zone (`zone_i
   columns of the catalogue views of parking-mapping-service, session-service and ingestion-service; the startup schema validation
   fails when a view is missing, so deploy rule-service after them.
 
+## Security and web come from parkview-platform
+
+The JWT resource server (decoder, role hierarchy, filter chain, problem+json 401/403), the internal API key filter (`X-Internal-Api-Key`,
+`ROLE_INTERNAL` / `ROLE_OPS`), `CurrentUser`, `AuthenticatedUser`, the core of `AccessPolicy`, the error handler (`ApiExceptionHandler`,
+problem+json, `code`) with the exception base classes (`ConflictException`, `BusinessRuleException`, `ResourceNotFoundException`),
+`CorrelationIdFilter` (`X-Request-Id`), request locales and the `errorMessages` bundle chain, `PagedResponses`, OpenAPI and tracing
+configuration and the Spring Boot defaults (graceful shutdown, virtual threads, actuator exposure, Hikari, compression ...) are **not** in this
+repository: they come from `parkview-service-starter` of [parkview-platform](https://github.com/yasin-koyuncu/parkview-platform)
+(`parkview-security-servlet`, `parkview-web`, `parkview-defaults.yml`). What stays here: the generated `Permission` catalogue, the `@PreAuthorize`
+rules, `RuleAccessPolicy` (the zone, plate and site-scope rules on top of the platform `AccessPolicy`), the read-model implementations
+`ReadModelOperatorSites` and `ReadModelPlateDirectory` of the platform ports `OperatorSites` and `PlateDirectory`, and the texts of its own codes.
+The platform packages live on GitHub Packages: building needs a `settings.xml` with the server `github` (a token with `read:packages`; see
+`docs/consuming.md` of parkview-platform).
+
 ## Structure
 
 Package-by-layer under `com.parkview.ruleengine`; a call goes `controller`/`messaging` -> `service` -> `repository` and the ports in `client`. Classes stay under about 200 lines, methods under about 40.
 
 | Layer | Package | What lives there |
 |---|---|---|
-| Edge | `controller`, `controller/internal`, `messaging` | Thin: parse and validate, authorize (`@PreAuthorize` + `AccessPolicy`), call one service, map to a DTO. No repositories, no business rules. `FineController` (reads), `FineManagementController` (void, mark-paid), `ViolationController`, `PermitController`, `InternalFineController`; listeners `VehicleEventListener` and `PaymentEventListener` |
+| Edge | `controller`, `controller/internal`, `messaging` | Thin: parse and validate, authorize (`@PreAuthorize` + `RuleAccessPolicy`), call one service, map to a DTO. No repositories, no business rules. `FineController` (reads), `FineManagementController` (void, mark-paid), `ViolationController`, `PermitController`, `InternalFineController`; listeners `VehicleEventListener` and `PaymentEventListener` |
 | Use cases | `service` | One class per use case area (below) |
 | Rules | `engine` | `ViolationEvaluator` (decision order), `RuleResolver`, `RuleSchedule`, `VehicleContext`; no I/O except the ports |
 | Domain | `domain`, `geometry` | Entities with their own state transitions (`Fine.markPaid`, `Fine.voidFine`, `Violation`) in `domain`; `domain/type` (enums), `domain/converter` (JPA converters), `domain/value` (read-only values such as `ParkingSpot`, `ZoneInfo`); `RuleEngineProperties.fineAmountFor(currency, type)` / `graceMinutesFor` hold the amount and grace rules. `geometry/PolygonGeometry` answers how much two polygons overlap (area, intersection, IoU, containment) with JTS, the standard Java geometry library |
@@ -236,7 +250,7 @@ Interactive docs: `/swagger-ui.html` and `/v3/api-docs` when `DOCS_ENABLED=true`
 `application/problem+json`. Lists are plain JSON arrays, bounded by `?page=0&size=100` (max 500), total in `X-Total-Count`.
 
 Authorization uses the permissions in `app_metadata.permissions` (string[], one authority per permission, named exactly like it;
-ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the operator's site scope looked up through `OperatorSites` (`AccessPolicy`); there is no `plates` and no `sites` claim, see "Plates of a driver".
+ADR 0002 and `contracts/permissions.json` in smart-parking-e2e) plus the operator's site scope looked up through `OperatorSites` (`RuleAccessPolicy`); there is no `plates` and no `sites` claim, see "Plates of a driver".
 A token WITHOUT the claim gets no permissions (a token with `role=admin` and no claim is not authorised; the role gives the role authority only, there is no switch and no default set per role);
 the permissions come from the access roles of the user (authentication-service), e.g. `violation:read`, `violation:resolve`, `fine:read`,
 `permit:read` and `permit:manage` for the staff bundle, `fine:manage` only where a role grants it. Read and write are
@@ -296,7 +310,7 @@ dispute actions. Each command writes its row in the same transaction as the chan
 
 The access token carries identity and coarse authorisation only: `sub`, `app_metadata.role` and `permissions`.
 **There is no `plates` claim**: plates are personal data, would be stale until the token is renewed (a newly added plate invisible for up to
-the token lifetime) and have no size bound. Whenever a driver addresses a plate (`AccessPolicy.canAccessPlate`) the service asks
+the token lifetime) and have no size bound. Whenever a driver addresses a plate (`RuleAccessPolicy.canAccessPlate`) the service asks
 `PlateDirectory.platesOf(userId)`; `ReadModelPlateDirectory` reads `identity.v_user_plates` (`PlateOwnerView.findByUserId`) and caches the
 set per user for `parkview.access.plates-cache-ttl` (default 30 s, at most `plates-cache-max` users): a plate registered by the driver is
 accepted within that time, and no cache entry outlives it. Staff (operator, admin) do not need the directory.
@@ -315,7 +329,9 @@ security chain) are in the language of the `Accept-Language` header: Swedish for
 is not offered (`fr`, `*`, malformed). Never the language of the server (`spring.web.locale: en`, `locale-resolver: accept-header`). Logs, event payloads and
 HTTP statuses are not affected and stay English.
 
-* Bundles: `src/main/resources/messages/errors.properties` (English base, complete) and `errors_sv.properties`. UTF-8; `{0}` is the parameter
+* Bundles: `src/main/resources/messages/errors.properties` (English base, complete for the keys of this service) and `errors_sv.properties`. The keys every
+  service has (`title.forbidden`, `error.unauthorized`, `error.validation.*`, `error.internal`, the Bean Validation defaults ...) are in the platform bundle
+  `messages/parkview-errors*.properties` of parkview-web, chained as the parent: a key here overrides it. UTF-8; `{0}` is the parameter
   (the id of a `notFound.*`). A message without parameters is used as it is, one with parameters goes through `MessageFormat` (a literal apostrophe is
   written `''` there); the texts avoid apostrophes. `ErrorMessagesBundleTest` checks that every English key has a Swedish text with the same placeholders.
 * An exception carries a stable `code`: `ConflictException.coded("dispute.alreadyOpen", "<English text>", args...)`, likewise `BusinessRuleException.coded(...)`.
@@ -329,7 +345,7 @@ HTTP statuses are not affected and stay English.
   `permit.plateEmpty`, `permit.validToNotAfterValidFrom` (422); `notFound.fine`, `notFound.dispute`, `notFound.dispute-of-fine`, `notFound.permit`,
   `notFound.violation` (404).
 * DTO validation: the literal `message` of `@Pattern` is `{validation.<rule>}` (`plateCharacters`, `disputeOutcome`, `paidMethod`, `disputeStatusFilter`) and
-  `@NotBlank`/`@Size` use the bundles too, so a field error is Swedish or English, never the language of the validator library. `ErrorMessagesConfig` wires
+  `@NotBlank`/`@Size` use the bundles too, so a field error is Swedish or English, never the language of the validator library. `ErrorMessagesConfig` of parkview-web wires
   the bundles into the validator.
 * Adding a message: new code in the exception, one line in `errors.properties` and one in `errors_sv.properties` (same placeholders). Internal guards
   (`IllegalStateException`, `IllegalArgumentException`, which are 500 and never shown) stay literal on purpose.
@@ -540,7 +556,6 @@ published views, and sets the `search_path` of the test role to `rules, public` 
 | `DB_USER` | `svc_rule` | no | database role of this service (owns schema `rules`, `search_path = rules, public`, `select` on the catalogue views of the other services) |
 | `DB_PASS` | none | yes | database password |
 | `DB_SCHEMA` | `rules` | no | the service's schema: Liquibase default and tracking schema (`spring.liquibase.default-schema` / `liquibase-schema`) and `hibernate.default_schema` |
-| `DB_POOL_SIZE` | `10` | no | Hikari pool size |
 | `RABBIT_HOST` / `RABBIT_PORT` | `localhost` / `5672` | no | broker |
 | `RABBIT_USER` / `RABBIT_PASS` | `guest` / `guest` | no | broker credentials (set real ones outside local use) |
 | `SUPABASE_URL` | none | yes | JWT issuer is `${SUPABASE_URL}/auth/v1`, keys from its `.well-known/jwks.json` |
@@ -552,7 +567,10 @@ published views, and sets the `search_path` of the test role to `rules, public` 
 | `SITES_CACHE_TTL` / `SITES_CACHE_MAX` | `30s` / `10000` | no | `parkview.access.sites-cache-ttl` / `sites-cache-max`: how long the sites of an operator are cached (a site added or removed applies within it) and how many users |
 | `PLATES_CACHE_TTL` / `PLATES_CACHE_MAX` | `30s` / `10000` | no | `parkview.access.plates-cache-ttl` / `plates-cache-max`: how long the registered plates of a driver are cached (a new plate is visible within it) and how many users |
 | `LOOKUP_SERVICE_URL` | `http://localhost:8089` | no | lookup-service base URL for vehicle registry data |
-| `DOCS_ENABLED` | `false` | no | Swagger UI and OpenAPI spec |
+
+Everything the platform starter defaults (`DB_POOL_SIZE`, `DOCS_ENABLED`, `TRACING_*`, graceful shutdown, actuator exposure, compression, `server.error.*`,
+locale, the `parkview.security.*` mapping of the variables above ...) is documented in the README of `parkview-service-starter` and can be overridden here or
+in the environment.
 
 Transactional outbox, Spring property `parkview.outbox.*` (set with `SPRING_APPLICATION_JSON` or the matching `PARKVIEW_OUTBOX_*` variables):
 
@@ -642,7 +660,7 @@ tracing on Boot adds `[traceId-spanId]` to every log line.
 export JAVA_HOME=<jdk 21>
 SPRING_PROFILES_ACTIVE=local SUPABASE_URL=https://<ref>.supabase.co mvn spring-boot:run   # needs Postgres and RabbitMQ
 mvn -B -ntp verify        # unit, web-layer and Testcontainers tests (needs a Docker daemon)
-docker build -t rule-service . && docker run --rm -p 8081:8081 -e DB_URL=... -e DB_PASS=... -e SUPABASE_URL=... rule-service
+docker build --secret id=maven_settings,src=$HOME/.m2/settings.xml -t rule-service . && docker run --rm -p 8081:8081 -e DB_URL=... -e DB_PASS=... -e SUPABASE_URL=... rule-service
 ```
 
 The `local` profile only sets a database password and the internal, ops and lookup keys (`local-internal-key`) for development; the database needs the role `svc_rule` and the schema `rules` (created by the infrastructure, e.g. the e2e stack), and the schemas of the other services with their published views.
@@ -650,7 +668,7 @@ Tests: geometry table tests (clockwise and counter-clockwise polygons, crossing 
 incl. midnight crossing, holidays and Europe/Stockholm DST dates; priority and first match wins; every violation type and
 fail-open case; vehicle-code mapping; grace values; overstay with a fixed clock), the Jollyday calendar for the Swedish
 2026 holidays, the lookup client (MockRestServiceServer), violation lifecycle (type change, grace per type), fine issuing,
-MockMvc security tests (401/403/404/409/400, problem+json), internal and ops key matrix (own, previous, ops), `ReadModelPlateDirectoryTest` (normalised plates, cache TTL), `ReadModelOperatorSitesTest`, `CurrentUserTest` (sites looked up for operators only), listener payloads, Testcontainers tests (unique index,
+MockMvc security tests (401/403/404/409/400, problem+json), internal and ops key matrix (own, previous, ops), `ReadModelPlateDirectoryTest` (normalised plates, cache TTL), `ReadModelOperatorSitesTest`, listener payloads, Testcontainers tests (unique index,
 `SKIP LOCKED` claim, permit queries, read models against catalogue views with extra columns, `time`/array columns)
 and a full flow test against real Postgres and RabbitMQ (incl. void, manual and online payment events, and a void racing a payment).
 Evidence and disputes: `FineEvidenceServiceTest` (what is frozen, snapshots, fallbacks), `RuleSummariesTest` (the rule text per violation type), `FineEvidenceRepositoryTest` (round trip, the trigger

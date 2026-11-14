@@ -4,12 +4,12 @@ import com.parkview.ruleengine.domain.PlatePermit;
 import com.parkview.ruleengine.dto.request.CreatePermitRequest;
 import com.parkview.ruleengine.dto.response.PermitResponse;
 import com.parkview.ruleengine.mapper.PermitMapper;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.AuthenticatedUser;
-import com.parkview.ruleengine.security.CurrentUser;
+import com.parkview.ruleengine.security.RuleAccessPolicy;
+import com.parkview.platform.security.servlet.AuthenticatedUser;
+import com.parkview.platform.security.servlet.CurrentUser;
 import com.parkview.ruleengine.service.violation.PermitService;
 import com.parkview.ruleengine.util.ZoneIds;
-import com.parkview.ruleengine.web.PagedResponses;
+import com.parkview.platform.web.PagedResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -44,7 +44,7 @@ public class PermitController {
 
     private final PermitService permitService;
     private final CurrentUser currentUser;
-    private final AccessPolicy accessPolicy;
+    private final RuleAccessPolicy accessPolicy;
 
     @PostMapping
     @PreAuthorize("hasAuthority('permit:manage')")
@@ -83,7 +83,7 @@ public class PermitController {
         if (zone != null) {
             accessPolicy.requireZone(user, zone);
         }
-        List<String> visibleSites = user.isAdmin() ? null : user.sites();
+        List<String> visibleSites = user.isAdmin() ? null : List.copyOf(user.sites());
         return PagedResponses.of(permitService
                 .search(plate, site, zone, visibleSites, PagedResponses.pageable(page, size, NEWEST_FIRST))
                 .map(PermitMapper::toResponse));

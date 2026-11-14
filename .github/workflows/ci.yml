@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+  packages: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,10 +20,25 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+          # settings.xml with the server `github` (parkview-platform on GitHub Packages)
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
 
       # Testcontainers (Postgres, RabbitMQ) uses the Docker daemon of the runner.
       - name: Build and test
         run: mvn -B -ntp verify
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Docker image
-        run: docker build -t rule-service:ci .
+        # the same credentials as the BuildKit secret of the Dockerfile; written to the runner temp dir, removed afterwards
+        run: |
+          printf '<settings><servers><server><id>github</id><username>%s</username><password>%s</password></server></servers></settings>' \
+            "$GITHUB_ACTOR" "$GITHUB_TOKEN" > "$RUNNER_TEMP/maven-settings.xml"
+          docker build --secret id=maven_settings,src="$RUNNER_TEMP/maven-settings.xml" -t rule-service:ci .
+          rm -f "$RUNNER_TEMP/maven-settings.xml"
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

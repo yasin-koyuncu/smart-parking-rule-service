@@ -6,13 +6,13 @@ import com.parkview.ruleengine.dto.response.FineActionResponse;
 import com.parkview.ruleengine.dto.response.FineResponse;
 import com.parkview.ruleengine.mapper.FineActionMapper;
 import com.parkview.ruleengine.mapper.FineMapper;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.AuthenticatedUser;
-import com.parkview.ruleengine.security.CurrentUser;
+import com.parkview.ruleengine.security.RuleAccessPolicy;
+import com.parkview.platform.security.servlet.AuthenticatedUser;
+import com.parkview.platform.security.servlet.CurrentUser;
 import com.parkview.ruleengine.service.fine.FineQueryService;
 import com.parkview.ruleengine.util.Plates;
-import com.parkview.ruleengine.web.PagedResponses;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.PagedResponses;
+import com.parkview.platform.web.ResourceNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -49,7 +49,7 @@ public class FineController {
 
     private final FineQueryService fines;
     private final CurrentUser currentUser;
-    private final AccessPolicy accessPolicy;
+    private final RuleAccessPolicy accessPolicy;
 
     @GetMapping("/plate/{plate}")
     @PreAuthorize("hasRole('DRIVER') or hasAuthority('violation:read')")
@@ -135,7 +135,7 @@ public class FineController {
             }
             accessPolicy.requirePlate(user, fine.getPlate());
         }
-        return FineMapper.toResponse(fine, fines.disputeStatusOf(id), currentUser.hasAuthority(EVIDENCE_PERMISSION));
+        return FineMapper.toResponse(fine, fines.disputeStatusOf(id), accessPolicy.hasAuthority(EVIDENCE_PERMISSION));
     }
 
     @GetMapping("/{id}/history")
@@ -159,7 +159,7 @@ public class FineController {
     /** One extra query for the dispute state of the whole page. */
     private Page<FineResponse> respond(Page<Fine> page) {
         Map<UUID, DisputeStatus> disputeStatuses = fines.disputeStatusesOf(page.getContent());
-        boolean withImagePath = currentUser.hasAuthority(EVIDENCE_PERMISSION);
+        boolean withImagePath = accessPolicy.hasAuthority(EVIDENCE_PERMISSION);
         return page.map(fine -> FineMapper.toResponse(fine, disputeStatuses.get(fine.getId()), withImagePath));
     }
 }

@@ -3,17 +3,13 @@ package com.parkview.ruleengine.controller;
 import com.parkview.ruleengine.domain.Violation;
 import com.parkview.ruleengine.domain.type.ViolationType;
 import com.parkview.ruleengine.client.ZoneDirectory;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.CurrentUser;
-import com.parkview.ruleengine.security.JwtSecurityConfig;
 import com.parkview.ruleengine.service.violation.ViolationService;
-import com.parkview.ruleengine.web.ConflictException;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.ConflictException;
+import com.parkview.platform.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.TestPropertySource;
@@ -43,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ViolationController.class)
-@Import({JwtSecurityConfig.class, AccessPolicy.class, CurrentUser.class, WebTestSupport.TestPlates.class, WebTestSupport.TestSites.class})
+@PlatformWebSlice
 @TestPropertySource(properties = {
         "parkview.security.issuer=http://issuer.test/auth/v1",
         "parkview.security.internal-api-key=" + WebTestSupport.INTERNAL_KEY})

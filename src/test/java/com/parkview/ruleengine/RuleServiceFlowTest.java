@@ -7,7 +7,7 @@ import com.parkview.ruleengine.domain.type.DisputeChannel;
 import com.parkview.ruleengine.domain.type.DisputeStatus;
 import com.parkview.ruleengine.service.fine.DisputeService;
 import com.parkview.ruleengine.service.fine.FineManagementService;
-import com.parkview.ruleengine.web.ConflictException;
+import com.parkview.platform.web.ConflictException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.core.BindingBuilder;

@@ -2,12 +2,12 @@ package com.parkview.ruleengine.controller;
 
 import com.parkview.ruleengine.dto.response.ViolationResponse;
 import com.parkview.ruleengine.mapper.ViolationMapper;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.AuthenticatedUser;
-import com.parkview.ruleengine.security.CurrentUser;
+import com.parkview.ruleengine.security.RuleAccessPolicy;
+import com.parkview.platform.security.servlet.AuthenticatedUser;
+import com.parkview.platform.security.servlet.CurrentUser;
 import com.parkview.ruleengine.util.Plates;
 import com.parkview.ruleengine.service.violation.ViolationService;
-import com.parkview.ruleengine.web.PagedResponses;
+import com.parkview.platform.web.PagedResponses;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -38,7 +38,7 @@ public class ViolationController {
 
     private final ViolationService violationService;
     private final CurrentUser currentUser;
-    private final AccessPolicy accessPolicy;
+    private final RuleAccessPolicy accessPolicy;
 
     @GetMapping("/site/{siteId}")
     @PreAuthorize("hasAuthority('violation:read')")
@@ -89,7 +89,7 @@ public class ViolationController {
         accessPolicy.requirePlate(user, plate);
         String normalized = Plates.normalize(plate);
         var pageable = PagedResponses.pageable(page, size, NEWEST_FIRST);
-        boolean withImagePath = currentUser.hasAuthority(EVIDENCE_PERMISSION);
+        boolean withImagePath = accessPolicy.hasAuthority(EVIDENCE_PERMISSION);
         List<String> sites = accessPolicy.siteScopeOf(user).orElse(null);
         return PagedResponses.of((sites != null
                 ? violationService.byPlateInSites(normalized, sites, pageable)

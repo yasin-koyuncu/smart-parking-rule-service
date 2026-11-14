@@ -1,10 +1,16 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
+# The platform packages (parkview-platform, GitHub Packages) need credentials: build with
+#   docker build --secret id=maven_settings,src=$HOME/.m2/settings.xml .   (server id `github`, see docs/consuming.md of parkview-platform)
 FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 COPY pom.xml .
-RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp -q dependency:go-offline
+RUN --mount=type=secret,id=maven_settings,target=/root/.m2/settings.xml \
+    --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp -q dependency:go-offline
 COPY src ./src
-RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp -q -DskipTests package \
+RUN --mount=type=secret,id=maven_settings,target=/root/.m2/settings.xml \
+    --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp -q -DskipTests package \
     && cp target/ruleengine-*.jar /app.jar
 
 FROM eclipse-temurin:21-jre

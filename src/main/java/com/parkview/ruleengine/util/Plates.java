@@ -1,16 +1,20 @@
 package com.parkview.ruleengine.util;
 
-import com.parkview.ruleengine.security.AuthenticatedUser;
-
-/** Plate helpers: one normal form for storage and comparison, and masking for logs (plates are personal data). */
+/**
+ * Plate helpers of the service on top of {@link com.parkview.platform.security.Plates}: blank input counts as "no plate", and
+ * masking for logs (plates are personal data).
+ */
 public final class Plates {
 
     private Plates() {
     }
 
-    /** Upper-case, without spaces and dashes; null stays null and blank becomes null. */
+    /**
+     * The normal form of {@link com.parkview.platform.security.Plates#normalize} (upper-case, without spaces and dashes) for
+     * storage and comparison; null stays null and blank becomes null.
+     */
     public static String normalize(String plate) {
-        String normalized = AuthenticatedUser.normalizePlate(plate);
+        String normalized = com.parkview.platform.security.Plates.normalize(plate);
         return normalized == null || normalized.isEmpty() ? null : normalized;
     }
 

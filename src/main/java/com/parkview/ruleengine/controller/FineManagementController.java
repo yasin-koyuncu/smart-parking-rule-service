@@ -5,9 +5,9 @@ import com.parkview.ruleengine.dto.request.MarkFinePaidRequest;
 import com.parkview.ruleengine.dto.request.VoidFineRequest;
 import com.parkview.ruleengine.dto.response.FineResponse;
 import com.parkview.ruleengine.mapper.FineMapper;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.AuthenticatedUser;
-import com.parkview.ruleengine.security.CurrentUser;
+import com.parkview.ruleengine.security.RuleAccessPolicy;
+import com.parkview.platform.security.servlet.AuthenticatedUser;
+import com.parkview.platform.security.servlet.CurrentUser;
 import com.parkview.ruleengine.service.fine.FineManagementService;
 import com.parkview.ruleengine.service.fine.FineQueryService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,7 +38,7 @@ public class FineManagementController {
     private final FineQueryService fineQuery;
     private final FineManagementService fineManagement;
     private final CurrentUser currentUser;
-    private final AccessPolicy accessPolicy;
+    private final RuleAccessPolicy accessPolicy;
 
     @PostMapping("/{id}/void")
     @PreAuthorize("hasAuthority('fine:manage')")

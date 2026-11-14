@@ -1,11 +1,15 @@
 package com.parkview.ruleengine.web;
 
+import com.parkview.platform.web.ErrorMessagesConfig;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.MessageSource;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
@@ -64,13 +68,19 @@ class ErrorMessagesBundleTest {
     }
 
     @Test
-    void theCommonKeysOfTheKitAreThere() throws IOException {
-        Properties en = load("/messages/errors.properties");
-
-        assertThat(en.stringPropertyNames()).contains(
+    void theCommonKeysAreAnsweredByThePlatformBundleThroughTheChain() throws IOException {
+        List<String> common = List.of(
                 "title.notFound", "title.conflict", "title.businessRule", "title.forbidden", "title.unauthorized",
                 "title.dataConflict", "title.validation.params", "title.validation.body", "title.internal",
                 "error.forbidden", "error.unauthorized", "error.dataConflict", "error.validation.params",
                 "error.validation.body", "error.internal");
+        Properties own = load("/messages/errors.properties");
+        MessageSource messages = ErrorMessagesConfig.newMessageSource();
+
+        for (String key : common) {
+            assertThat(own.containsKey(key)).as("the service bundle does not repeat " + key).isFalse();
+            assertThat(messages.getMessage(key, null, null, Locale.ENGLISH)).as("en " + key).isNotBlank();
+            assertThat(messages.getMessage(key, null, null, Locale.forLanguageTag("sv"))).as("sv " + key).isNotBlank();
+        }
     }
 }

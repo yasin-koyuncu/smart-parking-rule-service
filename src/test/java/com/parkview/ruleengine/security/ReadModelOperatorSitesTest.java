@@ -1,7 +1,7 @@
 package com.parkview.ruleengine.security;
 
 import com.github.benmanes.caffeine.cache.Ticker;
-import com.parkview.ruleengine.config.AccessProperties;
+import com.parkview.platform.security.servlet.AccessProperties;
 import com.parkview.ruleengine.readmodel.UserSiteView;
 import com.parkview.ruleengine.readmodel.UserSiteViewRepository;
 import org.junit.jupiter.api.Test;

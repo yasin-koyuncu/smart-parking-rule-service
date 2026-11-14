@@ -7,14 +7,14 @@ import com.parkview.ruleengine.dto.request.DisputeDecisionRequest;
 import com.parkview.ruleengine.dto.request.DisputeRequest;
 import com.parkview.ruleengine.dto.response.DisputeResponse;
 import com.parkview.ruleengine.mapper.DisputeMapper;
-import com.parkview.ruleengine.security.AccessPolicy;
-import com.parkview.ruleengine.security.AuthenticatedUser;
-import com.parkview.ruleengine.security.CurrentUser;
+import com.parkview.ruleengine.security.RuleAccessPolicy;
+import com.parkview.platform.security.servlet.AuthenticatedUser;
+import com.parkview.platform.security.servlet.CurrentUser;
 import com.parkview.ruleengine.service.fine.DisputeQueryService;
 import com.parkview.ruleengine.service.fine.DisputeService;
 import com.parkview.ruleengine.util.ZoneIds;
-import com.parkview.ruleengine.web.PagedResponses;
-import com.parkview.ruleengine.web.ResourceNotFoundException;
+import com.parkview.platform.web.PagedResponses;
+import com.parkview.platform.web.ResourceNotFoundException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -58,7 +58,7 @@ public class DisputeController {
     private final DisputeService disputeService;
     private final DisputeQueryService disputes;
     private final CurrentUser currentUser;
-    private final AccessPolicy accessPolicy;
+    private final RuleAccessPolicy accessPolicy;
 
     @PostMapping("/fines/{id}/dispute")
     @PreAuthorize("hasRole('DRIVER') or hasAuthority('fine:manage')")
@@ -75,7 +75,7 @@ public class DisputeController {
         AuthenticatedUser user = currentUser.require();
         access.forOwnerOrStaff(id, user);
         DisputeChannel channel = user.isOperatorOrAdmin() ? DisputeChannel.OPERATOR : DisputeChannel.DRIVER;
-        UUID by = user.userUuid();
+        UUID by = uuidOf(user);
         if (channel == DisputeChannel.OPERATOR && by == null) {
             throw notAUser();
         }
@@ -111,7 +111,7 @@ public class DisputeController {
         if (!accessPolicy.canAccessPlate(user, dispute.getPlate())) {
             throw new ResourceNotFoundException("Dispute", id);
         }
-        return DisputeMapper.toResponse(disputes.detailsOf(disputeService.withdraw(id, user.userUuid())));
+        return DisputeMapper.toResponse(disputes.detailsOf(disputeService.withdraw(id, uuidOf(user))));
     }
 
     @GetMapping("/disputes")
@@ -136,12 +136,12 @@ public class DisputeController {
         Collection<String> sites;
         if (zone != null) {
             accessPolicy.requireZone(user, zone);
-            sites = user.isAdmin() ? null : user.sites();
+            sites = user.isAdmin() ? null : List.copyOf(user.sites());
         } else if (site != null) {
             accessPolicy.requireSite(user, site);
             sites = List.of(site);
         } else {
-            sites = user.isAdmin() ? null : user.sites();
+            sites = user.isAdmin() ? null : List.copyOf(user.sites());
         }
         return PagedResponses.of(disputes
                 .list(DisputeQueryService.Filter.valueOf(status.toUpperCase(Locale.ROOT)), sites, zone,
@@ -166,12 +166,21 @@ public class DisputeController {
         if (!accessPolicy.canAccessSite(user, dispute.getSiteId())) {
             throw new ResourceNotFoundException("Dispute", id);
         }
-        UUID actor = user.userUuid();
+        UUID actor = uuidOf(user);
         if (actor == null) {
             throw notAUser();
         }
         DisputeStatus outcome = DisputeStatus.parse(request.outcome()).orElseThrow();
         return DisputeMapper.toResponse(disputes.detailsOf(disputeService.decide(id, outcome, actor, request.note())));
+    }
+
+    /** The token subject as a user id, or null when it is not a UUID (Supabase always issues one). */
+    private static UUID uuidOf(AuthenticatedUser user) {
+        try {
+            return UUID.fromString(user.userId());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return null;
+        }
     }
 
     /** The audit trail records who acted: the token subject, which Supabase always issues as a UUID. */

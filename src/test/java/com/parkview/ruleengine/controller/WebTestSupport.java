@@ -1,10 +1,10 @@
 package com.parkview.ruleengine.controller;
 
-import com.parkview.ruleengine.security.AuthenticatedUser;
-import com.parkview.ruleengine.security.OperatorSites;
-import com.parkview.ruleengine.security.ParkviewJwtAuthenticationConverter;
+import com.parkview.platform.security.OperatorSites;
+import com.parkview.platform.security.PlateDirectory;
+import com.parkview.platform.security.Plates;
+import com.parkview.platform.security.servlet.ParkviewJwtAuthenticationConverter;
 import com.parkview.ruleengine.security.Permission;
-import com.parkview.ruleengine.security.PlateDirectory;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -103,7 +103,7 @@ final class WebTestSupport {
     }
 
     static RequestPostProcessor token(String role, List<String> permissions, List<String> plates, List<String> zones, String subject) {
-        PLATES_OF_USER.put(subject, plates.stream().map(AuthenticatedUser::normalizePlate).collect(Collectors.toUnmodifiableSet()));
+        PLATES_OF_USER.put(subject, plates.stream().map(Plates::normalize).collect(Collectors.toUnmodifiableSet()));
         SITES_OF_USER.put(subject, Set.copyOf(zones));
         Map<String, Object> appMetadata = new HashMap<>(Map.of("role", role));
         if (permissions != null) {

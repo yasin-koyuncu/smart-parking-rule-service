@@ -2,6 +2,11 @@ package com.parkview.ruleengine.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.parkview.platform.web.ApiExceptionHandler;
+import com.parkview.platform.web.BusinessRuleException;
+import com.parkview.platform.web.ConflictException;
+import com.parkview.platform.web.ErrorMessagesConfig;
+import com.parkview.platform.web.ResourceNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
@@ -21,7 +26,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 /**
  * The language of an error text is the one of {@code Accept-Language}: Swedish for sv, English when the header is missing
- * or the language is unknown. No server and no database: the handler on its own, with the real bundles.
+ * or the language is unknown. No server and no database: the handler of parkview-web on its own, with the real bundles (the service's
+ * own, the platform bundle as their parent).
  */
 class ApiExceptionHandlerLocaleTest {
 
@@ -59,7 +65,7 @@ class ApiExceptionHandlerLocaleTest {
         AcceptHeaderLocaleResolver resolver = new AcceptHeaderLocaleResolver();
         resolver.setDefaultLocale(Locale.ENGLISH);
         mvc = MockMvcBuilders.standaloneSetup(new Throwing())
-                .setControllerAdvice(new ApiExceptionHandler(new ErrorMessagesConfig().errorMessages()))
+                .setControllerAdvice(new ApiExceptionHandler(ErrorMessagesConfig.newMessageSource()))
                 .setLocaleResolver(resolver)
                 .build();
     }

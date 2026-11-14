@@ -1,6 +1,6 @@
 package com.parkview.ruleengine.messaging;
 
-import com.parkview.ruleengine.web.BusinessRuleException;
+import com.parkview.platform.web.BusinessRuleException;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.rabbit.support.ListenerExecutionFailedException;
